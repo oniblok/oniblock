@@ -1,0 +1,53 @@
+{
+ "label": "dead-band: y=1 iff markout > max($1, 1bp arb volume); y=0 iff markout < -T; |markout|<=T dropped",
+ "train": {
+  "rows_before": 87067,
+  "rows_after": 26925,
+  "dropped_pct": 69.1,
+  "base_rate": 0.5946,
+  "from": "2026-07-31 19:43:23",
+  "to": "2026-09-02 00:08:59"
+ },
+ "val": {
+  "rows_before": 43534,
+  "rows_after": 11842,
+  "dropped_pct": 72.8,
+  "base_rate": 0.5567,
+  "from": "2026-09-02 00:12:35",
+  "to": "2026-09-15 00:44:11"
+ },
+ "test": {
+  "rows_before": 43534,
+  "rows_after": 12837,
+  "dropped_pct": 70.5,
+  "base_rate": 0.6101,
+  "from": "2026-09-15 00:47:47",
+  "to": "2026-09-25 23:21:47"
+ },
+ "files": {
+  "test.jsonl": {
+   "lines": 12837,
+   "sha256": "b83aceece8c04c061cc41ed56790c337bbe7a1d68b9b64909c32a85430726cd4"
+  },
+  "test_3k.jsonl": {
+   "lines": 3000,
+   "sha256": "e0862059d3fbbcfeae57dc9067995d1a821cd7893aab388c20b8cc45482a7349"
+  },
+  "train.jsonl": {
+   "lines": 26925,
+   "sha256": "e44187cea824f134bd13be0447f366d8fcfd3cfdf8d0cf348ead7373b4476fdf"
+  },
+  "train_20k.jsonl": {
+   "lines": 20000,
+   "sha256": "3e55e7563116c803cba7cbd711f588fe1db5ab9bef5af63ffceb2225e078e3a2"
+  },
+  "val.jsonl": {
+   "lines": 11842,
+   "sha256": "ad7948815081c9e0d3c3e1c0cb51499eb8edf91be886bddd0d3cb8fbd9f49832"
+  },
+  "val_1k.jsonl": {
+   "lines": 1000,
+   "sha256": "8d6ae014cea12e00715909bc0e7f51af4e53f6aa2551c2e6203963ca89e3e90c"
+  }
+ }
+}
