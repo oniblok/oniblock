@@ -48,11 +48,22 @@ export function degrade(s: ModelScore): ModelScore {
   };
 }
 
+/**
+ * State text for Kev. Kev was fine-tuned only on the base-fee wording of featuresToState (no row of
+ * ml/train_kev4b/data/train.jsonl mentions the hook's arb fee), so the k-dependent fields are dropped before
+ * rendering: the text is in the training distribution and does not depend on the on-chain k that Kev's own answer
+ * sets (a k-dependent edge would feed back: high k -> edge < 0 -> "benign" -> k = 0 -> edge > 0 -> "toxic" ...).
+ */
+export function kevState(f: Features, baseIsToken0?: boolean): string {
+  const { kBps: _k, arbFeePips: _fee, arbThresholdPips: _thr, ...kFree } = f;
+  return featuresToState(kFree, { baseIsToken0 });
+}
+
 export async function score(f: Features, opts: ScoreOpts = {}): Promise<ModelScore> {
   const mode = opts.mode ?? (env('MODEL_MODE', 'auto') as ModelMode);
   let s: ModelScore | null = null;
   if (mode === 'kev') {
-    s = await scoreWithKev(featuresToState(f, { baseIsToken0: opts.baseIsToken0 }), { timeoutMs: opts.timeoutMs });
+    s = await scoreWithKev(kevState(f, opts.baseIsToken0), { timeoutMs: opts.timeoutMs });
   } else if (mode === 'tabular') {
     s = scoreTabular(f);
   } else if (mode !== 'heuristic') {

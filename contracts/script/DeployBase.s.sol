@@ -55,10 +55,10 @@ abstract contract DeployBase is Script {
         int256 liquidity;
         address stateView;
         uint256 configDelay; // hook timelock (seconds) for updatePoolConfig / setAttestor / setRoleOracle
-        bytes32[] modelNodes; // allowlisted for the Oniblock pool (default: jev-v1 + heuristic-v1; + rule-v1 if KEEPER_GATE=1)
+        bytes32[] modelNodes; // allowlisted for the Oniblock pool (default: jev-v1 + heuristic-v1 + kev-v1; + rule-v1 if KEEPER_GATE=1)
     }
 
-    /// ENS namehash helpers for the default model names (jev-v1 / heuristic-v1 / rule-v1 .models.oniblock.eth).
+    /// ENS namehash helpers for the default model names (jev-v1 / heuristic-v1 / kev-v1 / rule-v1 .models.oniblock.eth).
     function _subnode(bytes32 parent, string memory label) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked(parent, keccak256(bytes(label))));
     }
@@ -67,15 +67,18 @@ abstract contract DeployBase is Script {
         return _subnode(_subnode(_subnode(bytes32(0), "eth"), "oniblock"), "models");
     }
 
-    /// Model nodes to allowlist: env MODEL_NODES (comma-separated bytes32) or the keeper defaults: jev-v1 and the
-    /// heuristic-v1 fallback; rule-v1 (the v3 keeper's deterministic below-threshold rule) only when KEEPER_GATE=1 —
-    /// the v4 keeper asks the model every block and never posts under rule-v1.
+    /// Model nodes to allowlist: env MODEL_NODES (comma-separated bytes32) or the keeper defaults: jev-v1, the
+    /// heuristic-v1 fallback and kev-v1 (the open-weights Kev-0.8B fine-tune, ml/models/kev08b-v1); rule-v1 (the v3
+    /// keeper's deterministic below-threshold rule) only when KEEPER_GATE=1 — the v4 keeper asks the model every
+    /// block and never posts under rule-v1. Allowlisting grants no fee power by itself: a node with calibration
+    /// n < minSamples runs at kDefault (0 = base fee) until the settler has graded enough of its receipts.
     function _defaultModelNodes() internal view returns (bytes32[] memory nodes) {
         bool gate = vm.envOr("KEEPER_GATE", uint256(0)) == 1;
-        nodes = new bytes32[](gate ? 3 : 2);
+        nodes = new bytes32[](gate ? 4 : 3);
         nodes[0] = _subnode(_modelsNode(), "jev-v1");
         nodes[1] = _subnode(_modelsNode(), "heuristic-v1");
-        if (gate) nodes[2] = _subnode(_modelsNode(), "rule-v1");
+        nodes[2] = _subnode(_modelsNode(), "kev-v1");
+        if (gate) nodes[3] = _subnode(_modelsNode(), "rule-v1");
         nodes = vm.envOr("MODEL_NODES", ",", nodes);
     }
 

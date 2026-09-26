@@ -23,7 +23,7 @@ import {EnsV2RoleOracle} from "../src/roles/EnsV2RoleOracle.sol";
 ///      - VerifiableFactory proxies: PermissionedResolver, UserRegistry for <label>.eth, models.<label>.eth,
 ///        pools.<label>.eth (all owned by `owner` via root grants)
 ///      - ETH registry: setSubregistry / setResolver on <label>.eth
-///      - subnames: quoter, settler, models -> {jev-v1, heuristic-v1, rule-v1 (v3 gate only)}, pools -> {weth-usdc}
+///      - subnames: quoter, settler, models -> {jev-v1, heuristic-v1, kev-v1, rule-v1 (v3 gate only)}, pools -> {weth-usdc}
 ///      - v4 pool config (DeployBase): arbThresholdPips 0, kMin 0, kDefault 0, kMax 8000, maxKStep 8000 — Jev decides
 ///      - EAC roles: ROLE_QUOTER on quoter.<label>.eth -> quoter; ROLE_SETTLER on settler.<label>.eth -> settler
 ///      - resolver records (addr + text) and settler-only per-key text roles for calibration.* and
@@ -45,7 +45,8 @@ import {EnsV2RoleOracle} from "../src/roles/EnsV2RoleOracle.sol";
 ///   ENS_SECRET     commit-reveal secret (default keccak256("oniblock-ens", owner, label))
 ///   ENS_DURATION   seconds (default 365 days)   ENS_SALT  factory salt nonce (default 0)
 ///   ENS_OUT        output json path (default ../deployments/<chainId>.ens.json; use a different path for fork runs)
-///   ENS_FEE_MIN / ENS_FEE_MAX / ENS_POLICY_URI / ENS_MODEL_HASH_JEV / ENS_MODEL_HASH_HEURISTIC
+///   ENS_FEE_MIN / ENS_FEE_MAX / ENS_POLICY_URI / ENS_MODEL_HASH_JEV / ENS_MODEL_HASH_HEURISTIC /
+///   ENS_MODEL_HASH_KEV (default: sha256 model hash of ml/models/kev08b-v1, see its NOTE.md)
 ///   ENS_ETH_REGISTRAR, ENS_VERIFIABLE_FACTORY, ENS_USER_REGISTRY_IMPL, ENS_PERMISSIONED_RESOLVER_IMPL,
 ///   ENS_MOCK_USDC, ENS_UNIVERSAL_RESOLVER   (required; from .env)
 contract EnsSetup is Script {
@@ -102,6 +103,7 @@ contract EnsSetup is Script {
         string policyUri;
         string modelHashJev;
         string modelHashHeuristic;
+        string modelHashKev;
     }
 
     struct Result {
@@ -159,6 +161,10 @@ contract EnsSetup is Script {
         cfg.modelHashJev = vm.envOr("ENS_MODEL_HASH_JEV", vm.toString(keccak256("typesafe-ai/jev")));
         cfg.modelHashHeuristic =
             vm.envOr("ENS_MODEL_HASH_HEURISTIC", vm.toString(keccak256("oniblock/heuristic-v1")));
+        // Published adapter's model hash: sha256 over ml/models/kev08b-v1/SHA256 (sorted per-file digests).
+        cfg.modelHashKev = vm.envOr(
+            "ENS_MODEL_HASH_KEV", string("0x24f0793d55e0fde516ebe4da1d187e0468a5f7c830ba9a9f4d48e43f007c88be")
+        );
     }
 
     // ================================================================== phase 1: commit
@@ -221,6 +227,7 @@ contract EnsSetup is Script {
         models.setParent(r.registry, "models");
         models.register("jev-v1", cfg.owner, address(0), r.resolver, std, forever);
         models.register("heuristic-v1", cfg.owner, address(0), r.resolver, std, forever);
+        models.register("kev-v1", cfg.owner, address(0), r.resolver, std, forever); // Kev-0.8B fine-tune
         models.register("rule-v1", cfg.owner, address(0), r.resolver, std, forever); // v3 below-threshold rule
 
         IEnsPermissionedRegistry pools = IEnsPermissionedRegistry(r.poolsRegistry);
@@ -340,6 +347,7 @@ contract EnsSetup is Script {
         bytes memory nSettler = EnsV2Lib.dnsEncode(string.concat("settler.", root));
         bytes memory nJev = EnsV2Lib.dnsEncode(string.concat("jev-v1.models.", root));
         bytes memory nHeur = EnsV2Lib.dnsEncode(string.concat("heuristic-v1.models.", root));
+        bytes memory nKev = EnsV2Lib.dnsEncode(string.concat("kev-v1.models.", root));
         bytes memory nPool = EnsV2Lib.dnsEncode(string.concat("weth-usdc.pools.", root));
         bytes memory nRule = EnsV2Lib.dnsEncode(string.concat("rule-v1.models.", root));
 
@@ -355,7 +363,7 @@ contract EnsSetup is Script {
         _grantKeys(res, nRoot, _calKeys(), cfg.settler);
         _grantKeys(res, nRoot, _jitCalKeys(), cfg.settler); // v5 JIT head records
 
-        bytes[] memory c = new bytes[](18);
+        bytes[] memory c = new bytes[](21); // = number of c[n++] entries below
         uint256 n;
         c[n++] = _addr(nRoot, cfg.owner);
         c[n++] = _text(nRoot, K_DESCRIPTION, "Oniblock: attested, directional LVR fee law for Uniswap v4");
@@ -375,6 +383,17 @@ contract EnsSetup is Script {
             K_AGENT_CONTEXT,
             "Deterministic heuristic baseline (gap, imbalance, size/depth, realized vol) -> {pToxicBps, confidenceBps}; JIT head (v5) from recent liquidity churn -> pJitBps. Fallback when Jev is slow or demoted."
         );
+        c[n++] = _text(nKev, K_MODEL_HASH, cfg.modelHashKev);
+        c[n++] = _text(
+            nKev,
+            K_DESCRIPTION,
+            "Kev-0.8B (jaredpalmer/kev-0.8b) fine-tuned on Oniblock's mainnet informed-flow dataset; open weights at ml/models/kev08b-v1/adapter; model-hash = sha256 over the sorted per-file digests (ml/models/kev08b-v1/SHA256)"
+        );
+        c[n++] = _text(
+            nKev,
+            K_AGENT_CONTEXT,
+            "Kev-0.8B open-weights decision model (LoRA fine-tune of jaredpalmer/kev-0.8b, served locally by the keeper), asked every block: is there profitable arbitrage at the base fee? -> {pToxicBps, confidenceBps}; same public fee law k = kMax * p * c. Unseasoned (kDefault 0 = base fee) until the settler has graded minSamples receipts; calibration written by settler."
+        );
         c[n++] = _text(nRule, K_MODEL_HASH, vm.toString(keccak256("oniblock/rule-v1")));
         c[n++] = _text(
             nRule,
@@ -387,6 +406,7 @@ contract EnsSetup is Script {
         c[n++] = _text(nPool, K_FEE_MAX, cfg.feeMax);
         c[n++] = _text(nPool, K_POLICY_URI, cfg.policyUri);
         c[n++] = cfg.hook == address(0) ? _text(nPool, K_DESCRIPTION, "mWETH/mUSDC Oniblock pool") : _addr(nPool, cfg.hook);
+        require(n == c.length, "EnsSetup: record count");
         res.multicall(c);
     }
 
@@ -447,6 +467,9 @@ contract EnsSetup is Script {
             nh,
             string.concat("heuristic-v1.models.", root),
             EnsV2Lib.namehash(string.concat("heuristic-v1.models.", root))
+        );
+        vm.serializeBytes32(
+            nh, string.concat("kev-v1.models.", root), EnsV2Lib.namehash(string.concat("kev-v1.models.", root))
         );
         vm.serializeBytes32(
             nh, string.concat("rule-v1.models.", root), EnsV2Lib.namehash(string.concat("rule-v1.models.", root))

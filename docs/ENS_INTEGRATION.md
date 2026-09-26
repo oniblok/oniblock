@@ -39,11 +39,13 @@ oniblock.eth                    ETH registry token, owner = ENS_OWNER; subregist
    ├─ models        subregistry = R1 (UserRegistry proxy)
    │   ├─ jev-v1        model-hash, agent-context, calibration.* (settler only)
    │   ├─ heuristic-v1  model-hash, agent-context, calibration.* (settler only)
+   │   ├─ kev-v1        model-hash (SHA-256 of the Kev-0.8B adapter), agent-context, calibration.* (settler only)
    │   └─ rule-v1       model-hash, agent-context (v3 keeper rule; never graded => no calibration.*)
    └─ pools         subregistry = R2 (UserRegistry proxy)
        └─ weth-usdc     hook, pool-id, fee-min, fee-max, policy-uri (addr = hook when set)
 ```
 
+- `kev-v1.models.oniblock.eth`: the Kev-0.8B fine-tune (open weights, `ml/models/kev08b-v1/`). Its `model-hash` is the SHA-256 of the adapter, `0x24f0793d55e0fde516ebe4da1d187e0468a5f7c830ba9a9f4d48e43f007c88be`, so anyone can check the weights that set a fee. It has the same records and settler-only `calibration.*` keys as heuristic-v1. DeployBase allowlists it by default; like any new node it starts unseasoned (k = `kDefault`, i.e. the base fee) until the settler grades it.
 - `rule-v1.models.oniblock.eth` (v3 gate only, `KEEPER_GATE=1`; docs/review/V3_THRESHOLD_BUILD.md; the v4 default keeper asks Jev every block and never posts it, and DeployBase allowlists it only when `KEEPER_GATE=1`): when the pool-vs-CEX gap is below the pool's `arbThresholdPips` the hook charges exactly baseFee, so the gated keeper skips Jev and posts the mid with a fixed rule score under this node. The settler skips rule-v1 receipts, so the name never carries `calibration.*` records; its `agent-context` says so. It is registered by `EnsSetup.s.sol` (already-deployed setups can add it with one `models.register` + two `setText` calls; not re-broadcast).
 - All names use a single resolver: RES, a PermissionedResolver proxy we deployed through VerifiableFactory.
 - Subnames are registered with `expiry = type(uint64).max`. An expired name gets a new EAC resource, which silently drops its roles, so subnames must not expire.

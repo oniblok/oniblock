@@ -73,6 +73,7 @@ contract EnsSetupForkTest is Test {
         cfg.policyUri = "urn:oniblock:fee-law:v1";
         cfg.modelHashJev = vm.toString(keccak256("typesafe-ai/jev"));
         cfg.modelHashHeuristic = vm.toString(keccak256("oniblock/heuristic-v1"));
+        cfg.modelHashKev = "0x24f0793d55e0fde516ebe4da1d187e0468a5f7c830ba9a9f4d48e43f007c88be";
 
         IEnsETHRegistrar registrar = IEnsETHRegistrar(cfg.ens.registrar);
         assertTrue(registrar.isAvailable("oniblock"), "oniblock.eth must be available at fork block");
@@ -106,6 +107,7 @@ contract EnsSetupForkTest is Test {
         assertEq(reg.getSubregistry("pools"), r.poolsRegistry);
         assertEq(IEnsPermissionedRegistry(r.modelsRegistry).getOwner(EnsV2Lib.labelId("jev-v1")), owner);
         assertEq(IEnsPermissionedRegistry(r.modelsRegistry).getOwner(EnsV2Lib.labelId("heuristic-v1")), owner);
+        assertEq(IEnsPermissionedRegistry(r.modelsRegistry).getOwner(EnsV2Lib.labelId("kev-v1")), owner);
         assertEq(IEnsPermissionedRegistry(r.poolsRegistry).getOwner(EnsV2Lib.labelId("weth-usdc")), owner);
 
         // resource of a fresh name = labelhash with low 32 bits = eacVersionId (0)
@@ -193,6 +195,15 @@ contract EnsSetupForkTest is Test {
         res.setText(jev, "model-hash", "0xbeef");
         assertEq(_text(jev, "model-hash"), "0xbeef");
 
+        // per-key grants are name-independent: the settler can grade kev-v1 too; others still cannot
+        bytes memory kev = EnsV2Lib.dnsEncode("kev-v1.models.oniblock.eth");
+        vm.prank(settler);
+        res.setText(kev, "calibration.n", "12");
+        assertEq(_text(kev, "calibration.n"), "12");
+        vm.prank(owner);
+        vm.expectRevert();
+        res.setText(kev, "calibration.n", "0");
+
         // revoke settler's per-key role -> write fails
         uint256 brierRes = EnsV2Lib.keyResource("calibration.brier");
         assertTrue(res.hasRoles(brierRes, EnsV2Lib.RES_ROLE_SET_TEXT, settler));
@@ -219,6 +230,9 @@ contract EnsSetupForkTest is Test {
 
         assertEq(_urText("jev-v1.models.oniblock.eth", "model-hash"), cfg.modelHashJev);
         assertEq(_urText("heuristic-v1.models.oniblock.eth", "model-hash"), cfg.modelHashHeuristic);
+        assertEq(_urText("kev-v1.models.oniblock.eth", "model-hash"), cfg.modelHashKev);
+        assertGt(bytes(_urText("kev-v1.models.oniblock.eth", "agent-context")).length, 0);
+        assertGt(bytes(_urText("kev-v1.models.oniblock.eth", "description")).length, 0);
         assertGt(bytes(_urText("jev-v1.models.oniblock.eth", "agent-context")).length, 0);
         assertEq(_urText("weth-usdc.pools.oniblock.eth", "fee-max"), "10000");
         assertEq(_urText("weth-usdc.pools.oniblock.eth", "hook"), vm.toString(address(0xB00C)));
