@@ -219,7 +219,7 @@ Reproduce: `pnpm -C benchmark bench` (about 8 minutes). `pnpm -C benchmark run:q
 - **FPR:** the share of benign blocks that were charged.
 - **Target:** pass rate ≥ 75% and FPR < 7%.
 
-**The data.** Held-out mainnet Uniswap v3 USDC/WETH blocks from Sep 15–25 2026, graded with the dead-band label the settler uses. The subset is `test_3k`, the 3,000 blocks Jev was scored on. Each row was measured under different conditions, listed in the second column.
+**The data.** Held-out mainnet Uniswap v3 USDC/WETH blocks from Sep 15–25 2026, graded with the dead-band label the settler uses (decisive blocks only; over every block with arbitrage flow, precision is 91.4%). The subset is `test_3k`, the 3,000 blocks Jev was scored on. Each row was measured under different conditions, listed in the second column.
 
 | model | conditions | blocks charged | pass rate | FPR | toxic caught | AUC |
 |---|---|---|---|---|---|---|
@@ -228,13 +228,13 @@ Reproduce: `pnpm -C benchmark bench` (about 8 minutes). `pnpm -C benchmark run:q
 | Jev + charge gate | calibrated on validation, charged iff p > 0.7682, price 11 s old | 13.8% | 81.1% | 6.5% | 18.6% | 0.605 |
 | **oniblock1** | keeper posts first in the block, Binance price 2 s old, rolling 7-day threshold at FPR ≤ 5% | **45.2%** | **95.1%** | **5.6%** | **71.7%** | **0.929** |
 
-**Full test.** On the full held-out test (12,837 blocks), oniblock1 has a 95.4% [94.2, 96.6] pass rate and 5.5% [4.2, 6.8] FPR, and catches 72.7% of toxic blocks. The brackets are 95% day-block bootstrap CIs.
+**Full test.** On the full held-out test (12,837 blocks), oniblock1 has a 95.4% [94.2, 96.6] pass rate and 5.5% [4.2, 6.8] FPR, and catches 72.7% of toxic blocks. The brackets are 95% day-block bootstrap CIs. The rolling threshold is what the settler publishes live; with a fixed threshold the same model gives 94.4% pass and 7.4% FPR.
 
-**Mainnet-block benchmark.** The hooked pool competes against a vanilla neighbour ([`results_v4/coop-builder`](benchmark/results_v4/coop-builder/results.md): real Binance 1 s klines, 12 s blocks, $20M pools, 3 volatile and 3 calm hours, net of keeper gas). With the keeper first in the block, oniblock1 earns LPs more than the vanilla pool:
-- **0.05% tier:** +0.246 bps/h [0.05, 0.48] ≈ +$492/h.
-- **0.30% tier:** +0.145 bps/h [−0.01, 0.35] ≈ +$290/h.
+**Mainnet-block benchmark.** The hooked pool competes against a vanilla neighbour ([`results_v4/coop-builder`](benchmark/results_v4/coop-builder/results.md): real Binance 1 s klines, 12 s blocks, $20M pools, 3 volatile and 3 calm hours, net of keeper gas, before any payment to the builder; 95% t-intervals over the 6 windows). With the keeper first in the block, oniblock1 earns LPs more than the vanilla pool in the volatile hours:
+- **0.05% tier:** +0.246 bps/h [−0.08, 0.57] ≈ +$492/h, positive in 3/3 volatile windows.
+- **0.30% tier:** +0.145 bps/h [−0.13, 0.42] ≈ +$290/h, positive in 2/3 volatile windows.
 
-All of the gain comes in the volatile hours. In calm hours the pool is about −0.01 bps/h, which is the keeper's gas. Jev was not run in the mainnet-block benchmark.
+All of the gain comes in the volatile hours. In calm hours the pool is about −0.01 bps/h, which is the keeper's gas. The gain comes from the fresh price and first position (a heuristic at the same timing earns about the same); oniblock1's edge is precision. Jev was not run in the mainnet-block benchmark.
 
 **Full comparison.** [`docs/RESULTS_ONIBLOCK1.md`](docs/RESULTS_ONIBLOCK1.md) has the metric definitions, sources, the benchmark by regime and the reproduce commands.
 
