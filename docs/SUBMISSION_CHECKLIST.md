@@ -1,6 +1,6 @@
 # Submission checklist (ETHGlobal Tokyo 2026)
 
-Status as of 2026-09-26 (final acceptance review, see [`docs/review/FINAL_ACCEPTANCE.md`](review/FINAL_ACCEPTANCE.md)).
+Status as of 2026-09-26 (final acceptance review, see [`docs/review/FINAL_ACCEPTANCE.md`](review/FINAL_ACCEPTANCE.md)). Repository setup update: the existing project has now been imported into local Git in logical, current-time commits. `origin` points to https://github.com/oniblok/oniblock; no commits have been pushed yet. The historical review records the state before this import.
 Legend: **[x]** done and verified · **[ ]** open · **USER** must be done by a human (account, form, funds, git).
 
 ## 1. Uniswap Foundation: Best Uniswap Stack Contribution (Start Fresh)
@@ -10,7 +10,7 @@ Requirements (from the prize page; re-verify at ethglobal.com/events/tokyo2026/p
 | requirement | status | notes |
 |---|---|---|
 | Builds on the Uniswap stack | [x] | v4 dynamic-fee hook `contracts/src/OniblockHook.sol` on the real Sepolia PoolManager `0xE03A1074c86CFeDd5C142C4F04F1a1536e203543` (fork-verified). |
-| Public GitHub repo | [ ] **USER** | No repo exists yet (no `.git`). Create a public GitHub repo; see §3 for the commit-history requirement. |
+| Public GitHub repo | [ ] **USER** | The public repository exists at https://github.com/oniblok/oniblock and is configured as `origin`. Push the local history with user approval; see §3 for the history limitation. |
 | README identifies relevant contracts and code lines | [x] | README "Where to look". All 18 `OniblockHook.sol` ranges and the sub-line pointers in the `setAttestation` row (398, 399-402, 403-405, 406, 409-410, 413, 415-427, 438-454) were re-checked against the current 872-line file and point at the right code. The `EnsV2RoleOracle`, `EnsV2Lib`, `EnsSetup`, `DeployBase`, `DeploySepolia` and services pointers were checked too. GitHub `#Lx-Ly` anchors only resolve once the repo is public; re-check them in the GitHub UI if `contracts/src` changes. |
 | `FEEDBACK.md` in repo root | [x] | `FEEDBACK.md`: what worked, 9 numbered friction points with concrete suggestions. |
 | Uniswap Developer Feedback Form | [ ] **USER** | Submit the form (link on the prize page). You can paste from `FEEDBACK.md`. |
@@ -24,7 +24,7 @@ Requirements (from the prize page; re-verify at ethglobal.com/events/tokyo2026/p
 | Runs on ENSv2 on Sepolia | [~] | Verified end to end on an **Anvil fork of Sepolia** against the real ENSv2 contracts (`scripts/demo-fork.sh`, headless run passed today: ENS records via UR, revoke → stale → conservative fee, grant backup → resumed). **Nothing is broadcast to Sepolia yet.** |
 | Functional demo, no hard-coded values | [x] with one note | The app resolves names and records through UniversalResolverV2, and addresses and namehashes come from `deployments/<chainId>.json` / `<chainId>.ens.json`. `app/src/lib/server/chain.ts` `DEFAULT_NAMES` lists the default `*.oniblock.eth` names, but only to label namehashes in the UI (reverse lookup). The ENS root is configurable (`ENS_NAME`). Note: dev buttons (`/api/dev/*`, including Revoke quoter) are disabled on `CHAIN=sepolia` by design. On Sepolia, run the kill switch with `cast send` (below). |
 | Live demo link | [ ] **USER** | Needs a Sepolia deploy (below) plus a hosted app. |
-| Open source | [ ] **USER** | Same public repo as §1. Consider adding a LICENSE file (none present). |
+| Open source | [ ] **USER** | MIT LICENSE is present and committed. Publication is pending the push in §1. |
 
 ### Sepolia deploy: exact steps (not done; deployer balance is 0)
 
@@ -72,7 +72,7 @@ Recommendation: deployer **0.15 ETH**, quoter **0.2 ETH** (a few hours of live k
 | rule | status | notes |
 |---|---|---|
 | Work began after the hackathon start (Sep 25) | [x] | All project files date from 2026-09-26 (mtimes). README states no code is reused from other hackathon projects, including UniPerp. |
-| **Version-control history** | [ ] **USER, HIGH RISK** | There is **no git repository**. ETHGlobal requires a public repo whose history shows the work progressing during the event. Projects submitted as one large commit (or a handful of huge ones) are routinely flagged, and can be **disqualified** from Start Fresh prizes, because judges cannot tell the code was written at the event. You said you do not want the agent to commit, so do this yourself **as early as possible**: `git init` in `oniblock/` (**not** in `~/Desktop/et`, which holds `keys.txt`), then commit in logical, incremental steps (contracts → tests → scripts → services → benchmark → app → docs) and keep committing real changes until the deadline. Do not rewrite timestamps. Be ready to explain the history to judges if asked. |
+| **Version-control history** | [~] **USER** | Local Git now contains a dependency-ordered import of the existing project in small logical commits, all with actual current timestamps. This is an initial import, not evidence of the original development chronology, and does not establish Start Fresh eligibility. Do not rewrite timestamps or present it as contemporaneous development history. Continue committing real changes as they happen, publish with approval, and explain the initial import to judges if asked. |
 | No secrets in the repo | [x] | Root `.gitignore` covers `.env`, `.env.*` (except `.env.example`), `.runtime` (whose fork logs contain the RPC URL), `broadcast`, `out`, `cache`, `node_modules`, `.next`, `*.log`. No `.env` value appears in any other tracked file. Only the public Anvil dev keys are hard-coded, and the app uses them server-side only (`import 'server-only'`, dev chains only). |
-| Large vendored deps | [ ] **USER** | `contracts/lib` is 160 MB of plain directories (no `.gitmodules`). Before the first commit, either re-add them as submodules (`forge install foundry-rs/forge-std OpenZeppelin/uniswap-hooks`, pinned to the same commits) or commit them knowingly. Committing 160 MB of vendored code in the first commit also looks like the "large single commit" pattern. |
+| Large vendored deps | [x] | `contracts/lib/forge-std` and `contracts/lib/uniswap-hooks` are pinned submodules recorded in `.gitmodules`, not vendored source in the parent history. Initialize a fresh checkout with `git submodule update --init --recursive`. |
 | Prizes selected on the submission form | [ ] **USER** | Uniswap Foundation (Start Fresh) and ENS (Best Use of ENSv2). |

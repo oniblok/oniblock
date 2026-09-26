@@ -2,11 +2,11 @@
 
 Design rationale: `docs/DESIGN.md` (ReceiptHook v3). This file pins **interfaces, layout, commands and acceptance criteria** so parallel agents produce parts that fit.
 
-Project root: `/Users/akshat/Desktop/et/oniblock`
-Env: `/Users/akshat/Desktop/et/oniblock/.env` (never print secret values; never commit).
+Project root: the checkout's `oniblock/` directory.
+Env: `<project-root>/.env` (never print secret values; never commit).
 
 ## Hard rules (all agents)
-1. **NO git.** Do not `git init`, `git commit`, `git push`. `forge install` MUST use `--no-git` (otherwise it auto-commits). If a tool insists on git, find another way.
+1. **Incremental version control.** When the user requests commits, create small, logical commits with accurate messages and current timestamps. Never fabricate development history or push without approval. Contract dependencies are pinned submodules; initialize them with `git submodule update --init --recursive`. Dependency installation must not create unrelated automatic commits.
 2. **Do not spend Sepolia ETH / broadcast to Sepolia** unless the task explicitly says so. Local Anvil and `anvil --fork-url` are fine.
 3. **Never print secrets** from `.env` (DEPLOYER_PK, AI_GATEWAY_API_KEY, ETHERSCAN_API_KEY).
 4. No mocks of on-chain data in the final demo/benchmark: price data comes from Binance public API (historical klines / live mid). Mocks are fine in unit tests.
