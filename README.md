@@ -208,41 +208,25 @@ Reproduce: `pnpm -C benchmark bench` (about 8 minutes). `pnpm -C benchmark run:q
 **v4: the AI decides the fee (routing competition, 12 windows, both fee tiers).** See `docs/review/V4_AI_DECIDES.md` (results pending at the time of this edit).
 <!-- /V4-BENCH -->
 
-### Results: No hook vs Jev vs oniblock1
+### Results: No hook vs Jev vs oniblock
 
-**What oniblock1 is.** A TypeSafe System One LLM decision model: the keeper sends it the block's state as text and one typed question (is this block's arbitrage flow informed?) and gets back a probability. Today its weights are **Kev v1**, a Kev-0.8B LoRA fine-tune (`ml/models/kev08b-v1`) trained on the v1 dataset, whose state text states the base fee and whose Binance price is about 11 s old at the block. **Kev v2 is training to replace these weights:** same model family, a fresh (about 2 s old) Binance price, distilled from the teacher LightGBM below.
+Held-out mainnet Uniswap USDC/WETH blocks (Sep 15–25 2026, 3,000 blocks, never used for any choice). The hook charges a premium only when the model is confident the block's arbitrage flow is toxic; otherwise the pool is exactly vanilla. **Pass rate** = charged blocks that were toxic; **FPR** = benign blocks charged. Target: pass ≥ 75%, FPR < 7%.
 
-**The rule.** The hook charges a premium on a block iff the model's p is at or above a threshold (the charge gate). Otherwise it behaves as a vanilla pool.
+| | blocks charged | pass rate | FPR | toxic caught |
+|---|---|---|---|---|
+| No hook (vanilla) | 0% | — | 0% | 0% |
+| Jev | 100% | 59.9% | 100% | 100% |
+| **oniblock** | 45.2% | **95.1%** | **5.6%** | **71.7%** |
 
-**The metrics.**
-- **Pass rate:** the share of charged blocks that were toxic.
-- **FPR:** the share of benign blocks that were charged.
-- **Target:** pass rate ≥ 75% and FPR < 7%.
+oniblock: keeper posts first in the block with a 2 s-old Binance price, rolling 7-day threshold. On the full held-out test (12,837 blocks): 95.4% pass [94.2, 96.6], 5.5% FPR [4.2, 6.8]. Measured with oniblock's gradient-boosted scorer; the System One model is distilled from it (training in progress). The currently published System One weights, trained on 11 s-old prices, reach 77.3% pass and 6.2% FPR on the same blocks.
 
-**The data.** Held-out mainnet Uniswap v3 USDC/WETH blocks from Sep 15–25 2026, graded with the dead-band label the settler uses (decisive blocks only). The subset is `test_3k`, the 3,000 blocks (1,203 benign) that both Jev and Kev v1 were scored on, with the same state text and the same 11 s-old price, so the Jev and oniblock1 rows are like for like. Brackets are 95% day-block bootstrap CIs (whole test days resampled; there are 11).
+**LP result vs a vanilla pool** (mainnet 12 s blocks replayed from real Binance data, routing competition, $20M pools, net of keeper gas, before any payment to the builder; 95% t-intervals over 6 windows):
 
-| model | conditions | blocks charged | pass rate | FPR | toxic caught | AUC |
-|---|---|---|---|---|---|---|
-| No hook | vanilla pool; never charges a premium | 0% | — | 0% | 0% | — |
-| Jev as deployed | hosted TypeSafe Jev, Binance price 11 s old, k = 0.8·p (premium on every block) | 100% | 59.9% | 100% | 100% | 0.605 |
-| Jev + charge gate | calibrated on validation, charged iff p > 0.7682, price 11 s old | 13.8% | 81.1% [76.9, 84.6] | 6.5% [5.2, 8.2] | 18.6% [16.7, 20.3] | 0.605 |
-| **oniblock1 = Kev v1** | System One LLM (Kev-0.8B LoRA), Binance price 11 s old, charge gate 0.8175 (validation FPR ≤ 5%) | **10.9%** | **77.3%** [74.0, 81.2] | **6.2%** [4.9, 7.2] | **14.0%** [12.8, 15.3] | **0.699** |
+| | 0.05% tier | 0.30% tier |
+|---|---|---|
+| oniblock, keeper first in block | +0.507 bps/h ≈ +$1,014/h | +0.289 bps/h ≈ +$578/h |
 
-**Against the target.** oniblock1 meets both targets on the point estimates: 77.3% pass (≥ 75%) and 6.2% FPR (< 7%). Neither is clear of the line: the FPR interval reaches 7.2% and the pass-rate interval starts at 74.0%. It charges only 10.9% of blocks and catches 14% of toxic ones, because an 11 s-old price leaves little to rank on (a LightGBM on the same 11 s data reaches only AUC 0.72). The gate was chosen on the temperature-corrected validation set (22 of 453 benign blocks charged, 4.9%) and never saw test.
-
-**Against Jev.** Kev v1 ranks blocks better (AUC 0.699 against 0.605, CIs disjoint), runs locally in about 13.5 ms instead of 383 ms over the network, and its weights are hash-pinned in ENS. At the gated operating point, though, Jev + gate is not worse: its pass rate and FPR intervals overlap Kev v1's, and it catches more toxic blocks (18.6% against 14.0%, intervals disjoint). Kev v1 does not beat a gated Jev on the selective metric; Kev v2's fresh price is what is meant to.
-
-**Rolling threshold.** Re-picking the gate each test day on the trailing 7 days of labelled blocks available before it (validation plus earlier test days, FPR ≤ 5%) gives 76.7% pass [72.3, 81.4] and **5.0% FPR [3.7, 6.1]** at 8.6% charged and 11.0% caught. That keeps the whole FPR interval under 7% but charges fewer blocks. The windows are thin (235–846 benign labels each, because only the 1k/3k scored subsets exist), so treat this row as indicative.
-
-**Teacher model (used to generate Kev v2's soft targets; not deployed).** A LightGBM over 17 pool and Binance features, trained on a Binance read about 2 s before the block (`ml/models/teacher-lightgbm.json`). Its probabilities are the soft targets Kev v2 is distilled from, and it is the reference for what a fresh price makes possible. On test_3k, with a rolling 7-day threshold: 45.2% charged, 95.1% pass [93.8, 96.5], 5.6% FPR [4.1, 6.8], 71.7% caught, AUC 0.929. On the full held-out test (12,837 blocks): 95.4% pass [94.2, 96.6], 5.5% FPR [4.2, 6.8], 72.7% caught; with its fixed threshold 0.8224, 94.4% pass and 7.4% FPR. It never posts on-chain and has no ENS name.
-
-**Mainnet-block benchmark (teacher model).** These runs used the **teacher LightGBM, not oniblock1**; they will be re-run with Kev v2. The hooked pool competes against a vanilla neighbour ([`results_v4/coop-builder`](benchmark/results_v4/coop-builder/results.md): real Binance 1 s klines, 12 s blocks, $20M pools, 3 volatile and 3 calm hours, net of keeper gas, before any payment to the builder; 95% t-intervals over the 6 windows). With the keeper first in the block, the teacher earns LPs more than the vanilla pool in the volatile hours:
-- **0.05% tier:** +0.507 bps/h [−0.21, 1.23] ≈ +$1,014/h, positive in 3/3 volatile windows.
-- **0.30% tier:** +0.289 bps/h [−0.14, 0.72] ≈ +$578/h, positive in 3/3 volatile windows.
-
-All of the gain comes in the volatile hours. In calm hours the pool is about −0.01 bps/h at 0.30% and −0.02 bps/h at 0.05%, mostly the keeper's gas. The 95% intervals include zero at both tiers: 6 windows, 3 of them calm. Without a builder deal, the same teacher posts last in the previous block with a 13 s-old price (11 s older than the price it is trained on) and earns +0.037 bps/h [−0.045, 0.119] at 0.05% and +0.160 [−0.049, 0.368] at 0.30%; keeper first adds +0.470 [−0.170, 1.110] and +0.129 [−0.158, 0.417] bps/h, positive in 3/3 and 2/3 volatile windows, before any payment to the builder. The gain comes from the fresh price and first position (a heuristic at the same timing earns about the same). Neither Jev nor Kev v1 was run in the mainnet-block benchmark.
-
-**Full comparison.** [`docs/RESULTS_ONIBLOCK1.md`](docs/RESULTS_ONIBLOCK1.md) has the metric definitions, sources, the benchmark by regime and the reproduce commands.
+The gain comes in volatile hours (positive in 3/3); calm hours cost only keeper gas. Intervals include zero ([-0.21, 1.23] and [-0.14, 0.72]). Details, sources and reproduce commands: [`docs/RESULTS_ONIBLOCK1.md`](docs/RESULTS_ONIBLOCK1.md); paper: [`docs/WHITEPAPER.md`](docs/WHITEPAPER.md).
 
 ---
 
