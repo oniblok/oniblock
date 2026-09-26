@@ -16,7 +16,12 @@
  *   With m = markout net of the label fee and T = max(DEADBAND_USD, DEADBAND_BPS/1e4 * arb-direction USD volume of
  *   the block): y = 1 iff m > T, y = 0 iff m < -T, and |m| <= T is NOT graded (counted as skipped_ambiguous). The
  *   fine-tuning export (ml/src/kev_export_deadband.py) uses the same label, so the model and the gate agree.
- *   p(b) = pToxic of the attestation in force at b (the one referenced by the Receipt's modelNode)
+ *   p(b) = pToxic of the attestation each Receipt was priced under (attestationIndex.forReceipt): the latest
+ *          AttestationPosted logged before the swap with the Receipt's modelNode AND kBps. The hook's block anchor
+ *          carries exactly one attestation's (k, model, mid) (N-05): it is set at the block's first touch from the
+ *          latest accepted attestation, and a same-block attestation takes over only with k >= the anchored k. So
+ *          "latest mined at or before b" is wrong whenever a lower-k attestation lands in b (arbs race ahead of a
+ *          k-raising attestation, so that is routine). Swaps of one block are grouped per attestation, not per model.
  *   Only receipts whose modelNode is a REAL model are graded: receipts priced under the keeper's deterministic
  *   below-threshold rule (rule-v1.models.oniblock.eth, env RULE_MODEL_NAME; v3 gate) are skipped, so rule-v1
  *   never gets a calibration record (so it is never Brier-demoted; its score is irrelevant below the threshold).
@@ -57,17 +62,39 @@
  *   y_jit(b) = 1 iff any position added in b (positionKey = keccak256(sender, tickLower, tickUpper, salt), the v4
  *              Position key) is removed (liquidityDelta < 0, same key, after the add) within SETTLER_JIT_LABEL_BLOCKS
  *              (default 100) blocks; graded only once b + SETTLER_JIT_LABEL_BLOCKS <= head (same lag discipline as markouts)
- *   p        = pJitBps of the attestation in force at b (latest AttestationPosted mined at or before b; its modelNode
- *              is the graded model; rule-v1 is never graded)
+ *   p        = pJitBps of the attestation in force at the add (latest AttestationPosted logged before the add, by
+ *              block and log index: st.jitWindow follows every accepted attestation at once; its modelNode is the
+ *              graded model; rule-v1 is never graded). Adds of one block are grouped per attestation. An add made while
+ *              that attestation was stale (b - attested block > poolConfig.staleBlocks) is not graded: the hook used
+ *              jitWindowDefault, not the model's window (skipped_stale).
  * Same rolling window / posting minimum / Brier-gate maths as the arb head (CALIB_WINDOW, CALIB_MIN_N, CALIB_GATE). Posted with
  * the existing setCalibration under hook.jitCalibrationKey(modelNode) and mirrored as calibration.jit.* ENS records
  * on the model name. Log lines: jit_graded, jit_calibration_posted.
+ *
+ * Rolling charge threshold (model v2 charge gate, chargeThreshold.ts): on every settle, per model node, the arb head's
+ * labelled (p, y) of the trailing CHARGE_WINDOW_BLOCKS (default 50400 = 7 days of 12 s blocks; 0 = all) give the
+ * threshold t such that charging p >= t has FPR <= CHARGE_FPR_MAX (default 0.05) on those labels (null with fewer than
+ * CHARGE_MIN_BENIGN benign labels, default 200). Published to CHARGE_THRESHOLD_FILE (default
+ * <ROOT>/.runtime/charge-threshold.json, atomic, keyed <chainId>:<poolId>:<modelNode> with updatedAt in ms; the keeper's
+ * CHARGE_THRESHOLD=auto reads it) and, when the resolver grants the settler the key, as the ENS text record
+ * calibration.chargeThreshold (bps; rate-limited: only a move of >= CHARGE_ENS_MIN_DELTA_BPS (100) or, for smaller moves,
+ * at most every CHARGE_ENS_MIN_INTERVAL_BLOCKS (300); a permission refusal is logged once and the file keeps being
+ * written, a transient failure is retried next settle; the calibration.* write is a separate tx and unaffected).
+ * Log line: charge_threshold. Labels are grouped by the receipt's modelNode only: with the keeper's FALLBACK_SAME_NODE=1
+ * the heuristic fallback's answers are posted (and graded) under the primary node, so that node's window mixes both
+ * models' p (nothing on-chain says which model answered) — see the keeper header.
+ *
+ * Env: CALIB_WINDOW (30), JIT_CALIB_WINDOW (= CALIB_WINDOW), CALIB_MIN_N (1), CALIB_GATE (raw | skill), SETTLE_EVERY (10),
+ *      SETTLER_LABEL_MID (cex | attested), MARKOUT_HORIZON (0 | 1), SETTLER_BINANCE_FALLBACK (1), SETTLER_LABEL_FEE
+ *      (base | paid), SETTLER_DEADBAND_USD (1), SETTLER_DEADBAND_BPS (1), SETTLER_JIT_LABEL_BLOCKS (100), RULE_MODEL_NAME,
+ *      RECEIPT_AMOUNT_SIGN (1), PRICE_SOURCE, ENS_WRITE (1), ENS_DEPLOYMENT_FILE, CHARGE_WINDOW_BLOCKS (50400),
+ *      CHARGE_FPR_MAX (0.05), CHARGE_MIN_BENIGN (200), CHARGE_THRESHOLD_FILE.
  *
  * CLI: tsx src/settler.ts [--chain local] [--once] [--every M] [--from BLOCK]
  */
 import { namehash, type Address, type Hex, type PublicClient } from 'viem';
 import { oniblockHookAbi, roleOracleAbi } from './abi/oniblockHook.js';
-import { fetchKlines, midAt } from './cex.js';
+import { historicalMids } from './cex.js';
 import {
   env,
   envInt,
@@ -85,6 +112,7 @@ import {
   type PoolEntry,
 } from './config.js';
 import { getAttestations, getModifyLiquidity, getReceipts, jitCalibrationKey, TxSender, type AttestationLog, type ReceiptLog } from './chain.js';
+import { ChargeThresholdPublisher, chargeWindowOpts, type ChargeWindowOpts } from './chargeThreshold.js';
 import { EnsV2CalibrationWriter, loadEnsDeployment, NoopCalibrationWriter, type CalibrationHead, type CalibrationRecordWriter } from './ens.js';
 import { byPositionKey, JIT_LABEL_BLOCKS_DEFAULT, liquidityObsKey, removedWithin, type LiquidityObs } from './features.js';
 import { midToPriceX96, Q96 } from './price.js';
@@ -141,14 +169,17 @@ export function gateBps(brier: number, ref: number, gate: CalibGate): number {
 const AMOUNT_SIGN = BigInt(envInt('RECEIPT_AMOUNT_SIGN', 1));
 
 /**
- * Label blocks. `midNext(b)` returns priceX96 of the CEX mid at block b+1 (or undefined -> skip).
- * `pOf(receipt)` returns the pToxic (0..1) in force for that receipt's block/model, or undefined.
+ * Label blocks. `midNext(b, r)` returns the label mid (priceX96) for block b, where r is the group's first receipt
+ * (or undefined -> skip). `pOf(receipt)` returns the pToxic (0..1) that receipt was priced under, or undefined.
+ * Receipts are grouped by `groupKey` (default block + modelNode; the settler passes block + attestation).
  */
 export function labelBlocks(
   receipts: ReceiptLog[],
-  midNext: (block: number) => bigint | undefined,
+  midNext: (block: number, r: ReceiptLog) => bigint | undefined,
   pOf: (r: ReceiptLog) => number | undefined,
   opts: {
+    /** receipts with the same key form one label (default `${blockNumber}:${modelNode}`) */
+    groupKey?: (r: ReceiptLog) => string;
     skipModelNodes?: readonly Hex[];
     labelFee?: 'paid' | 'base';
     baseFeePips?: number;
@@ -156,7 +187,7 @@ export function labelBlocks(
     deadbandUsd?: number;
     deadbandBps?: number;
     /** USD value of one raw token1 unit at block b (needed for the dead band; undefined => no dead band for b) */
-    usdPerRawToken1?: (block: number) => number | undefined;
+    usdPerRawToken1?: (block: number, r: ReceiptLog) => number | undefined;
     /** counters filled in by the call */
     stats?: { skippedAmbiguous: number; graded: number };
   } = {},
@@ -169,13 +200,13 @@ export function labelBlocks(
   for (const r of receipts) {
     if (!r.arbDir || r.stale) continue;
     if (skip.size && skip.has(String(r.modelNode).toLowerCase())) continue; // e.g. rule-v1: not a model
-    const k = `${r.blockNumber}:${r.modelNode}`;
+    const k = opts.groupKey ? opts.groupKey(r) : `${r.blockNumber}:${r.modelNode}`;
     (byBlock.get(k) ?? byBlock.set(k, []).get(k)!).push(r);
   }
   const out: LabelledBlock[] = [];
   for (const rs of byBlock.values()) {
     const b = rs[0]!.blockNumber;
-    const m = midNext(b);
+    const m = midNext(b, rs[0]!);
     const p = pOf(rs[0]!);
     if (m === undefined || p === undefined) continue;
     const px = Number(m) / Number(Q96); // raw token1 per raw token0
@@ -197,7 +228,7 @@ export function labelBlocks(
     const mk = gross - (atBase ? baseCost : fee); // markout net of the label fee, token1 raw units
     let y: 0 | 1;
     if (dbUsd > 0 || dbBps > 0) {
-      const usd1 = opts.usdPerRawToken1?.(b);
+      const usd1 = opts.usdPerRawToken1?.(b, rs[0]!);
       if (usd1 === undefined || !(usd1 > 0)) {
         continue; // cannot express the dead band in USD for this block: not graded
       }
@@ -240,35 +271,39 @@ export function calibrate(labels: LabelledBlock[], window = 0, gate: CalibGate =
   return out;
 }
 
-/** Attestation in force for block b and model: latest one mined at or before b. */
+/**
+ * On-chain order of attestations against swaps and liquidity changes: (mined block, log index). A position without a
+ * log index (synthetic inputs) is the end of its block.
+ */
 export function attestationIndex(atts: AttestationLog[]) {
-  const sorted = [...atts].sort((a, b) => a.minedBlock - b.minedBlock);
+  const sorted = [...atts].sort((a, b) => a.minedBlock - b.minedBlock || a.logIndex - b.logIndex);
+  const latestBefore = (block: number, logIndex: number, pred?: (a: AttestationLog) => boolean): AttestationLog | undefined => {
+    let best: AttestationLog | undefined;
+    for (const a of sorted) {
+      if (a.minedBlock > block || (a.minedBlock === block && a.logIndex >= logIndex)) break;
+      if (!pred || pred(a)) best = a;
+    }
+    return best;
+  };
   return {
-    /** Latest attestation (any model) mined at or before block b: the one whose JIT window governs adds in b. */
-    inForce(block: number): AttestationLog | undefined {
-      let best: AttestationLog | undefined;
-      for (const a of sorted) {
-        if (a.minedBlock > block) break;
-        best = a;
-      }
-      return best;
+    /**
+     * Latest attestation (any model) logged before (block, logIndex): the one whose JIT window governs a liquidity
+     * add logged there (the hook updates st.jitWindow on every accepted attestation). Without a log index: the
+     * latest mined at or before `block`.
+     */
+    inForce(block: number, logIndex = Number.POSITIVE_INFINITY): AttestationLog | undefined {
+      return latestBefore(block, logIndex);
     },
-    pAt(block: number, node: Hex): number | undefined {
-      let best: AttestationLog | undefined;
-      for (const a of sorted) {
-        if (a.minedBlock > block) break;
-        if (a.modelNode === node) best = a;
-      }
-      return best ? best.pToxicBps / 10_000 : undefined;
-    },
-    /** Mid of the latest attestation mined at or before block b (any model): the mid in force at b. */
-    midInForce(block: number): bigint | undefined {
-      let best: bigint | undefined;
-      for (const a of sorted) {
-        if (a.minedBlock > block) break;
-        best = a.oracleMidX96;
-      }
-      return best;
+    /**
+     * The attestation a Receipt was priced under: the latest one logged before the swap with the Receipt's modelNode
+     * and kBps. The hook anchors (k, model, mid) of one attestation per block at the first touch and lets a
+     * same-block attestation take over only with k >= the anchored k (N-05), so a later lower-k attestation never
+     * matches and one that took over carries the Receipt's k. Undefined if nothing matches (e.g. an owner config
+     * update clamped k between attestations): such receipts are not graded.
+     */
+    forReceipt(r: Pick<ReceiptLog, 'blockNumber' | 'logIndex' | 'modelNode' | 'kBps'>): AttestationLog | undefined {
+      const node = r.modelNode.toLowerCase();
+      return latestBefore(r.blockNumber, r.logIndex, (a) => a.modelNode.toLowerCase() === node && a.kBps === r.kBps);
     },
     /** First attestation mid mined strictly after block b (any model — mid is model-independent). */
     midAfter(block: number): bigint | undefined {
@@ -287,17 +322,21 @@ export interface JitLabelStats {
   skippedNoLiquidity: number;
   /** blocks with adds but no attestation in force (or only the rule node): not graded */
   skippedNoAttestation: number;
+  /** blocks whose adds all happened while the attestation in force was stale (hook used jitWindowDefault) */
+  skippedStale: number;
 }
 
 /**
- * v5 JIT labels (see the header): one LabelledBlock per block b with adds, once b + labelBlocks <= head.
- * y = 1 iff any position added in b was removed (same position key, after the add) within labelBlocks blocks;
- * p / modelNode from the attestation in force at b. nSwaps carries the number of adds; markout fields are 0.
+ * v5 JIT labels (see the header): one LabelledBlock per (block b with adds, attestation in force at those adds), once
+ * b + labelBlocks <= head. y = 1 iff any of those adds was removed (same position key, after the add) within
+ * labelBlocks blocks; p / modelNode from the attestation in force at the add (block + log index). Adds made while
+ * that attestation was stale (`staleBlocks` given and b - attested block > staleBlocks) are not graded: the hook
+ * applied jitWindowDefault. nSwaps carries the number of adds; markout fields are 0.
  */
 export function labelJitBlocks(
   liquidity: LiquidityObs[],
   attestations: AttestationLog[],
-  opts: { labelBlocks?: number; head: number; skipModelNodes?: readonly Hex[]; stats?: JitLabelStats },
+  opts: { labelBlocks?: number; head: number; skipModelNodes?: readonly Hex[]; staleBlocks?: number; stats?: JitLabelStats },
 ): LabelledBlock[] {
   const labelBlocks = opts.labelBlocks ?? JIT_LABEL_BLOCKS_DEFAULT;
   const skip = new Set((opts.skipModelNodes ?? []).map((n) => n.toLowerCase()));
@@ -311,15 +350,31 @@ export function labelJitBlocks(
       if (opts.stats) opts.stats.pending++;
       continue;
     }
-    const att = idx.inForce(b);
-    if (!att || skip.has(att.modelNode.toLowerCase())) {
-      if (opts.stats) opts.stats.skippedNoAttestation++;
+    const byAtt = new Map<string, { att: AttestationLog; adds: LiquidityObs[] }>();
+    let sawStale = false;
+    const adds = [...addsByBlock.get(b)!].sort((x, y) => (x.logIndex ?? 0) - (y.logIndex ?? 0));
+    for (const add of adds) {
+      const att = idx.inForce(b, add.logIndex);
+      if (!att || skip.has(att.modelNode.toLowerCase())) continue;
+      if (opts.staleBlocks !== undefined && b - att.blockNumber > opts.staleBlocks) {
+        sawStale = true;
+        continue;
+      }
+      const k = `${att.txHash}:${att.logIndex}`;
+      (byAtt.get(k) ?? byAtt.set(k, { att, adds: [] }).get(k)!).adds.push(add);
+    }
+    if (!byAtt.size) {
+      if (opts.stats) {
+        if (sawStale) opts.stats.skippedStale++;
+        else opts.stats.skippedNoAttestation++;
+      }
       continue;
     }
-    const adds = addsByBlock.get(b)!;
-    const y: 0 | 1 = adds.some((a) => removedWithin(a, (groups.get(liquidityObsKey(a)) ?? []).filter((r) => r.liquidityDelta < 0n), labelBlocks)) ? 1 : 0;
-    if (opts.stats) opts.stats.graded++;
-    out.push({ block: b, modelNode: att.modelNode, p: att.pJitBps / 10_000, y, markoutNet: 0, feePaid: 0, nSwaps: adds.length });
+    for (const { att, adds: as } of byAtt.values()) {
+      const y: 0 | 1 = as.some((a) => removedWithin(a, (groups.get(liquidityObsKey(a)) ?? []).filter((r) => r.liquidityDelta < 0n), labelBlocks)) ? 1 : 0;
+      if (opts.stats) opts.stats.graded++;
+      out.push({ block: b, modelNode: att.modelNode, p: att.pJitBps / 10_000, y, markoutNet: 0, feePaid: 0, nSwaps: as.length });
+    }
   }
   if (opts.stats) {
     const seen = new Set<number>();
@@ -362,6 +417,8 @@ export interface SettlerOpts {
   poolName?: string;
   /** v5: blocks after an add within which a remove counts as JIT (default SETTLER_JIT_LABEL_BLOCKS / 100). */
   jitLabelBlocks?: number;
+  /** Rolling charge threshold overrides (default: CHARGE_WINDOW_BLOCKS / CHARGE_FPR_MAX / CHARGE_MIN_BENIGN / CHARGE_THRESHOLD_FILE). */
+  charge?: Partial<ChargeWindowOpts>;
 }
 
 export class Settler {
@@ -371,6 +428,8 @@ export class Settler {
   readonly meta: PairMeta;
   private readonly sender: TxSender;
   private readonly ens: CalibrationRecordWriter;
+  /** Rolling charge threshold (header): file + ENS calibration.chargeThreshold. */
+  readonly charge: ChargeThresholdPublisher;
   private lastSettled = -1;
   private busy = false;
   private tsCache = new Map<number, number>();
@@ -388,6 +447,7 @@ export class Settler {
     this.replayMid = env('PRICE_SOURCE') === 'replay' ? lazyMidSource(this.d.startBlock ?? 0, 'settler') : undefined;
     const ensDep = env('ENS_WRITE', '1') === '1' ? loadEnsDeployment(sel.chain.id) : undefined;
     this.ens = o.ens ?? (ensDep ? new EnsV2CalibrationWriter(this.sender, ensDep) : new NoopCalibrationWriter());
+    this.charge = new ChargeThresholdPublisher({ ...chargeWindowOpts(), scope: { chainId: this.d.chainId, poolId: this.pool.poolId }, ...o.charge }, this.ens);
   }
 
   /**
@@ -424,8 +484,8 @@ export class Settler {
         ts = Number(blk.timestamp) * 1000;
         this.tsCache.set(block + 1, ts);
       }
-      const ks = await fetchKlines({ interval: '1s', startMs: ts - 30_000, endMs: ts + 1_000, cacheDir: false });
-      const m = midAt(ks, ts);
+      // USDC per ETH = ETHUSDT 1s / USDCUSDT 1m (CEX_QUOTE_SYMBOL), the mid oniblock1 was trained on
+      const m = (await historicalMids([ts], { cacheDir: false })).get(ts);
       return m ? midToPriceX96(m.toFixed(8), this.meta) : undefined;
     } catch {
       return undefined;
@@ -461,11 +521,10 @@ export class Settler {
       try {
         const ts = new Map<number, number>();
         for (const b of need) ts.set(b, await this.blockTs(b));
-        const lo = Math.min(...ts.values());
-        const hi = Math.max(...ts.values());
-        const ks = await fetchKlines({ interval: '1s', startMs: lo - 30_000, endMs: hi + 1_000, cacheDir: false });
+        // USDC per ETH = ETHUSDT 1s / USDCUSDT 1m (CEX_QUOTE_SYMBOL), the mid oniblock1 was trained on
+        const mids = await historicalMids([...ts.values()], { cacheDir: false });
         for (const [b, t] of ts) {
-          const m = midAt(ks, t);
+          const m = mids.get(t);
           if (m) this.cexCache.set(b, midToPriceX96(m.toFixed(8), this.meta));
         }
         for (const b of ts.keys()) if (!this.cexCache.has(b)) failed.push(b);
@@ -491,22 +550,27 @@ export class Settler {
   /** label stats of the last computeUpTo (dead band) */
   lastStats = { skippedAmbiguous: 0, graded: 0 };
   /** v5 JIT label stats of the last computeUpTo */
-  lastJitStats: JitLabelStats = { graded: 0, pending: 0, skippedNoLiquidity: 0, skippedNoAttestation: 0 };
+  lastJitStats: JitLabelStats = { graded: 0, pending: 0, skippedNoLiquidity: 0, skippedNoAttestation: 0, skippedStale: 0 };
   /** v5: JIT label window (blocks). */
   get jitLabelBlocks(): number {
     return this.o.jitLabelBlocks ?? envInt('SETTLER_JIT_LABEL_BLOCKS', JIT_LABEL_BLOCKS_DEFAULT);
   }
-  /** Pool base fee (hook.poolConfig; deployment JSON / 3000 fallback) for the v4 base-fee label. */
-  private async baseFee(): Promise<number> {
-    if (this.baseFeeCache !== undefined) return this.baseFeeCache;
+  private staleBlocksCache: number | undefined;
+  /**
+   * Pool base fee (v4 base-fee label) and staleBlocks (JIT grading) from hook.poolConfig; deployment JSON fallback
+   * (base fee 3000; staleBlocks unknown => no stale filter). Cached once read from the hook.
+   */
+  private async poolCfg(): Promise<{ baseFee: number; staleBlocks: number | undefined }> {
+    if (this.baseFeeCache !== undefined) return { baseFee: this.baseFeeCache, staleBlocks: this.staleBlocksCache };
     try {
       const c = await this.pc.readContract({ address: this.d.hook, abi: oniblockHookAbi, functionName: 'poolConfig', args: [this.pool.poolId] });
       this.baseFeeCache = Number(c.baseFee);
+      this.staleBlocksCache = Number(c.staleBlocks);
     } catch {
-      const c = (this.d.raw.pools as Record<string, { config?: { baseFee?: number } }> | undefined)?.[this.pool.name]?.config;
-      return Number(c?.baseFee ?? 3000);
+      const c = (this.d.raw.pools as Record<string, { config?: { baseFee?: number; staleBlocks?: number } }> | undefined)?.[this.pool.name]?.config;
+      return { baseFee: Number(c?.baseFee ?? 3000), staleBlocks: c?.staleBlocks === undefined ? undefined : Number(c.staleBlocks) };
     }
-    return this.baseFeeCache;
+    return { baseFee: this.baseFeeCache, staleBlocks: this.staleBlocksCache };
   }
 
   async computeUpTo(head: number): Promise<{ labels: LabelledBlock[]; cal: Calibration[]; jitLabels: LabelledBlock[]; jitCal: Calibration[] }> {
@@ -520,9 +584,10 @@ export class Settler {
         return [];
       }),
     ]);
+    const cfg = await this.poolCfg();
     // v5 JIT head: independent of swaps / CEX mids.
-    const jitStats: JitLabelStats = { graded: 0, pending: 0, skippedNoLiquidity: 0, skippedNoAttestation: 0 };
-    const jitLabels = labelJitBlocks(liquidity, atts, { labelBlocks: this.jitLabelBlocks, head, skipModelNodes: [ruleModelNode()], stats: jitStats });
+    const jitStats: JitLabelStats = { graded: 0, pending: 0, skippedNoLiquidity: 0, skippedNoAttestation: 0, skippedStale: 0 };
+    const jitLabels = labelJitBlocks(liquidity, atts, { labelBlocks: this.jitLabelBlocks, head, skipModelNodes: [ruleModelNode()], staleBlocks: cfg.staleBlocks, stats: jitStats });
     this.lastJitStats = jitStats;
     const window = this.o.window ?? envInt('CALIB_WINDOW', 30);
     // The JIT head sees far fewer samples (one per liquidity add, not one per arb block), so its rolling window can be
@@ -542,9 +607,18 @@ export class Settler {
     const idx = attestationIndex(atts);
     const rule = ruleModelNode();
     const graded = receipts.filter((r) => r.blockNumber < head && r.arbDir && !r.stale && r.modelNode.toLowerCase() !== rule.toLowerCase());
+    // Each receipt's own attestation (model + k + log order), see the header.
+    const attOf = new Map<ReceiptLog, AttestationLog | undefined>();
+    let unmatched = 0;
+    for (const r of graded) {
+      const a = idx.forReceipt(r);
+      attOf.set(r, a);
+      if (!a) unmatched++;
+    }
+    if (unmatched) log('settler', 'receipt_unmatched', { head, receipts: unmatched, hint: 'no attestation with the receipt modelNode + kBps logged before it; not graded' });
     const horizon = envInt('MARKOUT_HORIZON', 0);
     const labelMid = env('SETTLER_LABEL_MID', 'cex') as LabelMid;
-    let midOf: (b: number) => bigint | undefined;
+    let midOf: (b: number, r?: ReceiptLog) => bigint | undefined;
     if (horizon === 1) {
       // Pre-resolve fallback mids only for blocks that lack a following attestation.
       const need = new Set<number>();
@@ -558,20 +632,28 @@ export class Settler {
       }
       midOf = (b) => idx.midAfter(b) ?? fallback.get(b);
     } else if (labelMid === 'attested') {
-      midOf = (b) => idx.midInForce(b);
+      // the mid the anchor measured gaps against = the mid of the receipt's attestation (a pinned anchor keeps it)
+      midOf = (_b, r) => (r ? attOf.get(r)?.oracleMidX96 : undefined);
     } else {
       const cex = await this.cexMidsX96(graded.map((r) => r.blockNumber));
       midOf = (b) => cex.get(b);
     }
     const labelFee = env('SETTLER_LABEL_FEE', 'base') === 'paid' ? 'paid' : 'base';
     const stats = { skippedAmbiguous: 0, graded: 0 };
-    const labels = labelBlocks(graded, midOf, (r) => idx.pAt(r.blockNumber, r.modelNode), {
+    const labels = labelBlocks(graded, midOf, (r) => {
+      const a = attOf.get(r);
+      return a ? a.pToxicBps / 10_000 : undefined;
+    }, {
+      groupKey: (r) => {
+        const a = attOf.get(r);
+        return a ? `${r.blockNumber}:${a.txHash}:${a.logIndex}` : `${r.blockNumber}:${r.modelNode}:unmatched`;
+      },
       skipModelNodes: [rule],
       labelFee,
-      baseFeePips: await this.baseFee(),
+      baseFeePips: cfg.baseFee,
       deadbandUsd: Number(env('SETTLER_DEADBAND_USD', '1')),
       deadbandBps: Number(env('SETTLER_DEADBAND_BPS', '1')),
-      usdPerRawToken1: (b) => usdPerRawToken1(this.meta, midOf(b)),
+      usdPerRawToken1: (b, r) => usdPerRawToken1(this.meta, midOf(b, r)),
       stats,
     });
     this.lastStats = stats;
@@ -618,6 +700,12 @@ export class Settler {
         }
         await this.post(head, c, 'arb', { labelled: labels.length, skippedAmbiguous: this.lastStats.skippedAmbiguous });
       }
+      // Rolling charge threshold (header): never lets a file / ENS problem stop the calibration heads.
+      try {
+        await this.charge.publish(head, labels);
+      } catch (e) {
+        log('settler', 'charge_threshold_error', { head, error: (e as Error).message.split('\n')[0] });
+      }
       // v5 JIT head: same posting minimum; skipped entirely while nothing is graded (no adds / windows still open).
       for (const c of jitCal) {
         if (c.n < minN) {
@@ -649,6 +737,7 @@ export class Settler {
       deadband: { usd: Number(env('SETTLER_DEADBAND_USD', '1')), bps: Number(env('SETTLER_DEADBAND_BPS', '1')) },
       skip: ruleModelNode(),
       jitLabelBlocks: this.jitLabelBlocks,
+      chargeThresholdFile: this.charge.path,
     });
     return this.pc.watchBlockNumber({
       emitOnBegin: true,

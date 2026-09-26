@@ -24,17 +24,20 @@ describe('tabular-v1 (LightGBM JSON, pure TS)', () => {
     const f = { ...base, gapPips: 700, gapSign: 1, imbalance: -0.4, nSwaps: 12, arbShare: 0.6, realizedVolBps: 2, sizeToDepth: 3e-5 };
     expect(tabularInputs(f)).toEqual(tabularInputs({ ...f, gapSign: -1, imbalance: 0.4 }));
   });
-  it('uses the hook arb fee as the cost when present, and rises with the edge', () => {
+  it('is k-free (the base fee is the cost, as in training), has confidence 1, and rises with the edge', () => {
     const f = { ...base, gapPips: 900, gapSign: 1, nSwaps: 15, arbShare: 0.7, realizedVolBps: 2, sizeToDepth: 3e-5 };
-    expect(tabularInputs({ ...f, arbFeePips: 800 })[1]).toBe(100);
+    expect(tabularInputs({ ...f, arbFeePips: 800, kBps: 4000 })).toEqual(tabularInputs(f));
+    expect(tabularInputs(f)[1]).toBe(400);
+    expect(scoreTabular({ ...f, arbFeePips: 800, kBps: 4000 })).toMatchObject({ pToxicBps: scoreTabular(f)!.pToxicBps, confidenceBps: 10_000 });
     const lo = scoreTabular({ ...f, gapPips: 50 })!;
     const hi = scoreTabular({ ...f, gapPips: 2500 })!;
     expect(hi.model).toBe('tabular');
     expect(hi.pJitBps).toBe(0); // v5: no JIT head yet
     expect(hi.pToxicBps).toBeGreaterThan(lo.pToxicBps);
   });
-  it('score() dispatches MODEL_MODE=tabular', async () => {
+  it('score() dispatches MODEL_MODE=tabular and MODEL_MODE=oniblock1', async () => {
     expect((await score({ ...base, gapPips: 900 }, { mode: 'tabular' })).model).toBe('tabular');
+    expect((await score({ ...base, gapPips: 900 }, { mode: 'oniblock1' })).model).toBe('tabular');
   });
 });
 
@@ -71,6 +74,7 @@ describe('kev client (System One noul)', () => {
     expect(kevModelName('0.8b')).toBe('kev-v1.models.oniblock.eth');
     expect(kevModelName('4b')).toBe('kev4b-v1.models.oniblock.eth');
     expect(defaultModelName('tabular')).toBe('tabular-v1.models.oniblock.eth');
+    expect(defaultModelName('oniblock1')).toBe('oniblock1.models.oniblock.eth');
     expect(defaultModelName('auto')).toBe('jev-v1.models.oniblock.eth');
   });
 

@@ -5,6 +5,7 @@
 import { encodePacked, keccak256, type Address, type Hex } from 'viem';
 import { feeLaw, gapPips as gapPipsFn } from './price.js';
 import { realizedVolBps as realizedVol } from './cex.js';
+import type { KlineMids } from './klinemids.js';
 
 export interface SwapObs {
   block: number;
@@ -91,7 +92,8 @@ export interface FeatureInput {
   baseFee?: number;
   /** Look-back window in blocks for swaps (default 20). */
   windowBlocks?: number;
-  /** true if the base asset (ETH) is token0 — used only to phrase "buy/sell ETH" in text. */
+  /** true if the base asset (ETH) is token0 — phrases "buy/sell ETH" in text and orients the v2 ret*Bps features
+   *  (undefined = false there, the training orientation). */
   baseIsToken0?: boolean;
   /** Current attested k (bps) and fee cap of the hook pool. When given, the features carry the arb-direction
    *  regime fee min(base + max(0, gap - arbThresholdPips)*k, feeMax), which is what an arbitrageur actually pays on this pool. */
@@ -110,6 +112,38 @@ export interface FeatureInput {
   jitWindowNow?: number;
   /** Blocks after an add within which a remove counts as JIT churn (default JIT_LABEL_BLOCKS_DEFAULT). */
   jitLabelBlocks?: number;
+  /** Model v2 (/tmp SPEC_v2 "New past-only features"): time-stamped CEX mids (t = unix ms, oldest first), e.g.
+   *  MidHistory.entries(). When given, the MidFeatures (edgePips ... ret900Bps) are computed; old callers leave it out
+   *  and their Features are unchanged. */
+  midHistory?: readonly MidObs[];
+  /** Snapshot time t_obs (unix ms) = the keeper's CEX read time; default = the newest midHistory entry. */
+  tObsMs?: number;
+  /** Training-exact Binance klines around t_obs (klinemids.ts fetchKlineMids; needs `tObsMs`). When given,
+   *  realizedVolBps and the MidFeatures come from them (computeKlineMidFeatures, ml/src/common.py Mids semantics)
+   *  instead of recentMids / midHistory. Only the v2 models (kev2, tabular-v2, oniblock1) get it. */
+  klineMids?: KlineMids;
+}
+
+/** One time-stamped CEX mid (human units). */
+export interface MidObs {
+  t: number;
+  mid: number;
+}
+
+/** Model v2 features (all past-only; see computeMidFeatures). */
+export interface MidFeatures {
+  /** gapPips - baseFee (integer pips): the arb edge at the base fee (k-free). */
+  edgePips: number;
+  /** edgePips / max(realizedVolBps * 100, 1): the edge in units of the typical 12 s Binance move (1 bp = 100 pips). */
+  edgeSigma: number;
+  /** Realized vol (bps, ddof=1) of 25 mids sampled every 12 s ending at t_obs (nearest at-or-before). */
+  vol5mBps: number;
+  /** ln(mid(t_obs) / mid(t_obs - h)) * 1e4 * dir, h = 12 / 36 / 900 s, mid = USDC per ETH, dir = baseIsToken0 ?
+   *  -gapSign : +gapSign: + = Binance moved away from the pool price (the gap widened). Orientation-free.
+   *  0 when the history does not reach back h seconds. */
+  ret12Bps: number;
+  ret36Bps: number;
+  ret900Bps: number;
 }
 
 /** v5 liquidity features (all past-only aggregates of ModifyLiquidity / JitPenalty events). */
@@ -130,7 +164,7 @@ export interface LiquidityFeatures {
   jitLabelBlocks: number;
 }
 
-export interface Features extends Partial<LiquidityFeatures> {
+export interface Features extends Partial<LiquidityFeatures>, Partial<MidFeatures> {
   /** |pool - oracle| / oracle in pips. */
   gapPips: number;
   /** Sign of pool vs oracle: +1 pool above oracle, -1 below, 0 equal. */
@@ -175,12 +209,16 @@ export function computeFeatures(i: FeatureInput): Features {
   const meanSize = recent.length ? total / BigInt(recent.length) : 0n;
   const sizeToDepth = i.depth0 > 0n ? Number((meanSize * 1_000_000_000n) / i.depth0) / 1e9 : 0;
   const gap = gapPipsFn(i.poolX96, i.oracleX96);
+  const gapSign = i.poolX96 === i.oracleX96 ? 0 : i.poolX96 > i.oracleX96 ? 1 : -1;
+  const kline = i.klineMids
+    ? computeKlineMidFeatures({ gapPips: gap, gapSign, baseFee: i.baseFee ?? 3000 }, i.klineMids, i.tObsMs ?? Number.NaN, { baseIsToken0: i.baseIsToken0 })
+    : undefined;
   return {
     gapPips: gap,
     gapSign: i.poolX96 === i.oracleX96 ? 0 : i.poolX96 > i.oracleX96 ? 1 : -1,
     imbalance: round(imbalance, 4),
     sizeToDepth: round(sizeToDepth, 6),
-    realizedVolBps: round(realizedVol(i.recentMids), 3),
+    realizedVolBps: kline ? kline.realizedVolBps : round(realizedVol(i.recentMids), 3),
     attestationAge: Math.max(0, i.currentBlock - i.lastAttestBlock),
     nSwaps: recent.length,
     arbShare: recent.length ? round(arb / recent.length, 3) : 0,
@@ -193,8 +231,138 @@ export function computeFeatures(i: FeatureInput): Features {
         }
       : {}),
     ...(i.liquidity !== undefined ? liquidityFeatures(i) : {}),
+    ...(kline
+      ? kline.mid
+      : i.midHistory !== undefined
+      ? computeMidFeatures({ gapPips: gap, gapSign: i.poolX96 === i.oracleX96 ? 0 : i.poolX96 > i.oracleX96 ? 1 : -1, baseFee: i.baseFee ?? 3000, realizedVolBps: round(realizedVol(i.recentMids), 3) }, i.midHistory, { tObsMs: i.tObsMs, baseIsToken0: i.baseIsToken0 })
+      : {}),
   };
 }
+
+/** Index of the newest entry with t <= tMs in a time-sorted history, -1 if none. */
+function atOrBefore(h: readonly MidObs[], tMs: number): number {
+  let lo = 0;
+  let hi = h.length - 1;
+  let ans = -1;
+  while (lo <= hi) {
+    const m = (lo + hi) >> 1;
+    if (h[m]!.t <= tMs) {
+      ans = m;
+      lo = m + 1;
+    } else hi = m - 1;
+  }
+  return ans;
+}
+
+/** Mid at tMs: nearest entry at-or-before (forward fill), undefined if the history starts later. */
+export function midAtOrBefore(h: readonly MidObs[], tMs: number): number | undefined {
+  const i = atOrBefore(h, tMs);
+  return i >= 0 ? h[i]!.mid : undefined;
+}
+
+/** Samples, spacing (s) and horizons (s) of the v2 mid features (SPEC_v2: BinanceMids.vol_bps(t, n=25, step=12)). */
+export const VOL5M_SAMPLES = 25;
+export const VOL5M_STEP_S = 12;
+export const RET_HORIZONS_S = [12, 36, 900] as const;
+/** realizedVolBps samples (common.py VOL_SAMPLES = keeper MidHistory(120)) at VOL5M_STEP_S = BLOCK_SECONDS spacing. */
+export const REALIZED_VOL_SAMPLES = 120;
+
+/**
+ * Model v2 past-only features from the k-free price features and a time-stamped mid history (SPEC_v2; rounded to 4 dp
+ * exactly like ml/src/build_v2.py, edgePips an unrounded integer, realizedVolBps the already 3-dp-rounded value):
+ *   edgePips = gapPips - baseFee; edgeSigma = edgePips / max(realizedVolBps * 100, 1);
+ *   vol5mBps = realizedVolBps(mid(t_obs - 12 i), i = 24..0) (nearest at-or-before; samples before the history dropped);
+ *   retHBps  = ln(mid(t_obs) / mid(t_obs - h)) * 1e4 * dir, dir = baseIsToken0 ? -gapSign : +gapSign (mid = USDC per
+ *              ETH; pool prices are token1/token0, so "pool above the mid" means ETH is dear in the pool when ETH is
+ *              token0 and cheap when it is token1), 0 if no entry at-or-before t_obs - h.
+ * The history is sorted by t (MidHistory appends in time order); entries after t_obs are ignored.
+ * baseIsToken0 undefined = false (the training orientation: USDC token0, WETH token1).
+ */
+export function computeMidFeatures(
+  f: Pick<Features, 'gapPips' | 'gapSign' | 'baseFee' | 'realizedVolBps'>,
+  history: readonly MidObs[],
+  opts: { tObsMs?: number; baseIsToken0?: boolean } = {},
+): MidFeatures {
+  const tObsMs = opts.tObsMs ?? (history.length ? history[history.length - 1]!.t : 0);
+  const edgePips = f.gapPips - f.baseFee;
+  const samples: number[] = [];
+  for (let i = VOL5M_SAMPLES - 1; i >= 0; i--) {
+    const m = midAtOrBefore(history, tObsMs - i * VOL5M_STEP_S * 1000);
+    if (m !== undefined) samples.push(m);
+  }
+  const now = midAtOrBefore(history, tObsMs);
+  const dir = opts.baseIsToken0 ? -f.gapSign : f.gapSign;
+  const ret = (hS: number): number => {
+    const past = midAtOrBefore(history, tObsMs - hS * 1000);
+    if (now === undefined || past === undefined || !(now > 0) || !(past > 0) || dir === 0) return 0;
+    return round(Math.log(now / past) * 1e4 * dir, 4);
+  };
+  return {
+    edgePips,
+    edgeSigma: edgeSigmaOf(edgePips, f.realizedVolBps),
+    vol5mBps: round(realizedVol(samples), 4),
+    ret12Bps: ret(12),
+    ret36Bps: ret(36),
+    ret900Bps: ret(900),
+  };
+}
+
+/**
+ * realizedVolBps + the model v2 mid features from training-exact klines (ml/src/build_v2.py keeper_features with
+ * common.py Mids), snapshot second t = floor(tObsMs / 1000):
+ *   realizedVolBps = round(vol_bps(t, 120, 12), 3)   (ETHUSDT only; NaN = not enough klines => throws: fail the tick)
+ *   edgePips = gapPips - baseFee; edgeSigma = round(edgePips / max(realizedVolBps * 100, 1), 4)
+ *   vol5mBps = round(vol_bps(t, 25, 12), 4), NaN -> 0
+ *   retHBps  = round(ln(mid(t) / mid(t - H)) * 1e4 * dir, 4), non-finite -> 0, H = 12 / 36 / 900; mid = USDC per ETH;
+ *              dir = baseIsToken0 ? -gapSign : +gapSign (see computeMidFeatures)
+ */
+export function computeKlineMidFeatures(
+  f: Pick<Features, 'gapPips' | 'gapSign' | 'baseFee'>,
+  km: Pick<KlineMids, 'mid' | 'volBps'>,
+  tObsMs: number,
+  opts: { baseIsToken0?: boolean } = {},
+): { realizedVolBps: number; mid: MidFeatures } {
+  if (!Number.isFinite(tObsMs)) throw new Error('kline mid features need tObsMs');
+  const t = Math.floor(tObsMs / 1000);
+  const rv = km.volBps(t, REALIZED_VOL_SAMPLES, VOL5M_STEP_S);
+  if (!Number.isFinite(rv)) throw new Error(`kline realizedVolBps undefined at t=${t} (too few Binance 1s klines)`);
+  const realizedVolBps = round(rv, 3);
+  const edgePips = f.gapPips - f.baseFee;
+  const v5 = km.volBps(t, VOL5M_SAMPLES, VOL5M_STEP_S);
+  const m0 = km.mid(t);
+  const dir = opts.baseIsToken0 ? -f.gapSign : f.gapSign;
+  const ret = (h: number): number => {
+    const r = Math.log(m0 / km.mid(t - h)) * 1e4 * dir;
+    return Number.isFinite(r) ? round(r, 4) + 0 : 0; // + 0: no -0 (build_v2.py "+ 0.0")
+  };
+  const [h12, h36, h900] = RET_HORIZONS_S;
+  return {
+    realizedVolBps,
+    mid: {
+      edgePips,
+      edgeSigma: edgeSigmaOf(edgePips, realizedVolBps) + 0,
+      vol5mBps: round(Number.isFinite(v5) ? v5 : 0, 4),
+      ret12Bps: ret(h12),
+      ret36Bps: ret(h36),
+      ret900Bps: ret(h900),
+    },
+  };
+}
+
+/**
+ * SPEC_v2 "Orientation": every training row comes from a USDC = token0 / WETH = token1 pool (baseIsToken0 = false).
+ * gapSign and imbalance are token-order dependent (pool price = token1/token0, imbalance = token0 buy pressure), so for
+ * an ETH = token0 pool they are mirrored into the training orientation before any MODEL input is built (Kev state,
+ * tabular). Orientation-free fields (gapPips, edge*, sizeToDepth, vols, ret*Bps, nSwaps, arbShare) are unchanged.
+ * baseIsToken0 undefined / false = already canonical (returned as is). Jev keeps the orientation-aware input.
+ */
+export function canonicalFeatures(f: Features, baseIsToken0?: boolean): Features {
+  if (!baseIsToken0) return f;
+  return { ...f, gapSign: f.gapSign === 0 ? 0 : -f.gapSign, imbalance: f.imbalance === 0 ? 0 : -f.imbalance };
+}
+
+/** SPEC_v2: edge in units of the 12 s move (realizedVolBps bps = realizedVolBps * 100 pips), floor 1 pip; 4 dp like ml build_v2.py. */
+export const edgeSigmaOf = (edgePips: number, realizedVolBps: number): number => round(edgePips / Math.max(realizedVolBps * 100, 1), 4);
 
 /**
  * v5 liquidity features from ModifyLiquidity / JitPenalty events (past-only). Positions are identified by the v4
@@ -247,7 +415,27 @@ function round(x: number, d: number): number {
  * features produce identical text (cacheable). Units are spelled out because Jev reads
  * natural language.
  */
-export type StateFormat = 'auto' | 'v4' | 'v5';
+export type StateFormat = 'auto' | 'v4' | 'v5' | 'kev2';
+
+/** JS toFixed with an explicit "+" unless negative (SPEC_v2 `sg`; "-0.00" for small negatives stays as JS prints it). */
+const sg = (x: number, d: number): string => {
+  const s = x.toFixed(d);
+  return s.startsWith('-') ? s : '+' + s;
+};
+
+/**
+ * Model v2 Kev state lines (SPEC_v2 "State text format kev2"), appended to the k-free base-fee text. Missing fields
+ * (callers without a mid history) read as: edge from gapPips/baseFee/realizedVolBps, vol and trends 0. Present fields
+ * are formatted as given (never recomputed), so the text matches ml/src/states.py features_to_state_kev2 byte for byte.
+ */
+export function kev2StateLines(f: Features): string[] {
+  const edgeSigma = f.edgeSigma ?? edgeSigmaOf(f.edgePips ?? f.gapPips - f.baseFee, f.realizedVolBps);
+  return [
+    `edge_in_volatility: arb edge at the base fee is ${sg(edgeSigma, 2)} typical 12 s Binance moves.`,
+    `cex_volatility_5m: ${(f.vol5mBps ?? 0).toFixed(2)} bps per interval over the last 5 minutes.`,
+    `cex_trend: Binance moved ${sg(f.ret12Bps ?? 0, 2)} bps over 12 s, ${sg(f.ret36Bps ?? 0, 2)} bps over 36 s and ${sg(f.ret900Bps ?? 0, 2)} bps over 15 min in the arbitrage direction (positive = the gap is widening).`,
+  ];
+}
 
 export function featuresToState(f: Features, opts: { baseIsToken0?: boolean; format?: StateFormat } = {}): string {
   const base = opts.baseIsToken0 === false ? 'token1 (ETH)' : 'token0 (ETH)';
@@ -256,6 +444,11 @@ export function featuresToState(f: Features, opts: { baseIsToken0?: boolean; for
   const feePct = (f.baseFee / 1e4).toFixed(2);
   if (opts.format === 'v4') return featuresToStateV4(f, base, poolVs, gapPct, feePct);
   if (opts.format === 'v5') return featuresToStateV4(f, base, poolVs, gapPct, feePct) + '\n' + liquidityStateLines(f).join('\n');
+  if (opts.format === 'kev2') {
+    // k-free: the base-fee wording of 'auto' (what the v1 adapter was trained on) + the three v2 lines.
+    const { kBps: _k, arbFeePips: _fee, arbThresholdPips: _thr, ...kFree } = f;
+    return featuresToState(kFree, { baseIsToken0: opts.baseIsToken0 }) + '\n' + kev2StateLines(f).join('\n');
+  }
   // With the hook's regime fee known, describe the fee an arbitrageur really pays (base + k*gap on swaps toward
   // the mid); otherwise (plain pools, benchmark cache keys) keep the original base-fee wording byte-for-byte.
   const feeLines =

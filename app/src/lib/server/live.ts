@@ -50,6 +50,7 @@ export function modelKind(name: string | undefined): string | null {
   if (/jev/i.test(name)) return 'jev';
   if (/heuristic/i.test(name)) return 'heuristic';
   if (/^rule-/i.test(name)) return 'rule';
+  if (/^oniblock1\./i.test(name)) return 'oniblock1'; // the production LightGBM model
   return name.split('.')[0] ?? name;
 }
 
@@ -165,10 +166,11 @@ export async function getState(): Promise<StateJson> {
   const lastAttArgs = (lastAtt as { args?: Record<string, unknown> } | undefined)?.args;
   let attestMix: StateJson['status']['attestMix'] = null;
   if (recentAtts.length) {
-    const m = { window: MIX_WINDOW, total: recentAtts.length, jev: 0, heuristic: 0, rule: 0, other: 0 };
+    const m = { window: MIX_WINDOW, total: recentAtts.length, jev: 0, heuristic: 0, oniblock1: 0, kev: 0, rule: 0, other: 0 };
     for (const l of recentAtts as unknown as { args: { modelNode?: Hex } }[]) {
       const k = modelKind(nameOf(c, l.args.modelNode));
-      if (k === 'jev' || k === 'heuristic' || k === 'rule') m[k]++;
+      if (k === 'jev' || k === 'heuristic' || k === 'oniblock1' || k === 'rule') m[k]++;
+      else if (k === 'kev-v1') m.kev++; // modelKind keeps the label for kev-v1 (Kev-0.8B fine-tune)
       else m.other++;
     }
     attestMix = m;
@@ -355,8 +357,24 @@ export async function loadStore(c: Ctx, head: number): Promise<Store> {
   }
 }
 
+/**
+ * A head this far below the store is still treated as a lagging caller / RPC node, not a chain that went back.
+ * Callers read the head before taking the scan lock, so a slow request (or a lagging load-balanced node) routinely
+ * arrives with an older head than the store; that must not wipe it and rescan from deployBlock.
+ */
+const HEAD_LAG_TOLERANCE = 64;
+
 async function refresh(c: Ctx, head: number): Promise<Store> {
   const key = storeKey(c);
+  if (store && store.key === key && head < store.scannedTo) {
+    // Re-read the head inside the lock: only a chain that really went back (anvil restart, deep reorg) resets.
+    const now = await c.pc
+      .getBlockNumber()
+      .then(Number)
+      .catch(() => head);
+    if (now >= store.scannedTo - HEAD_LAG_TOLERANCE) return store;
+    head = now;
+  }
   if (!store || store.key !== key || head < store.scannedTo) {
     store = { key, scannedTo: c.d.deployBlock - 1, atts: [], rcpts: [], swaps: {}, cals: [], jits: [], snaps: new Map() };
   }
@@ -428,8 +446,9 @@ async function refresh(c: Ctx, head: number): Promise<Store> {
       const arr = (s.swaps[p.poolId] ??= []);
       for (const l of swaps[i] as unknown as L[]) arr.push({ block: Number(l.blockNumber), logIndex: l.logIndex, a0: l.args.amount0 as bigint, a1: l.args.amount1 as bigint, tx: l.transactionHash, fee: num(l.args.fee) });
     });
+    // Per chunk: if a later chunk's RPC call fails, the retry resumes after this one instead of storing it twice.
+    s.scannedTo = b;
   }
-  s.scannedTo = head;
   return s;
 }
 

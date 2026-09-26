@@ -9,6 +9,7 @@ import {
   encodeAbiParameters,
   encodePacked,
   keccak256,
+  parseGwei,
   toBytes,
   type Abi,
   type Account,
@@ -24,7 +25,7 @@ import {
 } from 'viem';
 import { oniblockHookAbi, poolManagerAbi } from './abi/oniblockHook.js';
 import type { PoolKeyJson } from './config.js';
-import { env, log, sleep } from './config.js';
+import { log, sleep } from './config.js';
 import type { JitPenaltyObs, LiquidityObs, SwapObs } from './features.js';
 import { Q96 } from './price.js';
 
@@ -106,6 +107,8 @@ export interface AttestationLog {
   modelNode: Hex;
   quoter: Address;
   txHash: Hex;
+  /** Log index within the mined block: orders an attestation against same-block swaps and liquidity changes. */
+  logIndex: number;
   /** v5 JIT head: attested pJit (bps) and the window (blocks) the hook set for liquidity added from now on. */
   pJitBps: number;
   jitWindow: number;
@@ -192,6 +195,7 @@ export async function getAttestations(pc: PublicClient, hook: Address, poolId: H
         modelNode: l.args.modelNode!,
         quoter: l.args.quoter!,
         txHash: l.transactionHash!,
+        logIndex: l.logIndex!,
         pJitBps: Number(l.args.pJitBps ?? 0),
         jitWindow: Number(l.args.jitWindow ?? 0),
       }),
@@ -259,6 +263,22 @@ export function receiptToSwapObs(r: ReceiptLog): SwapObs {
 }
 
 /**
+ * Priority fee in gwei (e.g. KEEPER_PRIORITY_GWEI) -> wei. Unset / empty = undefined (viem's default: the node's
+ * eth_maxPriorityFeePerGas); a decimal >= 0 otherwise, anything else throws.
+ */
+export function parsePriorityGwei(raw: string | undefined, name = 'priority fee'): bigint | undefined {
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const v = raw.trim();
+  if (!/^\d+(\.\d{1,9})?$/.test(v)) throw new Error(`${name} must be a number of gwei >= 0 with at most 9 decimals (got ${JSON.stringify(raw)})`);
+  return parseGwei(v);
+}
+
+export interface TxSenderOpts {
+  /** maxPriorityFeePerGas (wei) on every tx; maxFeePerGas = viem's 1.2 x base fee + this. Undefined = viem's default. */
+  priorityFeeWei?: bigint;
+}
+
+/**
  * Sends contract writes from one account with a locally tracked nonce. Simulates first
  * (surfaces revert reasons without burning gas), retries transient failures, resyncs the
  * nonce on "nonce too low/high" errors. Never throws from `send` unless `throwOnError`.
@@ -270,7 +290,12 @@ export class TxSender {
     private readonly pc: PublicClient,
     private readonly wc: WalletClient<Transport, Chain, Account>,
     private readonly component: string,
+    private readonly opts: TxSenderOpts = {},
   ) {}
+
+  get priorityFeeWei(): bigint | undefined {
+    return this.opts.priorityFeeWei;
+  }
 
   get address(): Address {
     return this.wc.account.address;
@@ -295,8 +320,12 @@ export class TxSender {
     wait?: boolean;
     /** Called once the tx is broadcast (or failed to broadcast: null), before waiting for the receipt. */
     onBroadcast?: (hash: Hex | null) => void;
-  }): Promise<{ hash: Hex; status: 'success' | 'reverted'; blockNumber: bigint; gasUsed: bigint; logs?: Log[] } | null> {
+    /** Called with the last error when the tx could not be broadcast (simulate / estimate / send failed); lets callers
+     *  tell a deterministic revert (e.g. a missing role) from transient RPC / nonce / gas trouble. */
+    onError?: (error: unknown) => void;
+  }): Promise<{ hash: Hex; status: 'success' | 'reverted'; blockNumber: bigint; gasUsed: bigint; logs?: Log[]; txIndex?: number } | null> {
     const label = req.label ?? String(req.functionName);
+    let lastError: unknown;
     const broadcast = async (): Promise<Hex | null> => {
       const retries = req.retries ?? 2;
       for (let attempt = 0; attempt <= retries; attempt++) {
@@ -315,15 +344,17 @@ export class TxSender {
           // Estimates are tight (warm/cold slots differ between the estimate and the mined block): 1.5x headroom,
           // else attestations can die with ReentrancySentryOOG. Unused gas is not charged.
           const est = await this.pc.estimateContractGas({ ...(request as any), account: this.wc.account });
-          // TX_PRIORITY_GWEI (e.g. 3 on Sepolia): a tip high enough to land in the very next block. The keeper's
-          // attestation is only valid for its target block and the one after, so a low default tip means late
-          // landings, AttestationBlockMismatch reverts and a stale oracle.
-          const tipGwei = Number(env('TX_PRIORITY_GWEI', '0'));
-          const tip = tipGwei > 0 ? { maxPriorityFeePerGas: BigInt(Math.round(tipGwei * 1e9)) } : {};
-          const hash = await this.wc.writeContract({ ...(request as any), nonce: this.nonce, gas: (est * 3n) / 2n, ...tip });
+          const prio = this.opts.priorityFeeWei;
+          const hash = await this.wc.writeContract({
+            ...(request as any),
+            nonce: this.nonce,
+            gas: (est * 3n) / 2n,
+            ...(prio !== undefined ? { maxPriorityFeePerGas: prio } : {}),
+          });
           this.nonce!++;
           return hash;
         } catch (e) {
+          lastError = e;
           const msg = (e as Error).message ?? String(e);
           const short = (e as { shortMessage?: string }).shortMessage ?? msg.split('\n')[0];
           const isRevert = /revert|ContractFunctionRevertedError/i.test(msg);
@@ -339,12 +370,15 @@ export class TxSender {
     this.queue = p.catch(() => undefined);
     const hash = await p;
     req.onBroadcast?.(hash);
-    if (!hash) return null;
+    if (!hash) {
+      req.onError?.(lastError);
+      return null;
+    }
     if (req.wait === false) return { hash, status: 'success', blockNumber: 0n, gasUsed: 0n };
     try {
       const rc = await this.pc.waitForTransactionReceipt({ hash, timeout: 60_000, pollingInterval: 200 });
       if (rc.status !== 'success') log(this.component, 'tx_reverted', { label, hash, block: rc.blockNumber });
-      return { hash, status: rc.status, blockNumber: rc.blockNumber, gasUsed: rc.gasUsed, logs: rc.logs };
+      return { hash, status: rc.status, blockNumber: rc.blockNumber, gasUsed: rc.gasUsed, logs: rc.logs, txIndex: rc.transactionIndex };
     } catch (e) {
       log(this.component, 'tx_wait_error', { label, hash, error: (e as Error).message.split('\n')[0] });
       this.nonce = undefined;

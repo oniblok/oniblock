@@ -20,9 +20,14 @@
  *   REPLAY_LOOKBACK_H=168       search range for the volatile window
  *   REPLAY_ORIGIN_BLOCK         block that maps to index 0 (default: deployment deployBlock, else 0)
  *   CEX_SYMBOL=ETHUSDT
+ *   CEX_QUOTE_SYMBOL=USDCUSDT   divisor: mid = CEX_SYMBOL / CEX_QUOTE_SYMBOL = USDC per ETH, exactly what
+ *                               oniblock1 was trained on (ml/src/common.py Mids.mid). Empty string = no correction.
+ *   CEX_QUOTE_MAX_AGE_S=120     live: reuse the last good quote mid this long when its fetch fails; beyond, throw
+ *                               (the keeper skips the tick => stale pool => conservativeFee; never an uncorrected mid).
+ * Replay divides by the latest USDCUSDT 1m kline at-or-before each sample time (at most 180 s old).
  * Klines come from services/.cache/klines (fetchKlines disk cache; immutable history).
  */
-import { fetchKlines, fetchMid, intervalMs, type KlineQuery } from './cex.js';
+import { cexQuoteSymbol, fetchKlines, fetchMid, intervalMs, midAt as klineMidAt, QUOTE_KLINE_MAX_AGE_MS, type FetchOpts, type KlineQuery } from './cex.js';
 import { env, envInt, log, parseArgs } from './config.js';
 
 export type PriceSourceKind = 'live' | 'replay';
@@ -34,14 +39,62 @@ export interface PriceSource {
   describe(): Record<string, unknown>;
 }
 
+export interface LiveOpts {
+  symbol?: string;
+  /** '' = no correction. */
+  quoteSymbol?: string;
+  quoteMaxAgeS?: number;
+  fetch?: FetchOpts;
+  now?: () => number;
+}
+
 export class LivePriceSource implements PriceSource {
   readonly kind = 'live' as const;
-  constructor(private readonly symbol = env('CEX_SYMBOL', 'ETHUSDT')!) {}
-  async midAt(_block: number): Promise<number> {
-    return (await fetchMid(this.symbol)).mid;
+  readonly symbol: string;
+  readonly quoteSymbol: string;
+  readonly quoteMaxAgeS: number;
+  private readonly fetchOpts: FetchOpts | undefined;
+  private readonly now: () => number;
+  /** Last good quote mid (USDCUSDT) and when it was fetched. */
+  private quote: { mid: number; at: number } | undefined;
+
+  constructor(o: LiveOpts = {}) {
+    this.symbol = o.symbol ?? env('CEX_SYMBOL', 'ETHUSDT')!;
+    this.quoteSymbol = o.quoteSymbol ?? cexQuoteSymbol();
+    this.quoteMaxAgeS = o.quoteMaxAgeS ?? envInt('CEX_QUOTE_MAX_AGE_S', 120);
+    this.fetchOpts = o.fetch;
+    this.now = o.now ?? Date.now;
   }
+
+  /** USDC per ETH = base book mid / quote book mid (both bookTickers fetched in parallel). */
+  async midAt(_block: number): Promise<number> {
+    const [base, q] = await Promise.all([fetchMid(this.symbol, this.fetchOpts), this.quoteSymbol ? this.quoteMid() : 1]);
+    return base.mid / q;
+  }
+
+  /** Fresh quote mid, else the cached one if at most quoteMaxAgeS old, else throw. */
+  private async quoteMid(): Promise<number> {
+    try {
+      const m = (await fetchMid(this.quoteSymbol, this.fetchOpts)).mid;
+      this.quote = { mid: m, at: this.now() };
+      return m;
+    } catch (e) {
+      const c = this.quote;
+      const ageS = c ? (this.now() - c.at) / 1000 : undefined;
+      if (c && ageS! <= this.quoteMaxAgeS) return c.mid;
+      const last = ageS === undefined ? 'no cached value' : `cached value ${ageS.toFixed(0)}s old`;
+      throw new Error(`${this.quoteSymbol} quote unavailable (${last}, max ${this.quoteMaxAgeS}s): ${(e as Error).message.split('\n')[0]}`);
+    }
+  }
+
   describe() {
-    return { kind: this.kind, symbol: this.symbol };
+    return {
+      kind: this.kind,
+      symbol: this.symbol,
+      quoteSymbol: this.quoteSymbol || null,
+      mid: this.quoteSymbol ? `${this.symbol} / ${this.quoteSymbol}` : `${this.symbol} (uncorrected)`,
+      quoteMaxAgeS: this.quoteSymbol ? this.quoteMaxAgeS : undefined,
+    };
   }
 }
 
@@ -53,6 +106,8 @@ export interface ReplayConfig {
   lookbackH: number;
   originBlock: number;
   symbol: string;
+  /** Divisor symbol (1m klines); '' = no correction. */
+  quoteSymbol: string;
 }
 
 export function replayConfigFromEnv(defaultOrigin = 0): ReplayConfig {
@@ -65,6 +120,7 @@ export function replayConfigFromEnv(defaultOrigin = 0): ReplayConfig {
     lookbackH: envInt('REPLAY_LOOKBACK_H', 168),
     originBlock: envInt('REPLAY_ORIGIN_BLOCK', defaultOrigin),
     symbol: env('CEX_SYMBOL', 'ETHUSDT')!,
+    quoteSymbol: cexQuoteSymbol(),
   };
 }
 
@@ -115,13 +171,23 @@ export class ReplayPriceSource implements PriceSource {
     }
     const ks = await fetchKlines({ symbol: cfg.symbol, interval: cfg.interval, startMs, endMs: startMs + span });
     if (ks.length < 2) throw new Error(`replay window ${startMs} has ${ks.length} klines`);
+    // USDC per ETH: divide by the latest quote 1m kline at-or-before each sample time (common.py usdc_usdt).
+    const qs = cfg.quoteSymbol
+      ? await fetchKlines({ symbol: cfg.quoteSymbol, interval: '1m', startMs: startMs - QUOTE_KLINE_MAX_AGE_MS, endMs: startMs + span })
+      : undefined;
     // Sample one price per block step by time (forward-fill across empty 1s buckets).
     const path: number[] = [];
     let j = 0;
     for (let b = 0; b <= cfg.blocks; b++) {
       const t = startMs + b * cfg.step * ivl;
       while (j + 1 < ks.length && ks[j + 1]!.openTime <= t) j++;
-      path.push(ks[j]!.close);
+      let q = 1;
+      if (qs) {
+        const v = klineMidAt(qs, t, QUOTE_KLINE_MAX_AGE_MS);
+        if (!v) throw new Error(`replay window ${startMs}: no ${cfg.quoteSymbol} 1m kline within ${QUOTE_KLINE_MAX_AGE_MS / 1000}s before ${t}`);
+        q = v;
+      }
+      path.push(ks[j]!.close / q);
     }
     const absRet = path.slice(1).map((p, i) => Math.abs(Math.log(p / path[i]!)) * 1e4);
     const stats = {
@@ -144,8 +210,9 @@ export class ReplayPriceSource implements PriceSource {
   }
 
   describe() {
-    const { interval, step, blocks, startMs, originBlock, symbol } = this.cfg;
-    return { kind: this.kind, symbol, interval, step, blocks, startMs, originBlock, ...this.stats };
+    const { interval, step, blocks, startMs, originBlock, symbol, quoteSymbol } = this.cfg;
+    const mid = quoteSymbol ? `${symbol} ${interval} / ${quoteSymbol} 1m` : `${symbol} (uncorrected)`;
+    return { kind: this.kind, symbol, quoteSymbol: quoteSymbol || null, mid, interval, step, blocks, startMs, originBlock, ...this.stats };
   }
 }
 

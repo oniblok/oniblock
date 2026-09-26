@@ -1,0 +1,78 @@
+{
+ "definition": "Selective-metric evaluation on the held-out test split: No hook vs Jev vs oniblock1.\n\nThe hook charges a premium on a block iff p > t, else it behaves as a vanilla pool.\n  pass rate = toxic charged / charged   FPR = benign charged / all benign\n  coverage  = charged / all             TPR = toxic charged / all toxic\nThresholds never see the scored day: Jev's is chosen on validation (FPR <= 5%); oniblock1's is walk-forward, each\ntest day using the trailing 7 days of labelled blocks (FPR <= 5%), as the settler publishes it live.",
+ "no_hook": {
+  "coverage": 0.0,
+  "fpr": 0.0,
+  "tpr": 0.0
+ },
+ "jev_deployed_no_gate_test_3k": {
+  "n": 3000,
+  "coverage": 1.0,
+  "pass_rate": 0.599,
+  "fpr": 1.0,
+  "tpr": 1.0,
+  "auc": 0.6047478687810246,
+  "note": "k = 0.8 p: premium on every block"
+ },
+ "jev_calibrated_gate_test_3k": {
+  "n": 3000,
+  "coverage": 0.13766666666666666,
+  "pass_rate": 0.8111380145278451,
+  "fpr": 0.06483790523690773,
+  "tpr": 0.1864218141346689,
+  "auc": 0.6047478687810246,
+  "threshold": 0.7681573991568513
+ },
+ "oniblock1_rolling_full_test": {
+  "n": 12837,
+  "coverage": 0.4652956298200514,
+  "pass_rate": 0.953624644232379,
+  "fpr": 0.055344655344655345,
+  "tpr": 0.7272727272727273,
+  "auc": 0.9355700224188478,
+  "ci95": {
+   "pass_rate": [
+    0.9422038469890099,
+    0.9661437833368574
+   ],
+   "fpr": [
+    0.04181788712070402,
+    0.06848499262180513
+   ],
+   "tpr": [
+    0.7058216240339018,
+    0.745944055868894
+   ]
+  }
+ },
+ "oniblock1_rolling_test_3k": {
+  "n": 3000,
+  "coverage": 0.45166666666666666,
+  "pass_rate": 0.9505535055350554,
+  "fpr": 0.05569409808811305,
+  "tpr": 0.7167501391207568,
+  "auc": 0.9287549073892897,
+  "ci95": {
+   "pass_rate": [
+    0.9375794760029146,
+    0.9650711111931665
+   ],
+   "fpr": [
+    0.04125514308168832,
+    0.06833683180517158
+   ],
+   "tpr": [
+    0.6842851834224207,
+    0.7493767703281874
+   ]
+  }
+ },
+ "oniblock1_fixed_threshold_full_test": {
+  "n": 12837,
+  "coverage": 0.5129703201682636,
+  "pass_rate": 0.9438116932422171,
+  "fpr": 0.07392607392607392,
+  "tpr": 0.7935393258426966,
+  "threshold": 0.8224
+ }
+}
