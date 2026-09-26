@@ -60,13 +60,17 @@ export const TABULAR_FEATURES: Record<string, (f: Features) => number> = {
 /** tabular-v1's input order (ml/models/tabular-v1.json). */
 export const TABULAR_V1_FEATURES = ['gapPips', 'edgePips', 'baseFee', 'imb_arb', 'abs_imbalance', 'sizeToDepth', 'realizedVolBps', 'nSwaps', 'arbShare', 'gap_over_fee', 'log_size'];
 
-export type TabularVersion = 'v1' | 'v2';
-export const tabularVersion = (): TabularVersion => (env('TABULAR_MODEL', 'v1') === 'v2' ? 'v2' : 'v1');
+export type TabularVersion = 'v1' | 'v2' | 'v2-fresh';
+export const TABULAR_VERSIONS: readonly TabularVersion[] = ['v1', 'v2', 'v2-fresh'];
+export const parseTabularVersion = (v: string | undefined): TabularVersion | undefined =>
+  TABULAR_VERSIONS.find((x) => x === v || `tabular-${x}` === v);
+/** v2-fresh is trained on a Binance read ~2 s before the block: only valid when the keeper posts first in the block. */
+export const tabularVersion = (): TabularVersion => parseTabularVersion(env('TABULAR_MODEL', 'v1')) ?? 'v1';
 
 export function defaultTabularPath(v: TabularVersion = tabularVersion()): string {
   const svc = resolve(SERVICES_DIR, 'models', `tabular-${v}.json`);
   if (v === 'v1' || existsSync(svc)) return svc;
-  return resolve(ROOT, 'ml', 'models', 'tabular-v2.json');
+  return resolve(ROOT, 'ml', 'models', `tabular-${v}.json`);
 }
 
 let cached: { path: string; model: TabularModel } | undefined;

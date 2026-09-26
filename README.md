@@ -253,7 +253,8 @@ Env for `pnpm -C services keeper` (all optional; unset = today's behaviour):
 
 - `CHARGE_THRESHOLD=0.xx`: charge gate. The posted pToxic stays unchanged, and confidence becomes 10000 when p ≥ t and 0 otherwise. The hook's k = kMax·p·c is therefore 0 below t, so the pool acts like a vanilla pool. Each attestation logs `p`, `chargeThreshold` and `charged`.
 - `KEV_STATE_FORMAT=auto|kev2`: the Kev state text (`MODEL_MODE=kev`). `auto` is the v1 adapter text. `kev2` appends three lines: the edge in volatility units, the 5-minute volatility and the 12 s / 36 s / 15 min trend.
-- `TABULAR_MODEL=v1|v2`: the tabular model (`MODEL_MODE=tabular`). `v2` reads `services/models/tabular-v2.json`, else `ml/models/tabular-v2.json`, and posts under `tabular-v2.models.oniblock.eth`. `TABULAR_MODEL_PATH` overrides the file.
+- `TABULAR_MODEL=v1|v2|v2-fresh`: the tabular model (`MODEL_MODE=tabular`). `v2` reads `services/models/tabular-v2.json`, else `ml/models/tabular-v2.json`, and posts under `tabular-v2.models.oniblock.eth`; `v2-fresh` is trained on a Binance read ~2 s before the block, so use it only when the keeper's post lands first in the block. `TABULAR_MODEL_PATH` overrides the file.
+- `pnpm -C services systemone`: the tabular models behind TypeSafe's System One API (`POST /v1/systemone` with the numeric Features as `state` and the `informed` noul question; `GET /health` lists each model's SHA-256, its ENS `model-hash`). Same prediction as the keeper's in-process scoring; port `SYSTEMONE_PORT` (8010).
 
 ### Tests
 

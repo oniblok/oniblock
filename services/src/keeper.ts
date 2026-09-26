@@ -175,7 +175,7 @@ export const DEFAULT_MODEL_NAME = 'jev-v1.models.oniblock.eth';
 /** Primary model node name per MODEL_MODE: kev -> kev-v1 (Kev-0.8B) / kev4b-v1 (KEV_MODEL=4b), tabular -> tabular-v1 / tabular-v2 (TABULAR_MODEL=v2), else jev-v1. */
 export function defaultModelName(mode = env('MODEL_MODE', 'auto')): string {
   if (mode === 'kev') return env('KEV_MODEL', '0.8b') === '4b' ? 'kev4b-v1.models.oniblock.eth' : 'kev-v1.models.oniblock.eth';
-  if (mode === 'tabular') return env('TABULAR_MODEL', 'v1') === 'v2' ? 'tabular-v2.models.oniblock.eth' : 'tabular-v1.models.oniblock.eth';
+  if (mode === 'tabular') return `tabular-${tabularVersion()}.models.oniblock.eth`;
   return DEFAULT_MODEL_NAME;
 }
 export const DEFAULT_FALLBACK_MODEL_NAME = 'heuristic-v1.models.oniblock.eth';
