@@ -13,9 +13,9 @@ import type { FeedBucket, FeedJson, FeedRow, Trader } from '../types';
 import { ctx, nameOf, tryRead, type Ctx } from './chain';
 import { devAccount } from './devkeys';
 import { rootEnv } from './env';
-import { firstAfter, inForce, loadStore, order, readConfig, type Att } from './live';
+import { firstAfter, inForce, loadStore, order, readConfig, sortAtts, type Att } from './live';
 import { priceX96ToMid, Q96, sqrtPriceX96ToMid } from './shared';
-import { swapEnabled, SWAP_LIMITS } from './swap';
+import { swapEnabled } from './swap';
 
 const fromCache = new Map<string, Address>();
 const tsCache = new Map<number, number>();
@@ -41,7 +41,7 @@ export async function getFeed(opts: { rows?: number; windowBlocks?: number; buck
   const head = Number(headBlk.number);
   const s = await loadStore(c, head);
   const cfg = await readConfig(c);
-  const atts: Att[] = [...s.atts].sort((a, b) => a.mined - b.mined);
+  const atts: Att[] = sortAtts(s.atts);
   const d0 = 10 ** c.d.token0.decimals;
   const d1 = 10 ** c.d.token1.decimals;
   const bIs0 = c.d.baseIsToken0;
@@ -50,9 +50,9 @@ export async function getFeed(opts: { rows?: number; windowBlocks?: number; buck
     const h = human(a0, a1);
     return h.base * priceX96ToMid(midX96, o) + h.quote;
   };
-  /** swapper markout at the next attested mid (null if none yet) */
-  const markout = (block: number, a0: bigint, a1: bigint) => {
-    const nx = firstAfter(atts, block);
+  /** swapper markout at the next attested mid after the swap's (block, logIndex) (null if none yet) */
+  const markout = (block: number, logIndex: number, a0: bigint, a1: bigint) => {
+    const nx = firstAfter(atts, block, logIndex);
     return nx ? valueAt(a0, a1, nx.midX96) : null;
   };
 
@@ -67,7 +67,7 @@ export async function getFeed(opts: { rows?: number; windowBlocks?: number; buck
   ]);
   const who = traders(c);
   const rows: FeedRow[] = rcpts.map((r) => {
-    const a = inForce(atts, r.block);
+    const a = inForce(atts, r.block, r.logIndex);
     const h = human(r.a0, r.a1);
     const mid = a ? priceX96ToMid(a.midX96, o) : null;
     // what the swapper paid, in quote units (quote leg when no attested mid yet)
@@ -98,7 +98,7 @@ export async function getFeed(opts: { rows?: number; windowBlocks?: number; buck
       model: nameOf(c, r.node) ?? null,
       trader: who.get(from.toLowerCase()) ?? null,
       from,
-      markoutUsd: markout(r.block, r.a0, r.a1),
+      markoutUsd: markout(r.block, r.logIndex, r.a0, r.a1),
     };
   });
 
@@ -121,7 +121,8 @@ export async function getFeed(opts: { rows?: number; windowBlocks?: number; buck
     if (!pool) continue;
     for (const w of s.swaps[pool.poolId] ?? []) {
       if (w.block < start) continue;
-      const m = markout(w.block, w.a0, w.a1) ?? (inForce(atts, w.block) ? valueAt(w.a0, w.a1, inForce(atts, w.block)!.midX96) : null);
+      const cur = inForce(atts, w.block, w.logIndex);
+      const m = markout(w.block, w.logIndex, w.a0, w.a1) ?? (cur ? valueAt(w.a0, w.a1, cur.midX96) : null);
       if (m !== null) put(tag, w.block, -m);
     }
   }
@@ -179,7 +180,6 @@ export async function getFeed(opts: { rows?: number; windowBlocks?: number; buck
       chart: { buckets, oniTotal: oc, vanTotal: vc, windowBlocks: span },
       rows,
       swapEnabled: swapEnabled(c),
-      swapLimits: SWAP_LIMITS,
     } satisfies FeedJson, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)),
   );
 }

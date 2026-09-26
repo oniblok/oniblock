@@ -91,10 +91,8 @@ export interface ReceiptPage {
     modelNode: Hex;
     modelName?: string;
     hook?: HookCalibration;
+    /** hook.isDemoted now: not allowlisted, or Brier above brierDemoteBps (no record yet => active) */
     demotedNow?: boolean;
-    /** on probation: calibration n < poolConfig.minSamples (the hook caps k at kDefault) */
-    unseasoned?: boolean;
-    minSamples?: number;
     history: { block: number; brierBps: number; hitRateBps: number; n: number }[];
     ens?: Record<string, string>;
     ensNamehash?: Hex;
@@ -103,12 +101,13 @@ export interface ReceiptPage {
       calibrationKey: Hex;
       hook?: HookCalibration;
       demotedNow?: boolean;
-      unseasoned?: boolean;
       history: { block: number; brierBps: number; hitRateBps: number; n: number }[];
       ens?: Record<string, string>;
     };
   };
   notes: string[];
+  /** the chain head has not yet reached block + 2, so the next attestation (markout) may still be missing */
+  pending?: boolean;
 }
 
 async function attestationView(c: Ctx, log: { args: Args; blockNumber: bigint; transactionHash: Hex }, ens: boolean): Promise<AttestationView> {
@@ -182,11 +181,12 @@ export async function getReceiptPage(txHash: Hex): Promise<ReceiptPage> {
   const c = await ctx();
   const o = order(c);
   const notes: string[] = [];
-  const [rc, tx, ens, cfg] = await Promise.all([
+  const [rc, tx, ens, cfg, headBn] = await Promise.all([
     c.pc.getTransactionReceipt({ hash: txHash }),
     c.pc.getTransaction({ hash: txHash }),
     ensAvailable(c),
     readConfig(c),
+    c.pc.getBlockNumber(),
   ]);
   const block = Number(rc.blockNumber);
   // Fee checks use the config in force at the receipt's block (a later updatePoolConfig must not break old receipts).
@@ -250,7 +250,12 @@ export async function getReceiptPage(txHash: Hex): Promise<ReceiptPage> {
   }
   if (!receipts.length && !postedLog && !jitPenalties.length) notes.push('This transaction emitted no Oniblock Receipt, AttestationPosted or JitPenalty event.');
 
-  // Attestation in force at the swap block (latest AttestationPosted mined at or before it).
+  // Attestation in force at the swap = latest AttestationPosted at (blockNumber, logIndex) before the swap's.
+  // The range end is clamped to the RPC head: public RPCs reject log ranges past their head block, and a freshly
+  // mined swap has no block + 2 yet (the next attestation / markout is then simply pending).
+  const head = Math.max(block, Number(headBn));
+  const toBlock = Math.min(block + 2, head);
+  const pending = block + 2 > head;
   const look = BigInt(Math.max(0, block - Math.max(64, n(cfg.staleBlocks) * 4)));
   const atts = await c.pc.getContractEvents({
     address: c.d.hook,
@@ -258,13 +263,15 @@ export async function getReceiptPage(txHash: Hex): Promise<ReceiptPage> {
     eventName: 'AttestationPosted',
     args: { id: c.d.oniblock.poolId },
     fromBlock: look,
-    toBlock: BigInt(block + 2),
+    toBlock: BigInt(toBlock),
   });
   type L = { args: Args; blockNumber: bigint; transactionHash: Hex; logIndex: number };
-  const list = atts as unknown as L[];
+  const list = (atts as unknown as L[]).slice().sort((a, b) => Number(a.blockNumber - b.blockNumber) || a.logIndex - b.logIndex);
   const firstSwapLog = receipts[0]?.logIndex ?? Infinity;
-  const inForce = list.filter((l) => Number(l.blockNumber) < block || (Number(l.blockNumber) === block && l.logIndex < firstSwapLog)).at(-1);
-  const next = list.find((l) => Number(l.blockNumber) > block);
+  const before = (l: L) => Number(l.blockNumber) < block || (Number(l.blockNumber) === block && l.logIndex < firstSwapLog);
+  const inForce = list.filter(before).at(-1);
+  // markout at the first attestation posted after the swap (same convention as the live feed)
+  const next = list.find((l) => !before(l));
   if (next) {
     const px = next.args.oracleMidX96 as bigint;
     const mid = priceX96ToMid(px, o);
@@ -306,8 +313,6 @@ export async function getReceiptPage(txHash: Hex): Promise<ReceiptPage> {
       modelName: name,
       hook: toCal(hookCal),
       demotedNow: demoted,
-      unseasoned: !!demoted && (hookCal ? n(hookCal.n) : 0) < n(cfg.minSamples),
-      minSamples: n(cfg.minSamples),
       history: toHist(hist),
       ens: texts,
       ensNamehash: name ? namehash(name) : undefined,
@@ -316,7 +321,6 @@ export async function getReceiptPage(txHash: Hex): Promise<ReceiptPage> {
             calibrationKey: jitKey,
             hook: toCal(jitCal),
             demotedNow: jitDemoted,
-            unseasoned: !!jitDemoted && (jitCal ? n(jitCal.n) : 0) < n(cfg.minSamples),
             history: toHist(jitHist),
             ens: jitTexts,
           }
@@ -325,10 +329,13 @@ export async function getReceiptPage(txHash: Hex): Promise<ReceiptPage> {
     if (!ens) notes.push('No ENS on this chain (local anvil): names shown are labels from deployments matched by namehash.');
   }
 
-  // v6 verdict: by attestation tx, else the attestation that targeted this block (the one in force for its swaps).
+  // v6 verdict: by attestation tx (this tx if it posted one), else the verdict behind the attestation in force for
+  // this tx's swaps (by that attestation's tx, then its target block), never the next block's.
   let verdict: VerdictJson | undefined;
   try {
-    verdict = findVerdict({ tx: txHash, block: postedInTx ? postedInTx.attBlock : block });
+    if (postedInTx) verdict = findVerdict({ tx: txHash, block: postedInTx.attBlock });
+    else if (attestation) verdict = findVerdict({ tx: attestation.tx, block: attestation.attBlock });
+    else verdict = findVerdict({ tx: txHash });
   } catch {
     verdict = undefined;
   }
@@ -356,6 +363,7 @@ export async function getReceiptPage(txHash: Hex): Promise<ReceiptPage> {
         verdict,
         calibration,
         notes,
+        pending,
       } satisfies ReceiptPage,
       (_k, v) => (typeof v === 'bigint' ? v.toString() : v),
     ),

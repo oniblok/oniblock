@@ -7,7 +7,7 @@ import {OniblockTestBase} from "./utils/OniblockTestBase.sol";
 /// v4 "the AI decides the fee" configuration (docs/review/V4_AI_DECIDES.md), no contract change:
 ///   arbThresholdPips = 0, kMinBps = 0, kDefaultBps = 0, kMaxBps = 8000, maxKStepBps = 8000
 ///   => k = 8000 * p * c / 1e8 ; fee (arb direction) = base + gap * k / 1e4
-/// A "no profitable arbitrage" score (p = 0) makes the pool exactly a base-fee pool; an unseasoned or demoted model
+/// A "no profitable arbitrage" score (p = 0) makes the pool exactly a base-fee pool; a demoted or non-allowlisted model
 /// has no power (k = kDefault = 0); k can go 0 -> high -> 0 in consecutive blocks.
 contract V4AiDecidesTest is OniblockTestBase {
     function _v4Config() internal pure returns (OniblockHook.PoolConfig memory c) {
@@ -81,12 +81,11 @@ contract V4AiDecidesTest is OniblockTestBase {
 
     function test_v4_untrustedModel_hasNoPower() public {
         bytes32 fresh = keccak256("heuristic-v1.models.oniblock.eth");
-        hook.setModelAllowed(pid, fresh, true); // allowlisted, never calibrated => unseasoned => kDefault = 0
-        _postAbove(3000, 10000, 10000, fresh);
-        (uint24 f,,,) = hook.quoteFee(pkey, true);
-        assertEq(f, 3000, "unseasoned: k = kDefault = 0 => base");
+        assertTrue(hook.isDemoted(pid, fresh), "not allowlisted => no power");
+        hook.setModelAllowed(pid, fresh, true); // allowlisted, never calibrated => active
+        assertFalse(hook.isDemoted(pid, fresh), "no record => active");
         _next();
-        _season(MODEL, 4000); // Brier 0.40 > 0.25 => demoted
+        _calibrate(MODEL, 4000); // Brier 0.40 > 0.25 => demoted
         _postAbove(3000, 10000, 10000, MODEL);
         (uint24 f2,,,) = hook.quoteFee(pkey, true);
         assertEq(f2, 3000, "demoted: base");

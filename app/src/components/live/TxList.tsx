@@ -50,10 +50,10 @@ export function TxList({
         <Row key={rowKey(r)} r={r} base={base} you={mine.has(r.tx.toLowerCase())} now={now} onOpen={onOpen} />
       ))}
       {pending.map((p) => (
-        <div key={p.hash} className="row-enter you-glow mx-1 mb-1 flex items-center gap-3 rounded-xl px-4" style={{ height: ROW_H - 4 }}>
-          <span className="h-4 w-4 animate-spin rounded-full border-2 border-oni/30 border-t-oni" />
+        <div key={p.hash} className="row-enter you-glow mx-1 mb-1 flex items-center gap-3 rounded-md px-4" style={{ height: ROW_H - 4 }}>
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
           <span className="text-sm text-ink">{p.label}</span>
-          <span className="rounded-full bg-oni/15 px-2 py-0.5 text-[10px] font-semibold tracking-wider text-oni">YOU</span>
+          <span className="rounded-sm bg-primary px-2 py-0.5 text-[10px] font-bold tracking-wider text-white">YOU</span>
           <span className="ml-auto text-xs text-muted">confirming on-chain…</span>
         </div>
       ))}
@@ -69,20 +69,20 @@ function Row({ r, base, you, now, onOpen }: { r: FeedRow; base: string; you: boo
   return (
     <button
       onClick={() => onOpen(r)}
-      className={`row-enter group relative mx-1 mb-1 grid shrink-0 cursor-pointer grid-cols-[52px_minmax(0,1fr)_minmax(0,150px)_minmax(0,190px)_16px] items-center gap-4 overflow-hidden rounded-xl px-4 text-left transition-colors hover:bg-white/[0.035] ${you ? 'you-glow' : ''}`}
+      className={`row-enter group relative mx-1 mb-1 grid shrink-0 cursor-pointer grid-cols-[52px_minmax(0,1fr)_minmax(0,150px)_minmax(0,190px)_16px] items-center gap-4 overflow-hidden rounded-md px-4 text-left transition-colors hover:bg-white/[0.035] ${you ? 'you-glow' : ''}`}
       style={{ height: ROW_H - 4, background: r.score >= 0.15 ? t.bg : undefined }}
     >
-      <span className="absolute inset-y-2 left-0 w-[3px] rounded-full" style={{ background: t.strip }} />
+      <span className="absolute inset-y-2 left-0 w-[3px] rounded-sm" style={{ background: t.strip }} />
       <span className="mono text-xs text-muted">{ago(r.ts, now)}</span>
 
       <span className="flex min-w-0 items-center gap-3">
-        <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full text-[13px] ${r.side === 'buy' ? 'bg-oni/10 text-oni' : 'bg-white/[0.06] text-ink-2'}`}>
+        <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-md text-[13px] ${r.side === 'buy' ? 'bg-oni/12 text-oni' : 'bg-sell/12 text-sell'}`}>
           {r.side === 'buy' ? '↗' : '↘'}
         </span>
         <span className="min-w-0">
           <span className="flex items-center gap-2 truncate text-sm text-ink">
             {r.side === 'buy' ? 'Buy' : 'Sell'} {amt(r.baseAmount)} {base}
-            {you && <span className="rounded-full bg-oni/15 px-2 py-0.5 text-[10px] font-semibold tracking-wider text-oni">YOU</span>}
+            {you && <span className="rounded-sm bg-primary px-2 py-0.5 text-[10px] font-bold tracking-wider text-white">YOU</span>}
           </span>
           <span className="block truncate text-xs text-muted">
             {usd(r.usd)}
@@ -102,7 +102,7 @@ function Row({ r, base, you, now, onOpen }: { r: FeedRow; base: string; you: boo
           <span className="mono block text-sm" style={{ color: r.score >= 0.15 ? t.text : 'var(--text-2)' }}>
             {r.arbDir && !r.stale ? r.score.toFixed(2) : '—'}
           </span>
-          <span className={`block truncate text-xs ${v.tone === 'toxic' ? 'text-bad' : v.tone === 'watch' ? 'text-[#f3a3aa]' : v.tone === 'stale' ? 'text-warn' : 'text-muted'}`}>{v.label}</span>
+          <span className={`block truncate text-xs ${v.tone === 'toxic' ? 'text-bad' : v.tone === 'watch' ? 'text-bad-softer' : v.tone === 'stale' ? 'text-warn' : 'text-muted'}`}>{v.label}</span>
         </span>
       </span>
       <span className="text-muted opacity-0 transition-opacity group-hover:opacity-100">›</span>

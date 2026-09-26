@@ -29,7 +29,7 @@ import {PriceMath} from "../../src/libraries/PriceMath.sol";
 ///   mheur    v_mheur 65     mheur 50         same as mjev (heuristic-scored, separate model node)
 ///   gated    v_gated 66     gated 40         same as mjev (Jev-scored, degraded in the 2nd half)
 ///
-/// Env: INIT_PRICE_USD_E8, LIQUIDITY, BENCH_OUT, DETOX_K, CONST_K, MIN_SAMPLES, STALE_BLOCKS, BRIER_DEMOTE_BPS,
+/// Env: INIT_PRICE_USD_E8, LIQUIDITY, BENCH_OUT, DETOX_K, CONST_K, STALE_BLOCKS, BRIER_DEMOTE_BPS,
 /// MODEL_NODES (allowlisted on every hooked pool).
 contract DeployBenchV2 is DeployBase {
     uint256 internal constant ANVIL0_PK = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
@@ -163,7 +163,6 @@ contract DeployBenchV2 is DeployBase {
                 vm.serializeUint(t, "kDefaultBps", cfgs[i].kDefaultBps);
                 vm.serializeUint(t, "brierDemoteBps", cfgs[i].brierDemoteBps);
                 vm.serializeUint(t, "baseFee", cfgs[i].baseFee);
-                vm.serializeUint(t, "minSamples", cfgs[i].minSamples);
                 vm.serializeUint(t, "staleBlocks", cfgs[i].staleBlocks);
                 vm.serializeUint(t, "feeMax", cfgs[i].feeMax);
                 vm.serializeUint(t, "arbThresholdPips", cfgs[i].arbThresholdPips);

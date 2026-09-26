@@ -837,7 +837,7 @@ contract EnsSetup is Script {
         c[n++] = _text(
             nKev,
             K_AGENT_CONTEXT,
-            "Kev-0.8B open-weights decision model (LoRA fine-tune of jaredpalmer/kev-0.8b, served locally by the keeper), asked every block: is there profitable arbitrage at the base fee? -> {pToxicBps, confidenceBps}; same public fee law k = kMax * p * c. Unseasoned (kDefault 0 = base fee) until the settler has graded minSamples receipts; calibration written by settler."
+            "Kev-0.8B open-weights decision model (LoRA fine-tune of jaredpalmer/kev-0.8b, served locally by the keeper), asked every block: is there profitable arbitrage at the base fee? -> {pToxicBps, confidenceBps}; same public fee law k = kMax * p * c. Active from its first attestation; Brier-demoted to kDefault (0 = base fee) if its calibration (written by the settler) exceeds brierDemoteBps."
         );
         c[n++] = _text(nRule, K_MODEL_HASH, vm.toString(keccak256("oniblock/rule-v1")));
         c[n++] = _text(

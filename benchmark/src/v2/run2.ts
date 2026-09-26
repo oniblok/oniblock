@@ -13,7 +13,7 @@
  *   --lambda L (0.1 retail orders/step/market)  --retail-usd U (400 median)  --retail-sigma S (1.3)  --retail-cap U (200000)
  *   --dir-autocorr P (0.6)  --informed F (0.05)  --informed-horizon H (30 steps)  --routing split|best (split)
  *   --min-split F (0.1)  --tvl U (20000000 per pool)  --label-mid true|attested (true: settler marks out vs the CEX mid at the swap's block time, fetched ex post)  --variants true|false
- *   --report-only (re-render from <out>/runs.raw.json)  --settle-every M (20)  --calib-window W (50)  --min-samples N (10)  --seed S (7)  --port P (8700)  --out DIR
+ *   --report-only (re-render from <out>/runs.raw.json)  --settle-every M (20)  --calib-window W (50)  --calib-min-n N (1)  --seed S (7)  --port P (8700)  --out DIR
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -69,8 +69,7 @@ const base: Omit<RunConfigV2, 'label' | 'path' | 'port'> = {
   degradeAtFrac: 0.5,
   settleEvery: num('settle-every', quick ? 10 : 20),
   calibWindow: num('calib-window', quick ? 20 : 50),
-  calibMinN: num('min-samples', quick ? 3 : 10),
-  minSamples: num('min-samples', quick ? 3 : 10),
+  calibMinN: num('calib-min-n', 1), // settler posting floor; the hook has no sample minimum
   staleSteps: num('stale-steps', 5),
   labelMid: (a['label-mid'] as 'attested' | 'true') ?? 'true',
   bucketSteps: 60,

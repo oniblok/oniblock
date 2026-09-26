@@ -1,5 +1,7 @@
 # Oniblock contract review #2
 
+> Note (later change): the `minSamples` probation ("unseasoned") described in this historic document has since been removed from the hook; the calibration gate is now the pool allowlist + Brier demotion only, and a model with no calibration record is active.
+
 **Scope.** This round re-checks the fixes in `docs/review/CONTRACT_FIXES_1.md` against `contracts/src/OniblockHook.sol` (786 lines), and looks for new attack surface introduced by those fixes. That covers the timelock, same-block attestation replacement, the per-direction high-water gap, and the model allowlist with probation.
 
 **Method.**

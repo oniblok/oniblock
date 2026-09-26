@@ -1587,11 +1587,6 @@
             "internalType": "uint32"
           },
           {
-            "name": "minSamples",
-            "type": "uint32",
-            "internalType": "uint32"
-          },
-          {
             "name": "chainlinkMaxAge",
             "type": "uint32",
             "internalType": "uint32"
@@ -1954,11 +1949,6 @@
             "internalType": "uint32"
           },
           {
-            "name": "minSamples",
-            "type": "uint32",
-            "internalType": "uint32"
-          },
-          {
             "name": "chainlinkMaxAge",
             "type": "uint32",
             "internalType": "uint32"
@@ -2252,11 +2242,6 @@
           },
           {
             "name": "brierDemoteBps",
-            "type": "uint32",
-            "internalType": "uint32"
-          },
-          {
-            "name": "minSamples",
             "type": "uint32",
             "internalType": "uint32"
           },
@@ -2685,11 +2670,6 @@
             "internalType": "uint32"
           },
           {
-            "name": "minSamples",
-            "type": "uint32",
-            "internalType": "uint32"
-          },
-          {
             "name": "chainlinkMaxAge",
             "type": "uint32",
             "internalType": "uint32"
@@ -2810,11 +2790,6 @@
           },
           {
             "name": "brierDemoteBps",
-            "type": "uint32",
-            "internalType": "uint32"
-          },
-          {
-            "name": "minSamples",
             "type": "uint32",
             "internalType": "uint32"
           },

@@ -107,14 +107,12 @@ export default function Home() {
   const feeTone = (f: typeof x.feeZeroForOne) => (f.arbDir && f.gapPips > thr && f.feePips > cfg.baseFee ? ('warn' as const) : undefined);
   const kSub = x.demoted
     ? `model demoted → kDefault ${kFmt(cfg.kDefaultBps)}${cfg.kDefaultBps === 0 ? ' (base fee)' : ''}`
-    : x.unseasoned
-      ? `unseasoned → kDefault ${kFmt(cfg.kDefaultBps)}${cfg.kDefaultBps === 0 ? ' (base fee)' : ''}`
-      : kZero
-        ? 'model: no profitable arb → base fee'
-        : `range ${kFmt(cfg.kMinBps)}–${kFmt(cfg.kMaxBps)}`;
+    : kZero
+      ? 'model: no profitable arb → base fee'
+      : `range ${kFmt(cfg.kMinBps)}–${kFmt(cfg.kMaxBps)}`;
   const mix = x.attestMix;
   const mixPct = (n: number) => (mix && mix.total ? `${Math.round((100 * n) / mix.total)}%` : '—');
-  // v5 second knob: the JIT penalty window the model sets alongside k (jitWindowDefault while demoted / unseasoned / stale).
+  // v5 second knob: the JIT penalty window the model sets alongside k (jitWindowDefault while demoted / stale).
   const j = x.jit;
   const jitDef = cfg.jitWindowDefault ?? '—';
   const jitRange = `${cfg.jitWindowMin ?? '—'}–${cfg.jitWindowMax ?? '—'}`;
@@ -124,9 +122,7 @@ export default function Home() {
       ? `stale mid → default ${jitDef} blk`
       : j.demoted
         ? `p_jit ${prob(j.pJitBps)} · JIT head demoted → default ${jitDef}`
-        : j.unseasoned
-          ? `p_jit ${prob(j.pJitBps)} · unseasoned → default ${jitDef}`
-          : `p_jit ${prob(j.pJitBps)} · range ${jitRange} blk`;
+        : `p_jit ${prob(j.pJitBps)} · range ${jitRange} blk`;
 
   // v6: the model's one malicious score + the attack type that allocated it onto k / the JIT window (keeper verdicts file).
   const v = vd.data?.[0] ?? null;
@@ -158,13 +154,13 @@ export default function Home() {
           label="Attested k"
           value={kFmt(x.kBps)}
           sub={kSub}
-          tone={x.demoted ? 'bad' : x.unseasoned && cfg.kDefaultBps !== 0 ? 'warn' : undefined}
+          tone={x.demoted ? 'bad' : undefined}
         />
         <Stat
           label="JIT window"
           value={j.jitWindowEffective == null ? '—' : `${j.jitWindowEffective} blk`}
           sub={jitSub}
-          tone={!j.supported ? undefined : j.demoted ? 'bad' : j.unseasoned || x.stale ? 'warn' : undefined}
+          tone={!j.supported ? undefined : j.demoted ? 'bad' : x.stale ? 'warn' : undefined}
         />
         <Stat
           label="Model verdict"
@@ -198,7 +194,7 @@ export default function Home() {
         {j.supported ? (
           <span>
             Model decides two knobs every block: <b className="text-ink">k = {kFmt(x.kBps)}</b> (kMax · p_toxic {prob(x.pToxicBps)} · confidence {prob(x.confidenceBps)}) and{' '}
-            <b className="text-ink">JIT window = {j.jitWindow == null ? '—' : `${j.jitWindow} blocks`}</b> ({cfg.jitWindowMin ?? '—'} + ({cfg.jitWindowMax ?? '—'} − {cfg.jitWindowMin ?? '—'}) · p_jit {prob(j.pJitBps)} · confidence): liquidity removed within that many blocks of being added forfeits its fees to standing LPs. Demoted or unseasoned JIT head, or a stale mid → default {jitDef} blocks.
+            <b className="text-ink">JIT window = {j.jitWindow == null ? '—' : `${j.jitWindow} blocks`}</b> ({cfg.jitWindowMin ?? '—'} + ({cfg.jitWindowMax ?? '—'} − {cfg.jitWindowMin ?? '—'}) · p_jit {prob(j.pJitBps)} · confidence): liquidity removed within that many blocks of being added forfeits its fees to standing LPs. Demoted JIT head, or a stale mid → default {jitDef} blocks.
           </span>
         ) : null}
         {x.belowThreshold ? (
@@ -208,7 +204,7 @@ export default function Home() {
         ) : null}
         {!x.stale && kZero ? (
           <span className="text-good">
-            k = 0 → base fee {pct(cfg.baseFee)} both ways (same as a vanilla pool): {x.demoted || x.unseasoned ? 'no trusted model (kDefault = 0)' : 'the model sees no profitable arbitrage'}.
+            k = 0 → base fee {pct(cfg.baseFee)} both ways (same as a vanilla pool): {x.demoted ? 'no trusted model (kDefault = 0)' : 'the model sees no profitable arbitrage'}.
           </span>
         ) : null}
         <span>

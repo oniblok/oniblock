@@ -25,10 +25,8 @@ export interface JitHeadRow {
   hitRateBps: number | null;
   n: number;
   updatedBlock: number | null;
-  /** demoted for bad JIT calibration (window forced to jitWindowDefault) */
+  /** demoted for bad JIT calibration (window forced to jitWindowDefault); no record yet => active */
   demoted: boolean | null;
-  /** on probation: n < minSamples (window = jitWindowDefault) */
-  unseasoned: boolean;
   history: CalibrationPoint[];
   ens?: Record<string, string>;
 }
@@ -41,10 +39,8 @@ export interface ModelRow {
   hitRateBps: number | null;
   n: number;
   updatedBlock: number | null;
-  /** demoted for bad calibration (Brier above threshold) */
+  /** demoted for bad calibration (Brier above threshold); no record yet => active */
   demoted: boolean | null;
-  /** on probation: n < minSamples (hook caps k at kDefault) */
-  unseasoned: boolean;
   allowed: boolean | null;
   attestations: number;
   lastAttestBlock: number | null;
@@ -59,7 +55,6 @@ export interface ModelsPage {
   chain: { name: string; chainId: number; ens: boolean; ensName?: string };
   brierDemoteBps: number;
   kDefaultBps: number;
-  minSamples: number;
   currentModelNode?: Hex;
   /** the deployed ABI carries the v5 JIT head */
   jitHead: boolean;
@@ -79,24 +74,94 @@ async function allowed(c: Ctx, node: Hex): Promise<boolean | null> {
 
 const optNum = (x: unknown): number | null => (x == null ? null : n(x));
 
+type L = { args: Args; blockNumber: bigint };
+
+/**
+ * Incremental event cache per chain + hook: CalibrationUpdated and AttestationPosted logs scanned so far. Each poll
+ * only fetches (scannedTo, head], in chunks, instead of the whole history from the deploy block. A failed chunk keeps
+ * the progress made so far (the next poll resumes from there).
+ */
+interface EventCache {
+  key: string;
+  scannedTo: number;
+  cals: L[];
+  atts: L[];
+}
+const caches = new Map<string, EventCache>();
+let scanning: Promise<unknown> | undefined;
+const CHUNK = 2_000;
+
+async function scanEvents(c: Ctx, head: number): Promise<EventCache> {
+  const key = `${c.d.chainId}|${c.d.hook.toLowerCase()}|${c.d.deployBlock}|${c.sel.rpcUrl}|${c.d.mtime}`;
+  // serialise concurrent polls so they share one scan instead of racing on the cache
+  while (scanning) await scanning.catch(() => undefined);
+  const run = (async () => {
+    let s = caches.get(key);
+    if (!s || head < s.scannedTo - 64) {
+      // first scan, or the chain was reset (local anvil): start over
+      s = { key, scannedTo: c.d.deployBlock - 1, cals: [], atts: [] };
+      caches.set(key, s);
+    }
+    for (let a = s.scannedTo + 1; a <= head; a += CHUNK) {
+      const b = Math.min(head, a + CHUNK - 1);
+      const range = { fromBlock: BigInt(a), toBlock: BigInt(b) };
+      const [cals, atts] = await Promise.all([
+        c.pc.getContractEvents({ address: c.d.hook, abi: c.hookAbi, eventName: 'CalibrationUpdated', ...range }),
+        c.pc.getContractEvents({ address: c.d.hook, abi: c.hookAbi, eventName: 'AttestationPosted', args: { id: c.d.oniblock.poolId }, ...range }),
+      ]);
+      s.cals.push(...(cals as unknown as L[]));
+      s.atts.push(...(atts as unknown as L[]));
+      s.scannedTo = b;
+    }
+    return s;
+  })();
+  scanning = run;
+  try {
+    return await run;
+  } catch (e) {
+    // keep partial progress: serve what was scanned so far once anything is cached
+    const s = caches.get(key);
+    if (s && s.scannedTo >= c.d.deployBlock) return s;
+    throw e;
+  } finally {
+    scanning = undefined;
+  }
+}
+
+/** Last good page per chain + hook: served when a poll fails (RPC hiccup) instead of a 500. */
+const lastGood = new Map<string, ModelsPage>();
+
 export async function getModels(): Promise<ModelsPage> {
   const c = await ctx();
-  const head = Number(await c.pc.getBlockNumber());
-  const [cfg, ens, cals, atts, ps] = await Promise.all([
+  const k = `${c.d.chainId}|${c.d.hook.toLowerCase()}`;
+  try {
+    const page = await buildModels(c);
+    lastGood.set(k, page);
+    return page;
+  } catch (e) {
+    const prev = lastGood.get(k);
+    if (prev) return prev;
+    throw e;
+  }
+}
+
+async function buildModels(c: Ctx): Promise<ModelsPage> {
+  const [headBn, cfg, ens, ps] = await Promise.all([
+    c.pc.getBlockNumber(),
     readConfig(c),
     ensAvailable(c),
-    c.pc.getContractEvents({ address: c.d.hook, abi: c.hookAbi, eventName: 'CalibrationUpdated', fromBlock: BigInt(c.d.deployBlock), toBlock: BigInt(head) }),
-    c.pc.getContractEvents({ address: c.d.hook, abi: c.hookAbi, eventName: 'AttestationPosted', args: { id: c.d.oniblock.poolId }, fromBlock: BigInt(c.d.deployBlock), toBlock: BigInt(head) }),
     tryRead<readonly [Args, Args, boolean]>(c, 'poolState', [c.d.oniblock.poolId]),
   ]);
-  type L = { args: Args; blockNumber: bigint };
-  const minSamples = Number(cfg.minSamples ?? 0);
+  const ev = await scanEvents(c, Number(headBn));
+  const head = Math.max(ev.scannedTo, 0);
+  const cals = ev.cals;
+  const atts = ev.atts;
   const jitHead = jitHeadSupported(c);
   // c.names maps namehash -> name; models = known *.models.* names + every node seen on-chain
   const modelHashes = new Set<Hex>();
   for (const [h, name] of c.names) if (/\.models\./.test(name)) modelHashes.add(h as Hex);
-  for (const l of cals as unknown as L[]) modelHashes.add((l.args.modelNode as Hex).toLowerCase() as Hex);
-  for (const l of atts as unknown as L[]) modelHashes.add((l.args.modelNode as Hex).toLowerCase() as Hex);
+  for (const l of cals) modelHashes.add((l.args.modelNode as Hex).toLowerCase() as Hex);
+  for (const l of atts) modelHashes.add((l.args.modelNode as Hex).toLowerCase() as Hex);
   // v5: the settler posts the JIT head under jitCalibrationKey(modelNode), so CalibrationUpdated also carries those
   // derived keys. They belong to their parent model's row, never to a row of their own.
   if (jitHead) {
@@ -105,7 +170,7 @@ export async function getModels(): Promise<ModelsPage> {
   }
 
   const histOf = (key: Hex): CalibrationPoint[] =>
-    (cals as unknown as L[])
+    cals
       .filter((l) => (l.args.modelNode as string).toLowerCase() === key)
       .map((l) => ({ block: Number(l.blockNumber), brierBps: n(l.args.brierBps), hitRateBps: n(l.args.hitRateBps), n: n(l.args.n) }));
   const pick = (t: Record<string, string> | undefined, keys: string[]) => (t ? Object.fromEntries(keys.filter((k) => k in t).map((k) => [k, t[k]!])) : undefined);
@@ -113,7 +178,7 @@ export async function getModels(): Promise<ModelsPage> {
   const models: ModelRow[] = [];
   for (const node of modelHashes) {
     const name = nameOf(c, node);
-    const myAtts = (atts as unknown as L[]).filter((l) => (l.args.modelNode as string).toLowerCase() === node);
+    const myAtts = atts.filter((l) => (l.args.modelNode as string).toLowerCase() === node);
     const jitKey = jitHead ? (jitCalibrationKey(node).toLowerCase() as Hex) : undefined;
     const textKeys = jitKey ? [...MODEL_KEYS, ...JIT_CALIBRATION_KEYS] : MODEL_KEYS;
     const [cal, demoted, allow, texts, jitCal, jitDemoted] = await Promise.all([
@@ -128,15 +193,13 @@ export async function getModels(): Promise<ModelsPage> {
     let jit: JitHeadRow | undefined;
     if (jitKey) {
       const jn = jitCal ? n(jitCal.n) : 0;
-      const jitUnseasoned = allow !== false && jn < minSamples;
       jit = {
         calibrationKey: jitKey,
         brierBps: jitCal && jn > 0 ? n(jitCal.brierBps) : null,
         hitRateBps: jitCal && jn > 0 ? n(jitCal.hitRateBps) : null,
         n: jn,
         updatedBlock: jitCal && jn > 0 ? n(jitCal.updatedBlock) : null,
-        demoted: jitDemoted == null ? null : jitDemoted && allow !== false && !jitUnseasoned,
-        unseasoned: jitUnseasoned,
+        demoted: jitDemoted == null ? null : jitDemoted && allow !== false,
         history: histOf(jitKey),
         ens: pick(texts, JIT_CALIBRATION_KEYS),
       };
@@ -149,8 +212,7 @@ export async function getModels(): Promise<ModelsPage> {
       hitRateBps: cal && nn > 0 ? n(cal.hitRateBps) : null,
       n: nn,
       updatedBlock: cal && nn > 0 ? n(cal.updatedBlock) : null,
-      unseasoned: allow !== false && nn < minSamples,
-      demoted: demoted == null ? null : demoted && allow !== false && !(nn < minSamples),
+      demoted: demoted == null ? null : demoted && allow !== false,
       allowed: allow,
       attestations: myAtts.length,
       lastAttestBlock: myAtts.length ? Number(myAtts.at(-1)!.blockNumber) : null,
@@ -166,7 +228,6 @@ export async function getModels(): Promise<ModelsPage> {
       chain: { name: c.sel.name, chainId: c.d.chainId, ens, ensName: c.ens?.name },
       brierDemoteBps: cfg.brierDemoteBps,
       kDefaultBps: cfg.kDefaultBps,
-      minSamples,
       currentModelNode: (ps?.[0]?.modelNode as Hex | undefined)?.toLowerCase() as Hex | undefined,
       jitHead,
       jitWindow: { min: optNum(cfg.jitWindowMin), max: optNum(cfg.jitWindowMax), default: optNum(cfg.jitWindowDefault), now: optNum(ps?.[0]?.jitWindow) },

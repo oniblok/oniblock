@@ -20,13 +20,17 @@ default 0.5; demo profile 0.7). This is deliberate and logged per block (`pJitMo
 
 Why: zero-shot Jev answers 0.02 when no liquidity has churned yet and 0.3–0.45 once it has. In the demo every
 liquidity add is the JIT bot's, so every graded label is y = 1; a 0.35 is confidently wrong and the on-chain gate
-demotes the head the moment it is seasoned (measured: Brier 0.57, then 0.49, then 0.46 across three runs before the
+demotes the head as soon as its first record is posted (measured: Brier 0.57, then 0.49, then 0.46 across three runs before the
 blend/tuning). The observed churn is exactly the base rate the settler will grade against, so weighting it in is
 online calibration, not a bypass: the gate still grades the posted number.
 
 ## Headless demo (local anvil, 2 s blocks, `DEMO_DURATION=600`)
 
 Runs (`scripts/demo-local.sh`, story checks in `services/src/e2e/story.ts`):
+
+> Note (current state): these runs were recorded while the hook still had a `minSamples` probation. That field has
+> since been removed; the gate is now the pool allowlist + Brier demotion only (a head with no record is active), and
+> the story expectations were renamed accordingly: `seasoned` -> `active`, `jit-seasoned` -> `jit-active`.
 
 | run | profile | result |
 |---|---|---|
@@ -35,8 +39,9 @@ Runs (`scripts/demo-local.sh`, story checks in `services/src/e2e/story.ts`):
 | full, retuned (`JIT_EVERY=15`, label window 14, `JIT_CALIB_WINDOW=4`, w = 0.7) | | arb story passes; JIT head Brier 0.46 (n=3) → 0.15 → 0.09 → 0.06 → 0.04 → **0.02**; window 10 → **74–93 blocks** from block 159; **cycles 6–10 caught by the adaptive window** (held 12 blocks, would have escaped the fixed 10-block wall) |
 
 Cold start is inherent: the first JIT add is graded against a p_jit of ~0.02 (no churn observed, and Jev says
-"recent liquidity stayed"). The gate requires evidence before the head gets power, which is the point; the demo
-needs enough cycles for that evidence to arrive (~5 cycles ≈ 4.5 min at 2 s blocks).
+"recent liquidity stayed"). With no record the head is active, but its early p_jit is too low to widen the window,
+and the first posted record (Brier above 0.25) demotes it; the demo needs enough cycles for the Brier to fall back
+under the gate (~5 cycles ≈ 4.5 min at 2 s blocks).
 
 ## Bugs found by the review and fixed
 

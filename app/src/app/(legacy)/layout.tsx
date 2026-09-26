@@ -6,7 +6,7 @@ export default function LegacyLayout({ children }: { children: React.ReactNode }
     <>
       <header className="border-b border-line">
         <div className="mx-auto flex max-w-[1400px] items-center gap-8 px-6 py-3">
-          <Link href="/" className="text-lg font-semibold tracking-tight">
+          <Link href="/" className="font-display text-xl uppercase leading-none">
             Oniblock
           </Link>
           <nav className="flex gap-5 text-sm text-ink-2">

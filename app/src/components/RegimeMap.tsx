@@ -40,7 +40,6 @@ export function RegimeMap({ cells, cfg }: { cells: RegimeCell[]; cfg: PoolConfig
                 rx={2}
                 fill={none ? '#1f1f1d' : c.stale ? 'url(#hatch)' : kColor(c.kBps ?? cfg.kDefaultBps, cfg.kMinBps, cfg.kMaxBps)}
               />
-              {c.unseasoned && !c.demoted && !c.stale && <rect x={1} y={1} width={12} height={28} rx={2} fill="none" stroke="var(--warn)" strokeWidth={1.5} strokeDasharray="3 2" />}
               {c.demoted && !c.stale && <rect x={1} y={1} width={12} height={28} rx={2} fill="none" stroke="var(--bad)" strokeWidth={2} />}
               {c.swaps > 0 && <circle cx={7} cy={24} r={2.5} fill="#fff" />}
               {c.posted && <rect x={4} y={3} width={6} height={2} rx={1} fill="rgba(255,255,255,0.55)" />}
@@ -80,9 +79,6 @@ export function RegimeMap({ cells, cfg }: { cells: RegimeCell[]; cfg: PoolConfig
           <span className="inline-block h-3 w-3.5 rounded-sm border-2 border-bad" /> model demoted by calibration gate
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-3 w-3.5 rounded-sm border border-dashed border-warn" /> unseasoned model (n &lt; minSamples) → kDefault
-        </span>
-        <span className="flex items-center gap-1.5">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-white" /> swaps in block (click → receipt)
         </span>
         <span className="flex items-center gap-1.5">
@@ -110,7 +106,7 @@ export function RegimeMap({ cells, cfg }: { cells: RegimeCell[]; cfg: PoolConfig
                 <tr><td>gap vs CEX mid</td><td>{gapBps(hover.c.gapPips)}</td></tr>
                 <tr><td>model</td><td>{hover.c.model ?? '—'}</td></tr>
                 <tr><td>attestation age</td><td>{hover.c.age} blk{hover.c.stale ? ' · STALE' : ''}</td></tr>
-                <tr><td>calibration gate</td><td>{hover.c.demoted ? 'demoted' : hover.c.unseasoned ? 'unseasoned' : 'ok'}</td></tr>
+                <tr><td>calibration gate</td><td>{hover.c.demoted ? 'demoted' : 'ok'}</td></tr>
                 <tr><td>swaps</td><td>{hover.c.swaps}</td></tr>
               </tbody>
             </table>

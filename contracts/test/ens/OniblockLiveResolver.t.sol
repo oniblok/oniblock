@@ -66,7 +66,7 @@ contract OniblockLiveResolverTest is OniblockTestBase {
     bytes32 jev;
     bytes32 kev;
     bytes32 heur;
-    uint256 seasonedAt;
+    uint256 calibratedAt;
 
     function setUp() public override {
         super.setUp();
@@ -84,8 +84,8 @@ contract OniblockLiveResolverTest is OniblockTestBase {
         hook.setModelAllowed(pid, jev, true);
         hook.setModelAllowed(pid, kev, true);
         vm.prank(settler);
-        hook.setCalibration(jev, 1830, 6120, 12); // seasoned: n >= minSamples, brier <= brierDemoteBps
-        seasonedAt = block.number;
+        hook.setCalibration(jev, 1830, 6120, 12); // brier <= brierDemoteBps => active
+        calibratedAt = block.number;
     }
 
     // ------------------------------------------------------------------ helpers
@@ -180,7 +180,7 @@ contract OniblockLiveResolverTest is OniblockTestBase {
         assertEq(_text(n, "calibration.brier"), "1830");
         assertEq(_text(n, "calibration.hitRate"), "6120");
         assertEq(_text(n, "calibration.n"), "12");
-        assertEq(_text(n, "calibration.epoch"), Strings.toString(seasonedAt));
+        assertEq(_text(n, "calibration.epoch"), Strings.toString(calibratedAt));
         assertEq(_text(n, "allowed"), "true");
         assertEq(_text(n, "demoted"), "false");
         assertEq(_text(n, "status"), "active");
@@ -188,11 +188,11 @@ contract OniblockLiveResolverTest is OniblockTestBase {
         assertEq(_text(n, "models-name"), "jev-v1.models.oniblock.eth");
         assertEq(_text(n, "live-name"), n);
         assertGt(bytes(_text(n, "description")).length, 0);
-        // JIT head: no record yet => unseasoned
+        // JIT head: no record yet => active
         assertEq(_text(n, "calibration.jit.brier"), "0");
         assertEq(_text(n, "calibration.jit.n"), "0");
-        assertEq(_text(n, "jit.demoted"), "true");
-        assertEq(_text(n, "jit.status"), "probation");
+        assertEq(_text(n, "jit.demoted"), "false");
+        assertEq(_text(n, "jit.status"), "active");
         // unset key => "" (ENS convention)
         assertEq(_text(n, "url"), "");
         assertEq(_text(n, "calibration.skill"), "");
@@ -227,26 +227,26 @@ contract OniblockLiveResolverTest is OniblockTestBase {
         assertEq(_text(n, "status"), "active");
     }
 
-    function test_status_probation_demoted_active() public {
+    function test_status_unknown_demoted_active() public {
         string memory n = "kev-v1.live.oniblock.eth";
-        // allowlisted, no calibration => probation (isDemoted true)
+        // allowlisted, no calibration => active (isDemoted false)
         assertEq(_text(n, "allowed"), "true");
-        assertEq(_text(n, "status"), "probation");
-        assertEq(_text(n, "demoted"), "true");
+        assertEq(_text(n, "status"), "active");
+        assertEq(_text(n, "demoted"), "false");
         assertEq(_text(n, "calibration.n"), "0");
-        // n below minSamples => still probation
+        // a single graded sample with a good Brier => still active
         vm.prank(settler);
-        hook.setCalibration(kev, 1000, 5000, MIN_SAMPLES - 1);
-        assertEq(_text(n, "status"), "probation");
-        // seasoned but Brier over brierDemoteBps (2500) => demoted
+        hook.setCalibration(kev, 1000, 5000, 1);
+        assertEq(_text(n, "status"), "active");
+        // Brier over brierDemoteBps (2500) => demoted
         vm.prank(settler);
-        hook.setCalibration(kev, 2600, 5000, MIN_SAMPLES);
+        hook.setCalibration(kev, 2600, 5000, CAL_N);
         assertEq(_text(n, "status"), "demoted");
         assertEq(_text(n, "demoted"), "true");
         assertEq(_text(n, "calibration.brier"), "2600");
         // good Brier => active
         vm.prank(settler);
-        hook.setCalibration(kev, 1200, 5500, MIN_SAMPLES);
+        hook.setCalibration(kev, 1200, 5500, CAL_N);
         assertEq(_text(n, "status"), "active");
         assertEq(_text(n, "demoted"), "false");
         // de-allowlisted => unknown, whatever the record says
@@ -287,7 +287,7 @@ contract OniblockLiveResolverTest is OniblockTestBase {
         assertEq(_text(n, "k-default"), "5000");
         assertEq(_text(n, "max-k-step"), "1000");
         assertEq(_text(n, "stale-blocks"), "5");
-        assertEq(_text(n, "min-samples"), "10");
+        assertEq(_text(n, "min-samples"), ""); // removed: no sample minimum on-chain
         assertEq(_text(n, "brier-demote"), "2500");
         assertEq(_text(n, "arb-threshold"), Strings.toString(ARB_THRESHOLD));
         assertEq(_text(n, "jit-window-min"), "10");
@@ -306,7 +306,7 @@ contract OniblockLiveResolverTest is OniblockTestBase {
         assertEq(_text(n, "last-attest-block"), "0");
         assertEq(_text(n, "oracle-mid-x96"), "0");
 
-        // attest with jev (seasoned): target k = 2000 + 6000 * 1 * 1 = 8000, step-limited from 5000 => 6000
+        // attest with jev (active): target k = 2000 + 6000 * 1 * 1 = 8000, step-limited from 5000 => 6000
         uint256 px = _poolX96(pid);
         uint256 mid = px * 10100 / 10000; // pool 1% below the mid => oneForZero is the arb direction
         _attest(jev, mid, 10000, 10000, 3000);
@@ -315,7 +315,7 @@ contract OniblockLiveResolverTest is OniblockTestBase {
         assertEq(_text(n, "p-toxic"), "10000");
         assertEq(_text(n, "confidence"), "10000");
         assertEq(_text(n, "p-jit"), "3000");
-        assertEq(_text(n, "jit-window"), "10"); // JIT head unseasoned => default window
+        assertEq(_text(n, "jit-window"), "37"); // JIT head active (no record): 10 + 90 * 0.3 * 1
         assertEq(_text(n, "model"), _hex(jev));
         assertEq(_text(n, "last-model"), _hex(jev));
         assertEq(_text(n, "oracle-mid-x96"), Strings.toString(mid));
@@ -380,7 +380,7 @@ contract OniblockLiveResolverTest is OniblockTestBase {
         assertEq(_text(n, "models-name"), "jev-v1.models.oniblock.eth");
         assertEq(_text(n, "live-name"), "jev-v1.live.oniblock.eth");
         assertEq(_text(n, "status"), "active");
-        assertEq(_text(n, "jit.status"), "probation");
+        assertEq(_text(n, "jit.status"), "active");
         assertEq(_text(n, "stale"), "false");
         assertEq(_text(n, "k"), "6000");
         (bytes32 node, string memory label, bool stale) = live.currentModel();
@@ -398,7 +398,7 @@ contract OniblockLiveResolverTest is OniblockTestBase {
         bytes32 mystery = live.modelNodeOf("mystery-v1");
         hook.setModelAllowed(pid, mystery, true);
         vm.prank(settler);
-        hook.setCalibration(mystery, 500, 8000, MIN_SAMPLES);
+        hook.setCalibration(mystery, 500, 8000, CAL_N);
         vm.roll(block.number + 1);
         _attest(mystery, _poolX96(pid), 10000, 10000, 0);
         assertEq(_text(n, "model-node"), _hex(mystery));
@@ -615,7 +615,7 @@ contract OniblockLiveResolverTest is OniblockTestBase {
     // ------------------------------------------------------------------ direct getters (known nodes only)
     function test_directGetters() public {
         assertEq(live.text(live.liveNodeOf("jev-v1"), "status"), "active");
-        assertEq(live.text(live.liveNodeOf("kev-v1"), "status"), "probation");
+        assertEq(live.text(live.liveNodeOf("kev-v1"), "status"), "active");
         assertEq(live.text(live.baseNode(), "pool"), POOL_LABEL);
         assertEq(live.text(live.poolLiveNode(), "k"), "5000");
         assertEq(live.text(live.currentNode(), "label"), "");

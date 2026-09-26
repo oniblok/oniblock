@@ -70,8 +70,8 @@ abstract contract DeployBase is Script {
     /// Model nodes to allowlist: env MODEL_NODES (comma-separated bytes32) or the keeper defaults: jev-v1, the
     /// heuristic-v1 fallback and kev-v1 (the open-weights Kev-0.8B fine-tune, ml/models/kev08b-v1); rule-v1 (the v3
     /// keeper's deterministic below-threshold rule) only when KEEPER_GATE=1 — the v4 keeper asks the model every
-    /// block and never posts under rule-v1. Allowlisting grants no fee power by itself: a node with calibration
-    /// n < minSamples runs at kDefault (0 = base fee) until the settler has graded enough of its receipts.
+    /// block and never posts under rule-v1. An allowlisted node has fee power from its first attestation; only Brier
+    /// demotion (brierDemoteBps, once the settler has posted a record) sends it back to kDefault (0 = base fee).
     function _defaultModelNodes() internal view returns (bytes32[] memory nodes) {
         bool gate = vm.envOr("KEEPER_GATE", uint256(0)) == 1;
         nodes = new bytes32[](gate ? 4 : 3);
@@ -107,7 +107,7 @@ abstract contract DeployBase is Script {
         c.feeMax = uint24(vm.envOr("FEE_MAX", uint256(10000)));
         c.conservativeFee = uint24(vm.envOr("CONSERVATIVE_FEE", uint256(5000)));
         // v4 "the AI decides the fee" defaults (docs/review/V4_AI_DECIDES.md): k = kMax * p * c, no floor, so a model
-        // score of "no profitable arbitrage" (p near 0) gives k near 0 = the base fee; an untrusted (unseasoned or
+        // score of "no profitable arbitrage" (p near 0) gives k near 0 = the base fee; an untrusted (Brier-
         // demoted) model gets kDefault = 0, i.e. no power to raise the fee; one attestation can move k over the whole
         // [0, kMax] range (maxKStepBps = kMax), so the fee follows the model's per-block decision.
         c.kMinBps = uint32(vm.envOr("K_MIN_BPS", uint256(0)));
@@ -119,13 +119,12 @@ abstract contract DeployBase is Script {
         c.chainlinkFeed = feed;
         c.chainlinkInverted = inverted;
         c.brierDemoteBps = uint32(vm.envOr("BRIER_DEMOTE_BPS", uint256(2500)));
-        c.minSamples = uint32(vm.envOr("MIN_SAMPLES", uint256(10)));
         // Sepolia ETH/USD heartbeat ~1h => 2h max age. Ignored (but harmless) when the feed is disabled.
         c.chainlinkMaxAge = uint32(vm.envOr("CHAINLINK_MAX_AGE", uint256(2 hours)));
         // v4 default 0: no hard-coded gap threshold, the model decides (v3 used baseFee + 300; still settable).
         c.arbThresholdPips = uint24(vm.envOr("ARB_THRESHOLD_PIPS", uint256(0)));
         // v5 "the AI decides the JIT window" (docs/review/V5_JIT_HEAD_SPEC.md): window = min + (max - min) * pJit * c;
-        // a demoted/unseasoned JIT head or a stale attestation gets jitWindowDefault (= the old 10-block wall).
+        // a demoted JIT head or a stale attestation gets jitWindowDefault (= the old 10-block wall).
         c.jitWindowMin = uint16(vm.envOr("JIT_WINDOW_MIN", uint256(10)));
         c.jitWindowMax = uint16(vm.envOr("JIT_WINDOW_MAX", uint256(100)));
         c.jitWindowDefault = uint16(vm.envOr("JIT_WINDOW_DEFAULT", uint256(10)));
@@ -216,7 +215,6 @@ abstract contract DeployBase is Script {
         vm.serializeUint(t, "maxKStepBps", c.maxKStepBps);
         vm.serializeUint(t, "staleBlocks", c.staleBlocks);
         vm.serializeUint(t, "sanityBandBps", c.sanityBandBps);
-        vm.serializeUint(t, "minSamples", c.minSamples);
         vm.serializeUint(t, "chainlinkMaxAge", c.chainlinkMaxAge);
         vm.serializeUint(t, "arbThresholdPips", c.arbThresholdPips);
         vm.serializeUint(t, "jitWindowMin", c.jitWindowMin);

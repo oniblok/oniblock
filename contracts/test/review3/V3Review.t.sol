@@ -91,10 +91,10 @@ contract V3ReviewTest is OniblockTestBase {
 
     // ------------------------------------------------------------ F-1 (known open issue): rule-v1 resets k
 
-    /// A seasoned model walks k to kMax (8000); ONE rule-v1 post (allowlisted, never graded => unseasoned) pins k back
-    /// to kDefault (5000); the next model post can only reach 6000 (maxKStepBps 1000). With a rule post between
-    /// every pair of model posts, k never leaves [kDefault - step, kDefault + step].
-    function test_F1_rulePostResetsModelK() public {
+    /// F-1 resolved (no sample minimum): a model walks k to kMax (8000); a rule-v1 post (allowlisted, never graded =>
+    /// active) is an ordinary step-limited score, so it moves k one step (to 7000) instead of pinning kDefault, and the
+    /// next model post takes k straight back to kMax.
+    function test_F1_rulePostIsStepLimited() public {
         hook.setModelAllowed(pid, RULE, true);
         uint256 mid = _poolX96(pid);
         for (uint256 i; i < 3; i++) {
@@ -103,18 +103,18 @@ contract V3ReviewTest is OniblockTestBase {
         }
         assertEq(_k(), 8000, "model reached kMax");
         _postAs(RULE, mid, 1000, 10000);
-        assertEq(_k(), 5000, "rule-v1 post pins kDefault");
+        assertEq(_k(), 7000, "rule-v1 post: one step down, no reset to kDefault");
         _next();
         _postAs(MODEL, mid, 10000, 10000);
-        assertEq(_k(), 6000, "model can only step 1000 from kDefault");
-        // alternating rule/model: k oscillates 5000 <-> 6000 forever
+        assertEq(_k(), 8000, "model back at kMax");
+        // alternating rule/model: k oscillates 7000 <-> 8000
         for (uint256 i; i < 4; i++) {
             _next();
             _postAs(RULE, mid, 1000, 10000);
-            assertEq(_k(), 5000);
+            assertEq(_k(), 7000);
             _next();
             _postAs(MODEL, mid, 10000, 10000);
-            assertEq(_k(), 6000);
+            assertEq(_k(), 8000);
         }
     }
 
@@ -164,7 +164,7 @@ contract V3ReviewTest is OniblockTestBase {
     /// k = 0 does NOT bypass the stale / N-07 conservative floor (expected; documents the only non-base fees at k=0).
     function test_kMin0_staleAndFloorStillConservative() public {
         OniblockHook.PoolConfig memory c = _jevDecidesConfig();
-        c.kDefaultBps = 0; // demoted/unseasoned => vanilla pool
+        c.kDefaultBps = 0; // demoted => vanilla pool
         hook.updatePoolConfig(pid, c);
         uint256 mid = _poolX96(pid);
         _postAs(MODEL, mid, 0, 10000);
@@ -182,15 +182,16 @@ contract V3ReviewTest is OniblockTestBase {
         assertEq(f, 3000);
     }
 
-    /// kDefault = 0 is accepted: an unseasoned or demoted model runs the pool as a vanilla pool.
-    function test_kDefault0_unseasonedIsVanilla() public {
+    /// kDefault = 0 is accepted: a Brier-demoted model runs the pool as a vanilla pool.
+    function test_kDefault0_demotedIsVanilla() public {
         OniblockHook.PoolConfig memory c = _jevDecidesConfig();
         c.kDefaultBps = 0;
         hook.updatePoolConfig(pid, c);
-        bytes32 fresh = keccak256("new-model");
-        hook.setModelAllowed(pid, fresh, true);
+        bytes32 bad = keccak256("new-model");
+        hook.setModelAllowed(pid, bad, true);
+        _calibrate(bad, 4000); // Brier 0.40 > brierDemoteBps
         uint256 mid = _poolX96(pid) * 1e6 / (1e6 + 20_000);
-        _postAs(fresh, mid, 10000, 10000);
+        _postAs(bad, mid, 10000, 10000);
         assertEq(_k(), 0);
         (uint24 f, bool arb,,) = hook.quoteFee(pkey, true);
         assertTrue(arb);
@@ -256,7 +257,7 @@ contract V3ReviewTest is OniblockTestBase {
         manager.initialize(k2, _sqrtAtUsd(USD_E8));
         h2.setModelAllowed(id2, MODEL, true);
         vm.prank(settler);
-        h2.setCalibration(MODEL, 1000, 6000, MIN_SAMPLES);
+        h2.setCalibration(MODEL, 1000, 6000, CAL_N);
     }
 
     function _post2(uint256 mid, uint32 p, uint32 c) internal {
@@ -317,7 +318,7 @@ contract V3ReviewTest is OniblockTestBase {
         h2.refreshMid(k2, uint64(vm.getBlockNumber()), mid, abi.encodePacked(r, s, v));
         // demotion after the fact is enforced at the next mid-only refresh (k -> kDefault)
         vm.prank(settler);
-        h2.setCalibration(MODEL, 9000, 1000, MIN_SAMPLES);
+        h2.setCalibration(MODEL, 9000, 1000, CAL_N);
         _refresh2(mid);
         assertEq(_k2(), 5000, "demoted since last model post => kDefault");
         // non-quoter rejected

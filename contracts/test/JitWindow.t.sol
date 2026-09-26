@@ -27,11 +27,11 @@ contract JitWindowTest is OniblockTestBase {
 
     // ------------------------------------------------------------------ helpers
 
-    /// Settler seasons a model's JIT head (n = MIN_SAMPLES) with the given Brier.
-    function _seasonJit(bytes32 model, uint32 brierBps) internal {
+    /// Settler writes a model's JIT-head calibration record (n = CAL_N) with the given Brier.
+    function _calibrateJit(bytes32 model, uint32 brierBps) internal {
         bytes32 key = hook.jitCalibrationKey(model); // read first: a prank applies to the next external call
         vm.prank(settler);
-        hook.setCalibration(key, brierBps, 6000, MIN_SAMPLES);
+        hook.setCalibration(key, brierBps, 6000, CAL_N);
     }
 
     /// Post an attestation for this block at the current pool price with (pToxic = 1, confidence = c, pJit).
@@ -97,16 +97,16 @@ contract JitWindowTest is OniblockTestBase {
         assertTrue(hook.jitCalibrationKey(MODEL) != MODEL, "JIT record is separate from the arb record");
     }
 
-    function test_jitDemotion_unseasoned_brier_allowlist() public {
-        // setUp seasons MODEL's arb head only: the JIT head is unseasoned (n = 0 < minSamples)
+    function test_jitDemotion_noRecord_brier_allowlist() public {
+        // setUp calibrates MODEL's arb head only: the JIT head has no record (n = 0) => active
         assertFalse(hook.isDemoted(pid, MODEL));
-        assertTrue(hook.isJitDemoted(pid, MODEL), "unseasoned JIT head");
-        _seasonJit(MODEL, 1000);
-        assertFalse(hook.isJitDemoted(pid, MODEL), "seasoned, good Brier");
-        _seasonJit(MODEL, 4000); // Brier 0.40 > 0.25
+        assertFalse(hook.isJitDemoted(pid, MODEL), "no JIT record => active");
+        _calibrateJit(MODEL, 1000);
+        assertFalse(hook.isJitDemoted(pid, MODEL), "recorded, good Brier");
+        _calibrateJit(MODEL, 4000); // Brier 0.40 > 0.25
         assertTrue(hook.isJitDemoted(pid, MODEL), "Brier demotion");
         // parent not allowlisted => demoted even with a perfect JIT record
-        _seasonJit(OTHER, 0);
+        _calibrateJit(OTHER, 0);
         assertTrue(hook.isJitDemoted(pid, OTHER));
         hook.setModelAllowed(pid, OTHER, true);
         assertFalse(hook.isJitDemoted(pid, OTHER));
@@ -117,20 +117,20 @@ contract JitWindowTest is OniblockTestBase {
     // ------------------------------------------------------------------ jitWindowFromScore / setAttestation
 
     function test_windowFromScore_formula_and_defaults() public {
-        _seasonJit(MODEL, 1000);
+        _calibrateJit(MODEL, 1000);
         assertEq(hook.jitWindowFromScore(pid, 0, 10000, MODEL), 10, "p = 0 => min");
         assertEq(hook.jitWindowFromScore(pid, 10000, 10000, MODEL), 100, "p = c = 1 => max");
         assertEq(hook.jitWindowFromScore(pid, 5000, 8000, MODEL), 46, "10 + 90 * 0.5 * 0.8");
         assertEq(hook.jitWindowFromScore(pid, 10000, 3334, MODEL), 40);
         assertEq(hook.jitWindowFromScore(pid, 20000, 20000, MODEL), 100, "inputs clamped to BPS");
-        // demoted / unseasoned / not allowlisted => default (10 here, distinct from min only by config)
+        // demoted / not allowlisted => default (10 here, distinct from min only by config)
         assertEq(hook.jitWindowFromScore(pid, 10000, 10000, OTHER), 10, "parent not allowlisted => default");
-        _seasonJit(MODEL, 4000);
+        _calibrateJit(MODEL, 4000);
         assertEq(hook.jitWindowFromScore(pid, 10000, 10000, MODEL), 10, "demoted => default");
     }
 
     function test_attestation_setsWindow_andEvent() public {
-        _seasonJit(MODEL, 1000);
+        _calibrateJit(MODEL, 1000);
         (uint16 w0, uint32 p0) = _stored();
         assertEq(w0, 10, "pool starts at jitWindowDefault");
         assertEq(p0, 0);
@@ -157,26 +157,26 @@ contract JitWindowTest is OniblockTestBase {
         assertEq(w3, 10);
     }
 
-    function test_attestation_unseasonedOrDemotedJitHead_default() public {
-        _postJit(10000, 10000); // JIT head never seasoned
+    function test_attestation_noRecordActive_demotedJitHead_default() public {
+        _postJit(10000, 10000); // JIT head has no record yet => active
         (uint16 w,) = _stored();
-        assertEq(w, 10, "unseasoned JIT head => default");
+        assertEq(w, 100, "no JIT record => formula (active)");
         _next();
-        _seasonJit(MODEL, 4000); // demoted
+        _calibrateJit(MODEL, 4000); // demoted
         _postJit(10000, 10000);
         (w,) = _stored();
         assertEq(w, 10, "demoted JIT head => default");
     }
 
-    /// The two heads are gated independently: a demoted arb head keeps k at kDefault while a seasoned JIT head
+    /// The two heads are gated independently: a demoted arb head keeps k at kDefault while a well-calibrated JIT head
     /// still sets the window, and vice versa.
     function test_headsAreIndependent() public {
-        _seasonJit(MODEL, 1000);
-        _season(MODEL, 4000); // arb head demoted
+        _calibrateJit(MODEL, 1000);
+        _calibrate(MODEL, 4000); // arb head demoted
         _postJit(10000, 10000);
         (OniblockHook.PoolState memory st,,) = hook.poolState(pid);
         assertEq(st.kBps, 5000, "arb head demoted => kDefault");
-        assertEq(st.jitWindow, 100, "JIT head seasoned => formula");
+        assertEq(st.jitWindow, 100, "JIT head active => formula");
     }
 
     function test_pJitAboveBps_reverts() public {
@@ -206,7 +206,7 @@ contract JitWindowTest is OniblockTestBase {
     /// Under a 40-block window a JIT removed 11 blocks after adding (past the old 10-block wall) forfeits 29/40 of
     /// its fees; removed at +41 it keeps everything.
     function test_window40_removeAt11_penalised_at41_not() public {
-        _seasonJit(MODEL, 1000);
+        _calibrateJit(MODEL, 1000);
         _postJit(10000, 3334); // 10 + 90 * 0.3334 = 40
         (uint16 w,) = _stored();
         assertEq(w, 40);
@@ -237,7 +237,7 @@ contract JitWindowTest is OniblockTestBase {
 
     /// Honest LP added under window 10 and removed at +15 is not penalised even though the window rose to 100.
     function test_windowAtAdd_laterRise_doesNotTrapEarlierLiquidity() public {
-        _seasonJit(MODEL, 1000);
+        _calibrateJit(MODEL, 1000);
         _postJit(0, 10000); // window = min = 10
         uint256 residentL = manager.getLiquidity(pid);
         _addLiq(pkey, JIT_LIQ, 7);
@@ -260,7 +260,7 @@ contract JitWindowTest is OniblockTestBase {
 
     /// The mirror image: liquidity added under window 100 stays under it when the window later drops to 10.
     function test_windowAtAdd_laterDrop_doesNotFreeEarlierLiquidity() public {
-        _seasonJit(MODEL, 1000);
+        _calibrateJit(MODEL, 1000);
         _postJit(10000, 10000); // 100
         uint256 residentL = manager.getLiquidity(pid);
         _addLiq(pkey, JIT_LIQ, 7);
@@ -285,7 +285,7 @@ contract JitWindowTest is OniblockTestBase {
     /// Re-adding inside a running window keeps the larger window (withholding the new fees, as in OZ); once the
     /// window has expired a re-add starts afresh under the window in force then.
     function test_reAdd_insideWindowKeepsLarger_afterExpiryStartsFresh() public {
-        _seasonJit(MODEL, 1000);
+        _calibrateJit(MODEL, 1000);
         _postJit(10000, 10000); // 100
         uint256 residentL = manager.getLiquidity(pid);
         _addLiq(pkey, JIT_LIQ, 3);
@@ -319,7 +319,7 @@ contract JitWindowTest is OniblockTestBase {
 
     /// With the attestation stale, liquidity added now is judged by jitWindowDefault (10), whatever was attested.
     function test_staleAttestation_addsUseDefault() public {
-        _seasonJit(MODEL, 1000);
+        _calibrateJit(MODEL, 1000);
         _postJit(10000, 10000); // 100
         vm.roll(vm.getBlockNumber() + 6); // staleBlocks = 5 => stale
         (,, bool staleNow) = hook.poolState(pid);
@@ -332,7 +332,7 @@ contract JitWindowTest is OniblockTestBase {
     }
 
     /// Same-block add/remove under the default window still forfeits everything (the v4 behaviour is preserved
-    /// when no JIT head is seasoned), and JitPenalty reports window = jitWindowDefault.
+    /// when pJit = 0 or the JIT head is demoted), and JitPenalty reports window = jitWindowDefault.
     function test_defaultWindow_sameBlock_forfeitsAll() public {
         vm.recordLogs();
         (uint256 accrued, uint256 donated) = _cycle(5, 0);
@@ -401,7 +401,7 @@ contract JitWindowTest is OniblockTestBase {
 
     /// updatePoolConfig clamps the stored window into the new [min, max] (like k).
     function test_updatePoolConfig_clampsStoredWindow() public {
-        _seasonJit(MODEL, 1000);
+        _calibrateJit(MODEL, 1000);
         _postJit(10000, 10000); // 100
         OniblockHook.PoolConfig memory c = defaultConfig();
         c.jitWindowMax = 50;

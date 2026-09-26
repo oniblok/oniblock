@@ -49,9 +49,9 @@ contract ReviewFindingsTest is OniblockTestBase {
         }
     }
 
-    function _allowAndSeason(bytes32 model, uint32 brier) internal {
+    function _allowAndCalibrate(bytes32 model, uint32 brier) internal {
         hook.setModelAllowed(pid, model, true);
-        _season(model, brier);
+        _calibrate(model, brier);
     }
 
     // ------------------------------------------------------------------------------------------------ R-01 (High)
@@ -75,24 +75,35 @@ contract ReviewFindingsTest is OniblockTestBase {
         assertEq(_k(), 5000);
     }
 
-    /// FIXED: an allowlisted but unseasoned node (n < minSamples) is capped at kDefault, even with a great Brier.
-    function test_fix_R01_allowedButUnseasoned_cappedAtKDefault() public {
+    /// An allowlisted node with no calibration record is active: it reaches the computed (step-limited) k.
+    function test_fix_R01_allowedNoRecord_isActive() public {
         uint256 mid = _poolX96(pid);
         hook.setModelAllowed(pid, MODEL2, true);
-        vm.prank(settler);
-        hook.setCalibration(MODEL2, 100, 9000, MIN_SAMPLES - 1); // excellent but too few samples
-        assertTrue(hook.isDemoted(pid, MODEL2));
-        for (uint256 i; i < 4; i++) {
+        assertFalse(hook.isDemoted(pid, MODEL2), "no record => active");
+        uint32[3] memory expected = [uint32(6000), 7000, 8000];
+        for (uint256 i; i < 3; i++) {
             _postAs(MODEL2, mid, 10000, 10000);
-            assertEq(_k(), 5000, "unseasoned => kDefault");
+            assertEq(_k(), expected[i]);
             vm.roll(vm.getBlockNumber() + 1);
         }
     }
 
-    /// FIXED: once seasoned with a good Brier, the node reaches the computed (step-limited) k.
-    function test_fix_R01_seasonedGoodModel_reachesComputedK() public {
+    /// A non-allowlisted node cannot post at all, however good its record.
+    function test_fix_R01_notAllowlisted_cannotPost() public {
+        vm.prank(settler);
+        hook.setCalibration(MODEL2, 100, 9000, CAL_N);
+        assertTrue(hook.isDemoted(pid, MODEL2), "not allowlisted => demoted");
+        OniblockHook.Attestation memory a =
+            _attestation(pid, uint64(vm.getBlockNumber()), _poolX96(pid), 10000, 10000, 0, MODEL2, attestorPk);
+        vm.prank(quoter);
+        vm.expectRevert(OniblockHook.ModelNotAllowed.selector);
+        hook.setAttestation(pkey, a);
+    }
+
+    /// With a good Brier the node reaches the computed (step-limited) k.
+    function test_fix_R01_calibratedGoodModel_reachesComputedK() public {
         uint256 mid = _poolX96(pid);
-        _allowAndSeason(MODEL2, 1200);
+        _allowAndCalibrate(MODEL2, 1200);
         assertFalse(hook.isDemoted(pid, MODEL2));
         assertEq(hook.kFromScore(pid, 10000, 10000, MODEL2), 8000);
         uint32[3] memory expected = [uint32(6000), 7000, 8000];
@@ -103,27 +114,30 @@ contract ReviewFindingsTest is OniblockTestBase {
         }
     }
 
-    /// FIXED: a demoted model stays demoted — also if the settler resets its record (n = 0 => unseasoned) and the
-    /// operator switches to another allowlisted-but-unseasoned node.
-    function test_fix_R01_demotedStaysDemoted() public {
+    /// A Brier-demoted model is at kDefault immediately. Demotion follows the record: if the settler wipes it (n = 0)
+    /// the node is active again — the settler role (ENS-gated) and the allowlist (owner) are the trust boundary.
+    function test_fix_R01_brierDemotion_followsRecord() public {
         uint256 mid = _poolX96(pid);
         for (uint256 i; i < 2; i++) {
             _postAs(MODEL, mid, 10000, 10000);
             vm.roll(vm.getBlockNumber() + 1);
         }
         assertEq(_k(), 7000);
-        _season(MODEL, 4000); // bad Brier
+        _calibrate(MODEL, 4000); // bad Brier
         _postAs(MODEL, mid, 10000, 10000);
         assertEq(_k(), 5000, "demotion immediate");
+        for (uint256 i; i < 2; i++) {
+            vm.roll(vm.getBlockNumber() + 1);
+            _postAs(MODEL, mid, 10000, 10000);
+            assertEq(_k(), 5000, "stays at kDefault while the record is bad");
+        }
         vm.prank(settler);
         hook.setCalibration(MODEL, 0, 0, 0); // record wiped
-        assertTrue(hook.isDemoted(pid, MODEL), "n = 0 < minSamples => still no power");
-        hook.setModelAllowed(pid, MODEL2, true); // fresh node
-        for (uint256 i; i < 3; i++) {
-            vm.roll(vm.getBlockNumber() + 1);
-            _postAs(i % 2 == 0 ? MODEL2 : MODEL, mid, 10000, 10000);
-            assertEq(_k(), 5000);
-        }
+        assertFalse(hook.isDemoted(pid, MODEL), "n = 0 => no record => active");
+        hook.setModelAllowed(pid, MODEL2, true); // fresh node, no record => active
+        vm.roll(vm.getBlockNumber() + 1);
+        _postAs(MODEL2, mid, 10000, 10000);
+        assertEq(_k(), 6000, "active again: step-limited toward kMax");
         // owner can also revoke a node outright
         hook.setModelAllowed(pid, MODEL2, false);
         vm.roll(vm.getBlockNumber() + 1);
@@ -193,7 +207,7 @@ contract ReviewFindingsTest is OniblockTestBase {
     /// FIXED: the Receipt credits the model whose attestation (k) is in force in the block's anchor. A lower-k
     /// attestation by another model in the same block does not take over the anchor.
     function test_fix_R03_receiptModelNode_matchesAnchor() public {
-        _allowAndSeason(MODEL2, 1000);
+        _allowAndCalibrate(MODEL2, 1000);
         uint256 mid = _poolX96(pid) * 99 / 100;
         _postAs(MODEL, mid, 10000, 10000); // k -> 6000 under MODEL
         uint64 attestBlockModel = uint64(vm.getBlockNumber());
@@ -224,7 +238,7 @@ contract ReviewFindingsTest is OniblockTestBase {
 
     /// FIXED: a higher-k attestation later in the same block takes over the anchor (monotone up) and is credited.
     function test_fix_R03_R05_higherKAttestationTakesOverAnchor() public {
-        _allowAndSeason(MODEL2, 1000);
+        _allowAndCalibrate(MODEL2, 1000);
         uint256 mid = _poolX96(pid) * 99 / 100;
         _postAs(MODEL, mid, 0, 0); // k 5000 -> 4000
         vm.roll(vm.getBlockNumber() + 1);
@@ -503,7 +517,7 @@ contract ReviewFindingsTest is OniblockTestBase {
     /// Swap path never reverts, quoteFee == executed fee, every Receipt obeys the fee law with the (gap, k) it
     /// reports, and fees never fall within a block — across random interleavings of: attestations (any mid, either
     /// model, same-block-after-swap, block-1 then newer same-block replacements), rolls, config updates, calibration
-    /// changes (seasoned / unseasoned / demoted), allowlist toggles, JIT add/remove, split swaps in both directions.
+    /// changes (no record / good / demoted), allowlist toggles, JIT add/remove, split swaps in both directions.
     function testFuzz_review_swapPathNeverReverts_quoteMatches(uint256 seed) public {
         hook.setModelAllowed(pid, MODEL2, true);
         for (uint256 step; step < 16; step++) {
@@ -536,7 +550,6 @@ contract ReviewFindingsTest is OniblockTestBase {
                 c.kDefaultBps = uint32(bound(r >> 112, c.kMinBps, c.kMaxBps));
                 c.staleBlocks = uint16(bound(r >> 128, 1, 10));
                 c.maxKStepBps = uint32(bound(r >> 144, 0, 10000));
-                c.minSamples = uint32(bound(r >> 160, 1, 20)); // N-04: >= 1
                 c.arbThresholdPips = uint24(bound(r >> 176, 0, c.feeMax)); // v3: <= feeMax
                 hook.updatePoolConfig(pid, c);
                 (OniblockHook.PoolState memory st,,) = hook.poolState(pid);

@@ -1,5 +1,7 @@
 # Oniblock contract fixes #2 (response to CONTRACT_REVIEW_2.md)
 
+> Note (later change): the `minSamples` probation ("unseasoned") described in this historic document has since been removed from the hook; the calibration gate is now the pool allowlist + Brier demotion only, and a model with no calibration record is active.
+
 ## Status
 
 All checks pass:

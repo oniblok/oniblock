@@ -45,7 +45,7 @@ abstract contract OniblockTestBase is Test {
     uint256 constant USD_E8 = 2500e8;
     int256 constant LP_LIQ = 5e16; // ~1000 WETH / 2.5M USDC full range at 2500
     bytes32 constant MODEL = keccak256("jev-v1.models.oniblock.eth");
-    uint32 constant MIN_SAMPLES = 10;
+    uint32 constant CAL_N = 10; // sample count of the calibration records tests write
     uint24 constant ARB_THRESHOLD = 3300; // baseFee (3000) + 300 pips
 
     IPoolManager manager;
@@ -98,9 +98,9 @@ abstract contract OniblockTestBase is Test {
         hook.registerPool(pkey, defaultConfig());
         manager.initialize(pkey, _sqrtAtUsd(USD_E8));
         _addLiq(pkey, LP_LIQ, 0);
-        // MODEL is allowlisted and seasoned (good Brier, n = minSamples) so it has full [kMin, kMax] power.
+        // MODEL is allowlisted and well calibrated (good Brier, n = CAL_N) so it has full [kMin, kMax] power.
         hook.setModelAllowed(pid, MODEL, true);
-        _season(MODEL, 1000);
+        _calibrate(MODEL, 1000);
         vm.roll(vm.getBlockNumber() + JIT_OFFSET + 1); // base LP is past the JIT window
     }
 
@@ -119,11 +119,10 @@ abstract contract OniblockTestBase is Test {
         c.chainlinkFeed = address(0);
         c.chainlinkInverted = false;
         c.brierDemoteBps = 2500;
-        c.minSamples = MIN_SAMPLES;
         c.chainlinkMaxAge = 2 hours;
         c.arbThresholdPips = ARB_THRESHOLD;
         // v5 JIT window: default = JIT_OFFSET so that tests written against the fixed 10-block wall still hold
-        // (MODEL's JIT head is never seasoned here => every attestation sets jitWindow = jitWindowDefault).
+        // (default attestations carry pJit = 0 => jitWindow = jitWindowMin = jitWindowDefault = 10).
         c.jitWindowMin = JIT_WINDOW_MIN;
         c.jitWindowMax = JIT_WINDOW_MAX;
         c.jitWindowDefault = uint16(JIT_OFFSET);
@@ -139,10 +138,10 @@ abstract contract OniblockTestBase is Test {
         return uint24(f > feeMax ? feeMax : f);
     }
 
-    /// Settler writes a seasoned calibration record (n = MIN_SAMPLES) with the given Brier.
-    function _season(bytes32 model, uint32 brierBps) internal {
+    /// Settler writes a calibration record (n = CAL_N) with the given Brier.
+    function _calibrate(bytes32 model, uint32 brierBps) internal {
         vm.prank(settler);
-        hook.setCalibration(model, brierBps, 6000, MIN_SAMPLES);
+        hook.setCalibration(model, brierBps, 6000, CAL_N);
     }
 
     function _deployHook() internal returns (OniblockHook h) {

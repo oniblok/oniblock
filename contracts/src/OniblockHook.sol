@@ -65,14 +65,15 @@ import {AggregatorV3Interface} from "./interfaces/AggregatorV3Interface.sol";
 /// law with the new attestation, never below conservativeFee (the fee already charged in that block) (N-07).
 ///
 /// Calibration gate: attestations must name a model node allowlisted for the pool (owner, `setModelAllowed`).
-/// A node whose calibration has fewer than `minSamples` samples ("unseasoned") or whose Brier exceeds
-/// `brierDemoteBps` is demoted: k = kDefault. Rotating to a fresh node therefore never escapes demotion.
+/// An allowlisted node is active (its score moves k) until Brier demotion applies: brierDemoteBps > 0, the node has
+/// a calibration record (n > 0) and its Brier exceeds `brierDemoteBps` => demoted, k = kDefault. A node with no
+/// calibration record yet is active; the allowlist (owner, instant) is what bounds which nodes can move k.
 ///
 /// v5: JIT window (docs/review/V5_JIT_HEAD_SPEC.md). The same attestation carries a second score, `pJitBps` (the
 /// model's probability that liquidity added in the next block is short-lived fee capture), which sets the pool's
 /// JIT penalty window instead of the fixed OZ `blockNumberOffset`:
 ///   window = jitWindowMin + (jitWindowMax - jitWindowMin) * pJit * confidence / 1e8   (blocks, in [min, max])
-///   JIT head demoted / unseasoned, parent model not allowlisted, or attestation stale => window = jitWindowDefault
+///   JIT head demoted, parent model not allowlisted, or attestation stale => window = jitWindowDefault
 /// The JIT head has its own calibration record under `jitCalibrationKey(modelNode)` = keccak256(modelNode ‖
 /// keccak256("jit")) (written by the settler with the existing `setCalibration`; ENS `calibration.jit.*`) and is
 /// demoted by the same rule as k (`isJitDemoted`), gated by the parent model's allowlist. Window-at-add rule: a
@@ -94,12 +95,12 @@ import {AggregatorV3Interface} from "./interfaces/AggregatorV3Interface.sol";
 /// trusted to report the mid within the Chainlink band AND the true model identity — the allowlist bounds which
 /// identities it may claim, not which model produced a score (N-03). Within one block a later attestation can raise
 /// (never lower) the other direction's fee by moving the mid (N-06), and two posts in one block (for block-1, then
-/// block) apply two k steps (N-10). Calibration is global per model node while the allowlist / minSamples / Brier
+/// block) apply two k steps (N-10). Calibration is global per model node while the allowlist / Brier
 /// gates are per pool (N-13). Quoters/settlers are ENS-role gated (instant revocation = kill switch). Owner changes
 /// to the pool config, attestor and role oracle go through a `configDelay` timelock (queue = first call, execute =
 /// same call again within [eta, eta + TIMELOCK_GRACE]; later it must be re-queued). Executing a config update
 /// mid-block clears the anchor, so fees locked earlier in that block can fall (N-12, owner + timelock only).
-/// Model allowlisting is instant (a new node starts unseasoned, i.e. at kDefault); disallowing every node pushes the
+/// Model allowlisting is instant (a newly allowed node is active immediately); disallowing every node pushes the
 /// pool to stale/conservativeFee (bounded owner DoS; conservativeFee itself is timelocked).
 contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
     using StateLibrary for IPoolManager;
@@ -117,20 +118,19 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
         uint24 conservativeFee; // pips, used when oracle mid is stale
         uint32 kMinBps; // 10000 = 1.0
         uint32 kMaxBps; // must be < 10000 (k >= 1 blocks re-alignment)
-        uint32 kDefaultBps; // used when attestation stale or model demoted/unseasoned (~5000)
+        uint32 kDefaultBps; // used when attestation stale or model demoted (~5000)
         uint32 maxKStepBps; // max |dk| per accepted attestation
         uint16 staleBlocks; // attestation older than this => stale
         uint32 sanityBandBps; // max |oracleMid - chainlink| / chainlink; 0 = disabled
         address chainlinkFeed; // address(0) = disabled
         bool chainlinkInverted; // true if feed price must be inverted to match priceX96 convention
         uint32 brierDemoteBps; // if model brier > this => k forced to kDefault (0 = Brier demotion disabled)
-        uint32 minSamples; // calibration samples (n) a model needs before it can move k off kDefault (>= 1)
         uint32 chainlinkMaxAge; // seconds; Chainlink answers older than this are invalid (required if feed set)
         uint24 arbThresholdPips; // gap (pips) below which no profitable arb exists: the premium only prices the
         // excess gap above it (0 = premium from the first pip, the v2 law). Typically baseFee + ~300. <= feeMax.
         uint16 jitWindowMin; // v5: JIT penalty window (blocks) at pJit * confidence = 0 (>= 1)
         uint16 jitWindowMax; // v5: window at pJit * confidence = 1 (>= jitWindowDefault)
-        uint16 jitWindowDefault; // v5: window while the JIT head is demoted/unseasoned or the attestation is stale
+        uint16 jitWindowDefault; // v5: window while the JIT head is demoted or the attestation is stale
     }
 
     /// @notice Signed by the attestor (EIP-712), posted by a quoter once per block.
@@ -148,7 +148,7 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
     struct Calibration {
         uint32 brierBps; // Brier score * 1e4 (lower is better)
         uint32 hitRateBps; // informational (not read on-chain)
-        uint32 n; // number of scored samples; n < minSamples => unseasoned => kDefault
+        uint32 n; // number of scored samples; n == 0 => no record => never Brier-demoted
         uint64 updatedBlock; // informational
     }
 
@@ -423,8 +423,8 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
         emit ChangeCancelled(id);
     }
 
-    /// @notice Allow / disallow a model node for a pool (owner, instant). A newly allowed node is unseasoned
-    /// (n < minSamples) and therefore runs at kDefault until the settler has scored enough of its receipts.
+    /// @notice Allow / disallow a model node for a pool (owner, instant). A newly allowed node is active at once
+    /// (its score moves k and the JIT window) unless its calibration record is Brier-demoted.
     function setModelAllowed(PoolId id, bytes32 modelNode, bool allowed) external onlyOwner {
         if (!_state[id].registered) revert PoolNotRegistered();
         modelAllowed[id][modelNode] = allowed;
@@ -467,7 +467,7 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
         PoolConfig memory cfg = _config[id];
         _checkSanityBand(cfg, st, a.oracleMidX96);
 
-        // k: demotion (incl. unseasoned) is immediate (safety action); otherwise step-limited toward kFromScore.
+        // k: demotion is immediate (safety action); otherwise step-limited toward kFromScore.
         uint32 k;
         if (isDemoted(id, a.modelNode)) {
             k = cfg.kDefaultBps;
@@ -520,7 +520,7 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
     }
 
     /// @notice Settler posts a model's calibration record (mirrors the ENS calibration.* text records).
-    /// Writing n below a pool's minSamples puts the model back on probation (kDefault) on that pool.
+    /// A record with Brier above a pool's brierDemoteBps (and n > 0) demotes the model (kDefault) on that pool.
     function setCalibration(bytes32 modelNode, uint32 brierBps, uint32 hitRateBps, uint32 n) external {
         if (!roleOracle.isSettler(msg.sender)) revert NotSettler();
         if (brierBps > BPS || hitRateBps > BPS) revert InvalidAttestation();
@@ -533,7 +533,7 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
     // ---------------------------------------------------------------------------------------------------------
 
     /// @notice Public, clamped, demotion-aware (NOT step-limited) map from model score to k:
-    ///   k = kMin + (kMax - kMin) * pToxic * confidence / 1e8 ;  demoted / unseasoned / not allowlisted => kDefault.
+    ///   k = kMin + (kMax - kMin) * pToxic * confidence / 1e8 ;  demoted / not allowlisted => kDefault.
     function kFromScore(PoolId id, uint32 pToxicBps, uint32 confidenceBps, bytes32 modelNode)
         public
         view
@@ -547,9 +547,9 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
         kBps = uint32(cfg.kMinBps + (span * p * c) / 1e8);
     }
 
-    /// @notice True iff the model has no power over k on this pool (k = kDefault): it is not allowlisted, OR it is
-    /// unseasoned (calibration n < minSamples), OR Brier demotion is enabled (brierDemoteBps > 0), it has a record
-    /// (n > 0) and its Brier score exceeds the threshold.
+    /// @notice True iff the model has no power over k on this pool (k = kDefault): it is not allowlisted, OR Brier
+    /// demotion is enabled (brierDemoteBps > 0), it has a record (n > 0) and its Brier score exceeds the threshold.
+    /// A model with no calibration record yet is active.
     function isDemoted(PoolId id, bytes32 modelNode) public view returns (bool) {
         return _demoted(id, modelNode, modelNode);
     }
@@ -562,15 +562,15 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
 
     /// @notice v5: True iff the model's JIT head has no power over the JIT window on this pool (window =
     /// jitWindowDefault). Same rule as `isDemoted`, read on `jitCalibrationKey(modelNode)`: the parent model is not
-    /// allowlisted, OR the JIT record is unseasoned (n < minSamples), OR Brier demotion is enabled, it has a record
-    /// and its Brier exceeds brierDemoteBps. No separate allowlist: the parent's allowlist gates both heads.
+    /// allowlisted, OR Brier demotion is enabled, the JIT record exists (n > 0) and its Brier exceeds
+    /// brierDemoteBps (no JIT record yet => active). No separate allowlist: the parent's allowlist gates both heads.
     function isJitDemoted(PoolId id, bytes32 modelNode) public view returns (bool) {
         return _demoted(id, modelNode, jitCalibrationKey(modelNode));
     }
 
     /// @notice v5: Public, clamped, demotion-aware map from the JIT score to the penalty window (blocks):
     ///   window = jitWindowMin + (jitWindowMax - jitWindowMin) * pJit * confidence / 1e8 ;
-    ///   JIT head demoted / unseasoned / parent not allowlisted => jitWindowDefault.
+    ///   JIT head demoted / parent not allowlisted => jitWindowDefault.
     function jitWindowFromScore(PoolId id, uint32 pJitBps, uint32 confidenceBps, bytes32 modelNode)
         public
         view
@@ -852,10 +852,9 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
     function _demoted(PoolId id, bytes32 modelNode, bytes32 calKey) internal view returns (bool) {
         PoolConfig storage cfg = _config[id];
         Calibration storage c = _calibration[calKey];
-        uint32 n = c.n;
-        if (!modelAllowed[id][modelNode] || n < cfg.minSamples) return true;
+        if (!modelAllowed[id][modelNode]) return true;
         uint32 threshold = cfg.brierDemoteBps;
-        return threshold != 0 && n != 0 && c.brierBps > threshold;
+        return threshold != 0 && c.n != 0 && c.brierBps > threshold;
     }
 
     /// @dev v5: the JIT window for liquidity added now: the attested window while the attestation is fresh, else
@@ -1010,7 +1009,7 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
             c.feeMax > FEE_MAX_CAP || c.baseFee > c.feeMax || c.conservativeFee > c.feeMax || c.kMaxBps >= BPS
                 || c.kMinBps > c.kMaxBps || c.kDefaultBps < c.kMinBps || c.kDefaultBps > c.kMaxBps
                 || c.sanityBandBps > BPS || c.brierDemoteBps > BPS || c.staleBlocks == 0
-                || (c.chainlinkFeed != address(0) && c.chainlinkMaxAge == 0) || c.minSamples == 0
+                || (c.chainlinkFeed != address(0) && c.chainlinkMaxAge == 0)
                 || c.arbThresholdPips > c.feeMax || c.jitWindowMin == 0 || c.jitWindowMin > c.jitWindowDefault
                 || c.jitWindowDefault > c.jitWindowMax
         ) revert InvalidConfig();

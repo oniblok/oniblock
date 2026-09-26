@@ -9,7 +9,7 @@
 # Usage:  scripts/push-as-atkosx.sh "commit message"          (from anywhere inside the repo)
 #         PUSH_USER=atkosX scripts/push-as-atkosx.sh "msg"    (override the GitHub username)
 #         BRANCH=feat-x PR_TITLE="..." PR_BODY_FILE=body.md scripts/push-as-atkosx.sh "msg"
-#             -> commits on branch feat-x (created from origin/main), pushes it and opens a PR against main
+#             -> commits on branch feat-x (created from origin/${BASE_BRANCH:-main}; PR against that base), pushes it and opens a PR against main
 #                (never touches main). Re-running with the same BRANCH adds commits to that branch/PR.
 set -euo pipefail
 MSG="${1:?usage: $0 \"commit message\"}"
@@ -29,7 +29,7 @@ if [ "$BRANCH" = main ]; then
   git checkout -q main && git "${CRED[@]}" pull -q --ff-only origin main
 else
   # branch from the current origin/main (or continue an existing remote branch)
-  if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then git checkout -q -B "$BRANCH" "origin/$BRANCH"; else git checkout -q -B "$BRANCH" origin/main; fi
+  if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then git checkout -q -B "$BRANCH" "origin/$BRANCH"; else git checkout -q -B "$BRANCH" "origin/${BASE_BRANCH:-main}"; fi
 fi
 
 rsync -rlpt --checksum --delete-excluded \
@@ -49,6 +49,6 @@ git "${CRED[@]}" push -u origin "$BRANCH"
 echo "pushed as $PUSH_USER to $BRANCH: $(git log -1 --format='%h %s')"
 if [ "$BRANCH" != main ] && [ -n "${PR_TITLE:-}" ]; then
   if gh pr view "$BRANCH" --repo "${REPO_URL#https://github.com/}" >/dev/null 2>&1; then echo "PR already open: $(gh pr view "$BRANCH" --repo "${REPO_URL#https://github.com/}" --json url --jq .url)"
-  elif [ -n "${PR_BODY_FILE:-}" ]; then gh pr create --repo "${REPO_URL#https://github.com/}" --base main --head "$BRANCH" --title "$PR_TITLE" --body-file "$PR_BODY_FILE"
-  else gh pr create --repo "${REPO_URL#https://github.com/}" --base main --head "$BRANCH" --title "$PR_TITLE" --body "$MSG"; fi
+  elif [ -n "${PR_BODY_FILE:-}" ]; then gh pr create --repo "${REPO_URL#https://github.com/}" --base "${BASE_BRANCH:-main}" --head "$BRANCH" --title "$PR_TITLE" --body-file "$PR_BODY_FILE"
+  else gh pr create --repo "${REPO_URL#https://github.com/}" --base "${BASE_BRANCH:-main}" --head "$BRANCH" --title "$PR_TITLE" --body "$MSG"; fi
 fi

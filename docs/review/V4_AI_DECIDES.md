@@ -1,5 +1,7 @@
 # V4 build: the AI decides the fee (no hard-coded threshold)
 
+> Note (later change): the `minSamples` probation ("unseasoned") described in this historic document has since been removed from the hook; the calibration gate is now the pool allowlist + Brier demotion only, and a model with no calibration record is active.
+
 Date: 2026-09-26. Follows `V3_THRESHOLD_BUILD.md` and the v3 review (`V3_REVIEW.md`). User intent: **Jev is called on every block and itself decides whether, and how much, extra fee to charge.** No hard-coded gap threshold gates the model.
 
 Mechanism (config only, no contract change): `fee = base + k·gap` (arb direction, capped) with `arbThresholdPips = 0` and `k = kMin + (kMax − kMin)·p·c` where `kMin = 0`, `kDefault = 0`, `kMax = 0.8`, `maxKStep = kMax`. A "calm / no profitable arbitrage" judgement (p ≈ 0) gives k ≈ 0, i.e. **exactly the base fee, identical to a vanilla pool**; a "toxic arbitrage" judgement gives a high k, applied from the next block. An unseasoned or demoted model gets `kDefault = 0`: **no trusted AI ⇒ vanilla pool.**

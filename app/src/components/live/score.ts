@@ -18,7 +18,7 @@ export function tint(score: number): { bg: string; strip: string; text: string }
   return {
     bg: `linear-gradient(90deg, rgba(var(--toxic) / ${(a + 0.06).toFixed(3)}) 0%, rgba(var(--toxic) / ${(a * 0.45).toFixed(3)}) 55%, rgba(var(--toxic) / ${(a * 0.2).toFixed(3)}) 100%)`,
     strip,
-    text: s >= 0.6 ? '#ff8a95' : '#f3a3aa',
+    text: s >= 0.6 ? 'var(--bad-soft)' : 'var(--bad-softer)',
   };
 }
 
