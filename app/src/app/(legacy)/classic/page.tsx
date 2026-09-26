@@ -1,11 +1,12 @@
 'use client';
 import Link from 'next/link';
 import { DevPanel } from '@/components/DevPanel';
+import { EnsNamespaceCard, PrimaryName } from '@/components/EnsNamespace';
 import { JitPenaltyTable } from '@/components/JitPenalties';
 import { LineChart } from '@/components/LineChart';
 import { RegimeMap } from '@/components/RegimeMap';
 import { gapBps, kFmt, money, pct, price, prob, short, signed } from '@/lib/format';
-import { ATTACK_TYPES, attackLabel, type HistoryJson, type PoolTotals, type StateJson, type VerdictJson } from '@/lib/types';
+import { ATTACK_TYPES, attackLabel, type EnsNamespaceJson, type HistoryJson, type PoolTotals, type StateJson, type VerdictJson } from '@/lib/types';
 import { usePoll } from '@/lib/usePoll';
 
 function Stat({ label, value, sub, tone, title }: { label: string; value: React.ReactNode; sub?: React.ReactNode; tone?: 'good' | 'bad' | 'warn'; title?: string }) {
@@ -62,6 +63,8 @@ export default function Home() {
   const st = usePoll<StateJson>('/api/state', 2000);
   const hi = usePoll<HistoryJson>('/api/history', 3000);
   const vd = usePoll<VerdictJson[]>('/api/verdicts?limit=1', 2000);
+  // ENSv2 namespace (wildcard live.* records + ENSIP-19 primary names): slow-changing, 10 s is plenty.
+  const en = usePoll<EnsNamespaceJson>('/api/ens', 10_000);
   const s = st.data;
   const h = hi.data;
 
@@ -227,10 +230,20 @@ export default function Home() {
           </span>
         ) : null}
         <span>
-          Quoter{' '}
+          Quoter <PrimaryName name={s.roles.quoterName} address={s.roles.quoter} className="text-ink" />{' '}
           {s.roles.quoterActive ? <span className="text-good">active</span> : <span className="text-bad">revoked</span>}
           {s.roles.backupActive ? <span className="text-good"> · backup active</span> : null}
-          {x.lastQuoter ? <span className="mono"> · last post by {short(x.lastQuoter)}</span> : null}
+          {x.lastQuoter ? (
+            <>
+              {' '}
+              · last post by <PrimaryName name={x.lastQuoterName} address={x.lastQuoter} className="text-ink" />
+            </>
+          ) : null}
+        </span>
+        <span>
+          Settler <PrimaryName name={s.roles.settlerName} address={s.roles.settler} className="text-ink" />{' '}
+          {s.roles.settlerActive == null ? null : s.roles.settlerActive ? <span className="text-good">active</span> : <span className="text-bad">revoked</span>}
+          {s.roles.quoterName || s.roles.settlerName ? <span className="text-muted"> · primary names via UR.reverse (ENSIP-19)</span> : null}
         </span>
         {s.flags.degraded && <span className="text-bad">Keeper in degraded-model mode</span>}
       </div>
@@ -274,6 +287,8 @@ export default function Home() {
         </div>
         {h ? <RegimeMap cells={h.regime} cfg={cfg} /> : <div className="text-sm text-muted">Loading…</div>}
       </div>
+
+      <EnsNamespaceCard data={en.data} error={en.error} />
 
       <div className="grid grid-cols-[1fr_minmax(420px,0.8fr)] gap-4">
         <div className="space-y-4">

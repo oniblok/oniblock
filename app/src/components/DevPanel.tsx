@@ -98,7 +98,10 @@ export function DevPanel({ s, onDone }: { s: StateJson; onDone: () => void }) {
         <div className="label mb-1.5">Kill switch ({s.roleOracleType === 'mock' ? 'MockRoleOracle' : 'ENSv2 roles'})</div>
         <div className="mb-2 grid grid-cols-[auto_1fr_auto] gap-x-3 gap-y-1 text-xs">
           <span className="text-muted">quoter</span>
-          <span className="mono">{short(s.roles.quoter)}</span>
+          <span className="mono">
+            {s.roles.quoterName ? <span className="font-sans text-ink">{s.roles.quoterName} · </span> : null}
+            {short(s.roles.quoter)}
+          </span>
           {quoterBadge(s.roles.quoterActive)}
           <span className="text-muted">backup</span>
           <span className="mono">{short(s.roles.backupQuoter)}</span>

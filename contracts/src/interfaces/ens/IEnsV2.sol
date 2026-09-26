@@ -143,6 +143,25 @@ interface IEnsAddressProfile {
     function addr(bytes32 node, uint256 coinType) external view returns (bytes memory);
 }
 
+/// @notice ENSIP-10 extended (wildcard) resolver entry point. Interface id 0x9061b923. UniversalResolverV2 accepts a
+/// resolver found on a PARENT name only if it supports this interface, and then calls it with the full DNS-encoded
+/// name (LibResolution.validateResolver / AbstractNormalizedUniversalResolver._checkResolver).
+interface IEnsExtendedResolver {
+    function resolve(bytes memory name, bytes memory data) external view returns (bytes memory);
+}
+
+/// @notice ERC-7996 feature detection (interface id 0x582de3e7). UniversalResolverV2 calls a resolver directly
+/// (no CCIP batch-gateway detour, so a plain eth_call works) only if it supports this interface and, for
+/// `multicall` data, the RESOLVE_MULTICALL feature (`bytes4(keccak256("eth.ens.resolver.extended.multicall"))`).
+interface IEnsFeatures {
+    function supportsFeature(bytes4 featureId) external view returns (bool);
+}
+
+/// @notice Resolver multicall profile (selector 0xac9650d8) that a UR `resolve(name, multicall(calls))` wraps.
+interface IEnsMulticallable {
+    function multicall(bytes[] calldata data) external returns (bytes[] memory results);
+}
+
 /// @notice UniversalResolverV2.
 interface IEnsUniversalResolver {
     function resolve(bytes calldata name, bytes calldata data) external view returns (bytes memory, address);

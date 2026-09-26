@@ -154,6 +154,11 @@ export interface EnsDeployment {
   roleQuoter?: Hex;
   settlerLabelId?: Hex;
   roleSettler?: Hex;
+  /** ENSIP-10 wildcard resolver on live.<name> (EnsSetup `add-live`), when deployed. */
+  liveResolver?: Address;
+  /** live.<name> and its namehash as EnsSetup `add-live` writes them (also under namehashes["live.<name>"]). */
+  liveName?: string;
+  liveNode?: Hex;
   namehashes: Record<string, Hex>;
 }
 

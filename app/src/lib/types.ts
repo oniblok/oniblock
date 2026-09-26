@@ -127,7 +127,17 @@ export interface StateJson {
       supported: boolean;
     };
   };
-  roles: { quoter?: string; quoterActive?: boolean; backupQuoter?: string; backupActive?: boolean; settler?: string; settlerActive?: boolean };
+  roles: {
+    quoter?: string;
+    quoterActive?: boolean;
+    backupQuoter?: string;
+    backupActive?: boolean;
+    settler?: string;
+    settlerActive?: boolean;
+    /** ENSIP-19 primary names (UR.reverse, forward-verified); null when none or no ENS on this chain */
+    quoterName?: string | null;
+    settlerName?: string | null;
+  };
   flags: { degraded: boolean; useBackupQuoter: boolean };
   pools: { oniblock: PoolLive; vanilla?: PoolLive };
 }
@@ -197,6 +207,37 @@ export interface HistoryJson {
   jitPenalties: JitPenaltyJson[];
   jitTotals: { count: number; caughtByAdaptiveWindow: number; penaltyQuote: number };
   quote: string;
+}
+
+// ============================================================================================ ENS namespace (/api/ens)
+
+/** One ENSIP-10 wildcard name under live.<root>: records null when the UR cannot resolve it (resolver not deployed). */
+export interface EnsLiveName {
+  name: string;
+  kind: 'model' | 'current' | 'pool';
+  keys: string[];
+  records: Record<string, string> | null;
+}
+
+/** ENSIP-19 primary name of a service key, next to the forward addr(<role>.<root>) record. */
+export interface EnsPrimary {
+  role: 'quoter' | 'settler';
+  address: string | null;
+  /** <role>.<root>: the name ens:primary sets */
+  expected: string;
+  /** UR.reverse(addr, 60), forward-verified; null = none / mismatch / no ENS */
+  name: string | null;
+  forward: string | null;
+  /** addr(expected) == address (null when unresolvable) */
+  matches: boolean | null;
+}
+
+export interface EnsNamespaceJson {
+  chain: { name: string; chainId: number; ens: boolean; ensName: string | null; universalResolver: string | null; liveResolver: string | null; liveNode: string | null };
+  root: string;
+  coinType: number;
+  live: EnsLiveName[];
+  primary: EnsPrimary[];
 }
 
 // ============================================================================================ live feed (/api/feed)

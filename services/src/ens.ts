@@ -102,7 +102,11 @@ export interface EnsDeployment {
   universalResolver?: Address;
   registry?: Address;
   roleOracle?: Address;
-  /** name -> namehash */
+  /** The root name the setup registered (e.g. oniblock.eth). */
+  name?: string;
+  /** ENSIP-10 wildcard resolver of live.<name> (EnsSetup `add-live`), when deployed. */
+  liveResolver?: Address;
+  /** name -> namehash (includes live.<name> once `add-live` ran) */
   namehashes: Record<string, Hex>;
   file: string;
 }
@@ -113,7 +117,7 @@ export function loadEnsDeployment(chainId: number): EnsDeployment | undefined {
     if (!existsSync(f)) continue;
     const j = JSON.parse(readFileSync(f, 'utf8'));
     if (!j.resolver || !j.namehashes) continue;
-    return { resolver: j.resolver, universalResolver: j.universalResolver, registry: j.registry, roleOracle: j.roleOracle, namehashes: j.namehashes, file: f };
+    return { resolver: j.resolver, universalResolver: j.universalResolver, registry: j.registry, roleOracle: j.roleOracle, name: j.name, liveResolver: j.liveResolver, namehashes: j.namehashes, file: f };
   }
   return undefined;
 }
