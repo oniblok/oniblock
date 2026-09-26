@@ -1,5 +1,5 @@
 /**
- * tabular-v1 / tabular-v2: gradient-boosted trees (LightGBM, trained in ml/src/train_tabular.py on real mainnet blocks,
+ * oniblock1 (and the older tabular-v1 / tabular-v2): gradient-boosted trees (LightGBM, trained in ml/src/train_tabular.py on real mainnet blocks,
  * early-stopped on the validation split; see ml/RESULTS.md) evaluated in pure TypeScript from the exported JSON
  * (ml/src/export_tabular.py). No native deps, ~0.1 ms per prediction, deterministic.
  *
@@ -12,8 +12,9 @@
  * The fee is always the BASE fee (what the training pools charged, and k-free: the hook's arb fee depends on the k that
  * this model's own answer sets, which would feed back into its input).
  * Confidence is 10000 (one calibrated probability, like Kev): k = kMax * p * c stays monotonic in p.
- * Env: TABULAR_MODEL (v1 | v2, default v1), TABULAR_MODEL_PATH (explicit file; default services/models/tabular-<v>.json,
- * for v2 falling back to ml/models/tabular-v2.json).
+ * Env: MODEL_MODE=oniblock1 (= tabular with the oniblock1 model), TABULAR_MODEL (v1 default | oniblock1 | v2),
+ * TABULAR_MODEL_PATH (explicit file; default services/models/<name>.json, else ml/models/<name>.json;
+ * name = tabularModelName: tabular-v1, oniblock1, tabular-v2).
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -60,17 +61,21 @@ export const TABULAR_FEATURES: Record<string, (f: Features) => number> = {
 /** tabular-v1's input order (ml/models/tabular-v1.json). */
 export const TABULAR_V1_FEATURES = ['gapPips', 'edgePips', 'baseFee', 'imb_arb', 'abs_imbalance', 'sizeToDepth', 'realizedVolBps', 'nSwaps', 'arbShare', 'gap_over_fee', 'log_size'];
 
-export type TabularVersion = 'v1' | 'v2' | 'v2-fresh';
-export const TABULAR_VERSIONS: readonly TabularVersion[] = ['v1', 'v2', 'v2-fresh'];
+/** oniblock1 = the production model (trained on a Binance read ~2 s before the block: for a keeper whose post lands first in the block). */
+export type TabularVersion = 'v1' | 'v2' | 'oniblock1';
+export const TABULAR_VERSIONS: readonly TabularVersion[] = ['v1', 'v2', 'oniblock1'];
+/** Model name = file stem = ENS label (<name>.models.oniblock.eth). */
+export const tabularModelName = (v: TabularVersion): string => (v === 'oniblock1' ? v : `tabular-${v}`);
 export const parseTabularVersion = (v: string | undefined): TabularVersion | undefined =>
-  TABULAR_VERSIONS.find((x) => x === v || `tabular-${x}` === v);
-/** v2-fresh is trained on a Binance read ~2 s before the block: only valid when the keeper posts first in the block. */
-export const tabularVersion = (): TabularVersion => parseTabularVersion(env('TABULAR_MODEL', 'v1')) ?? 'v1';
+  TABULAR_VERSIONS.find((x) => x === v || tabularModelName(x) === v);
+/** MODEL_MODE=oniblock1 selects oniblock1; otherwise TABULAR_MODEL (default v1). */
+export const tabularVersion = (mode = env('MODEL_MODE', 'auto')): TabularVersion =>
+  mode === 'oniblock1' ? 'oniblock1' : (parseTabularVersion(env('TABULAR_MODEL', 'v1')) ?? 'v1');
 
 export function defaultTabularPath(v: TabularVersion = tabularVersion()): string {
-  const svc = resolve(SERVICES_DIR, 'models', `tabular-${v}.json`);
+  const svc = resolve(SERVICES_DIR, 'models', `${tabularModelName(v)}.json`);
   if (v === 'v1' || existsSync(svc)) return svc;
-  return resolve(ROOT, 'ml', 'models', `tabular-${v}.json`);
+  return resolve(ROOT, 'ml', 'models', `${tabularModelName(v)}.json`);
 }
 
 let cached: { path: string; model: TabularModel } | undefined;
@@ -105,11 +110,14 @@ export function predictTabular(m: TabularModel, f: Features): number {
   return 1 / (1 + Math.exp(-z));
 }
 
-/** Never throws; null if the model file is missing/invalid (caller falls back to the heuristic). `f` must be canonical. */
-export function scoreTabular(f: Features, model?: TabularModel | null): ModelScore | null {
+/**
+ * Never throws; null if the model file is missing/invalid (caller falls back to the heuristic). `f` must be canonical.
+ * `version` picks the model file when no `model` is given (default: TABULAR_MODEL_PATH, else tabularVersion()).
+ */
+export function scoreTabular(f: Features, model?: TabularModel | null, version?: TabularVersion): ModelScore | null {
   const t0 = performance.now();
   try {
-    const m = model ?? loadTabularModel();
+    const m = model ?? loadTabularModel(env('TABULAR_MODEL_PATH') ?? defaultTabularPath(version));
     if (!m) return null;
     const p = predictTabular(m, f);
     if (!Number.isFinite(p)) return null;

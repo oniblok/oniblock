@@ -29,7 +29,7 @@
  * <DEMO_RUNTIME_DIR|.runtime>/verdicts.<chainId>.jsonl, capped to the last 5000 lines) for the app (/api/verdicts).
  *
  * CLI: tsx src/keeper.ts [--chain local|fork|sepolia] [--once] [--degraded] [--every N]
- *                        [--mode auto|jev|heuristic|kev|tabular] [--pool NAME]   (kev/tabular: set MODEL_MODE env so the default model node is kev-v1 / kev4b-v1 / tabular-v1 / tabular-v2)
+ *                        [--mode auto|jev|heuristic|kev|tabular|oniblock1] [--pool NAME]   (kev/tabular/oniblock1: set MODEL_MODE env so the default model node is kev-v1 / kev4b-v1 / tabular-v1 / oniblock1)
  * Env: KEEPER_EVERY (default 1), ATTEST_BLOCK_OFFSET (default 1), MODEL_NAME,
  *      FALLBACK_MODEL_NAME, RULE_MODEL_NAME (default rule-v1.models.oniblock.eth),
  *      KEEPER_GATE (default 0 = v4: the model is asked EVERY block; 1 = the v3 rule-v1 gate, kept for comparison),
@@ -58,8 +58,8 @@
  *        KEEPER_BLOCK_TIME_MS: default 12000 on sepolia, the observed header block time on local/fork chains.
  *        In slot mode every attested line logs readLagMs (read - ts_N), expectedMidAgeMs (ts_N + 2 * blockTime - read);
  *        unset, no header is read (zero extra RPC calls) and both are null.
- *      KEV_STATE_FORMAT (auto = v1 adapter text, default | kev2 = + the 3 v2 lines), TABULAR_MODEL (v1 default | v2;
- *        v2 = node tabular-v2), TABULAR_MODEL_PATH. Kev and tabular inputs are canonicalised to the training orientation
+ *      KEV_STATE_FORMAT (auto = v1 adapter text, default | kev2 = + the 3 v2 lines), MODEL_MODE=oniblock1 (= tabular with
+ *        the oniblock1 model, node oniblock1), TABULAR_MODEL (v1 default | oniblock1), TABULAR_MODEL_PATH. Kev and tabular inputs are canonicalised to the training orientation
  *        (USDC token0, WETH token1; features.ts canonicalFeatures); Jev's input is unchanged.
  *
  * v4 default ("the AI decides the fee", docs/review/V4_AI_DECIDES.md): no gate. Jev is asked every block and its
@@ -124,7 +124,7 @@ import {
 } from './config.js';
 import { getAttestations, getJitPenalties, getModifyLiquidity, getReceipts, keyTuple, readPool, receiptToSwapObs, TxSender, virtualDepth0 } from './chain.js';
 import { computeFeatures, JIT_LABEL_BLOCKS_DEFAULT, type JitPenaltyObs, type LiquidityObs, type SwapObs } from './features.js';
-import { defaultJevPrompt, kevStateFormat, score, tabularVersion, type AttackHead, type AttackType, type ModelMode, type ModelScore } from './model/index.js';
+import { defaultJevPrompt, kevStateFormat, score, tabularModelName, tabularVersion, type AttackHead, type AttackType, type ModelMode, type ModelScore } from './model/index.js';
 import { midToPriceX96, sqrtPriceX96ToPriceX96 } from './price.js';
 import { postDecision, type PostedState, type PostPolicy, type PostReason } from './postPolicy.js';
 import { createWalletClient, type Chain, type Transport, type Account, type WalletClient } from 'viem';
@@ -172,10 +172,10 @@ export { poolStateAbi } from './abi/oniblockHook.js';
 const RECENT_MIDS = 120;
 
 export const DEFAULT_MODEL_NAME = 'jev-v1.models.oniblock.eth';
-/** Primary model node name per MODEL_MODE: kev -> kev-v1 (Kev-0.8B) / kev4b-v1 (KEV_MODEL=4b), tabular -> tabular-v1 / tabular-v2 (TABULAR_MODEL=v2), else jev-v1. */
+/** Primary model node name per MODEL_MODE: kev -> kev-v1 (Kev-0.8B) / kev4b-v1 (KEV_MODEL=4b), oniblock1 -> oniblock1, tabular -> tabular-v1 (or TABULAR_MODEL), else jev-v1. */
 export function defaultModelName(mode = env('MODEL_MODE', 'auto')): string {
   if (mode === 'kev') return env('KEV_MODEL', '0.8b') === '4b' ? 'kev4b-v1.models.oniblock.eth' : 'kev-v1.models.oniblock.eth';
-  if (mode === 'tabular') return `tabular-${tabularVersion()}.models.oniblock.eth`;
+  if (mode === 'tabular' || mode === 'oniblock1') return `${tabularModelName(tabularVersion(mode))}.models.oniblock.eth`;
   return DEFAULT_MODEL_NAME;
 }
 export const DEFAULT_FALLBACK_MODEL_NAME = 'heuristic-v1.models.oniblock.eth';
@@ -993,7 +993,7 @@ export class Keeper {
       chargeThreshold: chargeThreshold() ?? null,
       readLeadMs: readLeadMs() ?? null,
       kevStateFormat: kevStateFormat(),
-      tabularModel: tabularVersion(),
+      tabularModel: tabularModelName(tabularVersion(this.o.mode ?? env('MODEL_MODE', 'auto'))),
       post: env('KEEPER_POST', 'every'),
       jevPrompt: defaultJevPrompt(),
       jitLabelBlocks: envInt('JIT_LABEL_BLOCKS', JIT_LABEL_BLOCKS_DEFAULT),

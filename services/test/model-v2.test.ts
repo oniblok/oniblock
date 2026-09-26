@@ -230,6 +230,37 @@ describe('tabular v2 (generic JSON feature list)', () => {
   });
 });
 
+describe('oniblock1 (the production tree model)', () => {
+  const path = defaultTabularPath('oniblock1');
+  const f = { ...base, gapPips: 900, gapSign: 1, nSwaps: 15, arbShare: 0.7, realizedVolBps: 2, sizeToDepth: 3e-5, edgeSigma: 2, vol5mBps: 2, ret12Bps: 1, ret36Bps: 2, ret900Bps: 3 };
+  it('MODEL_MODE=oniblock1 or TABULAR_MODEL=oniblock1 selects the oniblock1 file and node', () => {
+    delete process.env.TABULAR_MODEL;
+    expect(path).toMatch(/ml\/models\/oniblock1\.json$/);
+    expect(defaultModelName('oniblock1')).toBe('oniblock1.models.oniblock.eth');
+    process.env.MODEL_MODE = 'oniblock1';
+    expect(defaultTabularPath()).toBe(path);
+    delete process.env.MODEL_MODE;
+    process.env.TABULAR_MODEL = 'oniblock1';
+    expect(defaultModelName('tabular')).toBe('oniblock1.models.oniblock.eth');
+    expect(defaultTabularPath()).toBe(path);
+  });
+  it('the file names itself oniblock1 and carries the charge threshold', () => {
+    const m = loadTabularModel(path)! as ReturnType<typeof loadTabularModel> & { name: string; node: string };
+    expect(m.name).toBe('oniblock1');
+    expect(m.node).toBe('oniblock1.models.oniblock.eth');
+    expect(m.chargeThreshold).toBeCloseTo(0.8224, 4);
+    expect(m.trees.length).toBeGreaterThan(0);
+  });
+  it('score() with mode oniblock1 uses the oniblock1 trees (TABULAR_MODEL unset)', async () => {
+    delete process.env.TABULAR_MODEL;
+    const want = Math.round(predictTabular(loadTabularModel(path)!, f) * 10_000);
+    const s = await score(f, { mode: 'oniblock1', baseIsToken0: false });
+    expect(s.model).toBe('tabular');
+    expect(s.pToxicBps).toBe(want);
+    expect(want).not.toBe((await score(f, { mode: 'tabular', baseIsToken0: false })).pToxicBps); // default tabular = v1
+  });
+});
+
 describe('CHARGE_THRESHOLD gate (keeper)', () => {
   const s = (pToxicBps: number, confidenceBps = 3000): ModelScore => ({ pToxicBps, confidenceBps, pJitBps: 0, cls: 'unknown', latencyMs: 1, model: 'tabular' });
   it('unset / empty = off: the score is returned unchanged', () => {

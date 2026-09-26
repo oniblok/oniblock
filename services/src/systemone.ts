@@ -1,9 +1,9 @@
 /**
- * TypeSafe System One endpoint for the tabular models, so tabular, Kev and Jev sit behind one interface.
+ * TypeSafe System One endpoint for the tree models (oniblock1, tabular-v1), so they, Kev and Jev sit behind one interface.
  * The keeper still calls tabular in-process (services/src/model/tabular.ts); this is the same prediction over HTTP.
  *
  *   POST /v1/systemone
- *   body   { model?: "tabular-v2" | "tabular-v2-fresh" | "tabular-v1" | "tabular-latest",
+ *   body   { model?: "oniblock1" | "tabular-v1" | "tabular-latest" (= the default),
  *            state: { ...Features, baseIsToken0?: boolean },
  *            questions: { informed: { type: "noul", instructions?, criteria? } } }
  *   answer { model, answers: { informed: { type: "noul", noul: <P(true)> } }, latency_ms }
@@ -11,7 +11,8 @@
  *
  * `state` must be the numeric Features object (System One allows an object state): trees need exact numbers, not
  * the rounded text. It is canonicalised to the training orientation with `baseIsToken0`, like the keeper does.
- * Env: SYSTEMONE_PORT (8010), SYSTEMONE_HOST (127.0.0.1), SYSTEMONE_API_KEY (optional bearer), TABULAR_MODEL (default).
+ * Env: SYSTEMONE_PORT (8010), SYSTEMONE_HOST (127.0.0.1), SYSTEMONE_API_KEY (optional bearer), TABULAR_MODEL (default model;
+ * unset = oniblock1).
  * CLI: tsx src/systemone.ts
  */
 import { createHash } from 'node:crypto';
@@ -19,7 +20,7 @@ import { readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { env, envInt } from './config.js';
 import { canonicalFeatures, type Features } from './features.js';
-import { defaultTabularPath, loadTabularModel, parseTabularVersion, predictTabular, tabularVersion, type TabularVersion } from './model/tabular.js';
+import { defaultTabularPath, loadTabularModel, parseTabularVersion, predictTabular, tabularModelName, type TabularVersion } from './model/tabular.js';
 
 export interface SystemOneResult {
   status: number;
@@ -29,12 +30,18 @@ export interface SystemOneResult {
 const REQUIRED: (keyof Features)[] = ['gapPips', 'gapSign', 'baseFee', 'realizedVolBps'];
 const bad = (status: number, error: string): SystemOneResult => ({ status, body: { error } });
 
+/** Listed by /health (tabular-v2 is still accepted in a request). */
+const HEALTH_MODELS: readonly TabularVersion[] = ['oniblock1', 'v1'];
+
+/** The server's default model: TABULAR_MODEL if set, else oniblock1 (the keeper's own default stays tabular-v1). */
+export const systemOneDefault = (): TabularVersion => parseTabularVersion(env('TABULAR_MODEL')) ?? 'oniblock1';
+
 export function modelSha256(v: TabularVersion): string {
   return createHash('sha256').update(readFileSync(defaultTabularPath(v))).digest('hex');
 }
 
 /** Pure request handler (no I/O besides loading the model file once). */
-export function handleSystemOne(req: unknown, defaultVersion: TabularVersion = tabularVersion()): SystemOneResult {
+export function handleSystemOne(req: unknown, defaultVersion: TabularVersion = systemOneDefault()): SystemOneResult {
   const t0 = performance.now();
   if (!req || typeof req !== 'object') return bad(400, 'body must be a JSON object');
   const r = req as { model?: unknown; state?: unknown; questions?: unknown };
@@ -52,13 +59,13 @@ export function handleSystemOne(req: unknown, defaultVersion: TabularVersion = t
   if (qs.informed?.type !== 'noul') return bad(400, 'questions.informed.type must be "noul"');
 
   const m = loadTabularModel(defaultTabularPath(requested));
-  if (!m) return bad(503, `model tabular-${requested} is not available`);
+  if (!m) return bad(503, `model ${tabularModelName(requested)} is not available`);
   const f = canonicalFeatures(st as unknown as Features, st.baseIsToken0 === true);
   const p = predictTabular(m, f);
   if (!Number.isFinite(p)) return bad(500, 'prediction is not finite');
   return {
     status: 200,
-    body: { model: `tabular-${requested}`, answers: { informed: { type: 'noul', noul: p } }, latency_ms: +(performance.now() - t0).toFixed(3) },
+    body: { model: tabularModelName(requested), answers: { informed: { type: 'noul', noul: p } }, latency_ms: +(performance.now() - t0).toFixed(3) },
   };
 }
 
@@ -71,13 +78,11 @@ export function startSystemOne(port = envInt('SYSTEMONE_PORT', 8010), host = env
   const server = createServer((req, res) => {
     if (key && req.headers.authorization !== `Bearer ${key}`) return send(res, 401, { error: 'unauthorized' });
     if (req.method === 'GET' && req.url === '/health') {
-      const models = (['v1', 'v2', 'v2-fresh'] as const)
-        .map((v) => {
-          const m = loadTabularModel(defaultTabularPath(v));
-          return m ? { name: `tabular-${v}`, sha256: modelSha256(v), chargeThreshold: m.chargeThreshold ?? null } : null;
-        })
-        .filter(Boolean);
-      return send(res, 200, { ok: true, default: `tabular-${tabularVersion()}`, models });
+      const models = HEALTH_MODELS.map((v) => {
+        const m = loadTabularModel(defaultTabularPath(v));
+        return m ? { name: tabularModelName(v), sha256: modelSha256(v), chargeThreshold: m.chargeThreshold ?? null } : null;
+      }).filter(Boolean);
+      return send(res, 200, { ok: true, default: tabularModelName(systemOneDefault()), models });
     }
     if (req.method !== 'POST' || req.url !== '/v1/systemone') return send(res, 404, { error: 'not found' });
     let raw = '';
@@ -102,5 +107,5 @@ export function startSystemOne(port = envInt('SYSTEMONE_PORT', 8010), host = env
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const s = startSystemOne();
-  s.on('listening', () => console.log(JSON.stringify({ c: 'systemone', e: 'listening', address: s.address(), default: `tabular-${tabularVersion()}` })));
+  s.on('listening', () => console.log(JSON.stringify({ c: 'systemone', e: 'listening', address: s.address(), default: tabularModelName(systemOneDefault()) })));
 }

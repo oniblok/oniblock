@@ -247,14 +247,14 @@ The script:
 
 Headless, it checks the `calibration.*` records through the UniversalResolverV2, then presses **Revoke quoter** (ENS `revokeRoles`): the pool goes stale at `conservativeFee`. It then presses **Grant backup** (ENS `grantRoles`), and attestations resume. Evidence from a full run: [`docs/review/INTEGRATION_1.md`](docs/review/INTEGRATION_1.md).
 
-### Keeper model options (model v2)
+### Keeper model options
 
 Env for `pnpm -C services keeper` (all optional; unset = today's behaviour):
 
-- `CHARGE_THRESHOLD=0.xx`: charge gate. The posted pToxic stays unchanged, and confidence becomes 10000 when p ≥ t and 0 otherwise. The hook's k = kMax·p·c is therefore 0 below t, so the pool acts like a vanilla pool. Each attestation logs `p`, `chargeThreshold` and `charged`.
+- `MODEL_MODE=oniblock1`: score with oniblock1, the production model. It is LightGBM gradient-boosted trees over the pool and Binance features, evaluated in-process from `ml/models/oniblock1.json`, and the keeper posts under `oniblock1.models.oniblock.eth`. It is trained on a Binance read about 2 s before the block, so use it when the keeper's post lands first in the block. `MODEL_MODE=tabular TABULAR_MODEL=oniblock1` is the same; `TABULAR_MODEL_PATH` overrides the file.
+- `CHARGE_THRESHOLD=0.xx`: charge gate. The posted pToxic stays unchanged, and confidence becomes 10000 when p ≥ t and 0 otherwise. The hook's k = kMax·p·c is therefore 0 below t, so the pool acts like a vanilla pool. Each attestation logs `p`, `chargeThreshold` and `charged`. For oniblock1 use `CHARGE_THRESHOLD=0.8224`, the threshold stored in its JSON (5% false-positive rate on validation).
 - `KEV_STATE_FORMAT=auto|kev2`: the Kev state text (`MODEL_MODE=kev`). `auto` is the v1 adapter text. `kev2` appends three lines: the edge in volatility units, the 5-minute volatility and the 12 s / 36 s / 15 min trend.
-- `TABULAR_MODEL=v1|v2|v2-fresh`: the tabular model (`MODEL_MODE=tabular`). `v2` reads `services/models/tabular-v2.json`, else `ml/models/tabular-v2.json`, and posts under `tabular-v2.models.oniblock.eth`; `v2-fresh` is trained on a Binance read ~2 s before the block, so use it only when the keeper's post lands first in the block. `TABULAR_MODEL_PATH` overrides the file.
-- `pnpm -C services systemone`: the tabular models behind TypeSafe's System One API (`POST /v1/systemone` with the numeric Features as `state` and the `informed` noul question; `GET /health` lists each model's SHA-256, its ENS `model-hash`). Same prediction as the keeper's in-process scoring; port `SYSTEMONE_PORT` (8010).
+- `pnpm -C services systemone`: oniblock1 behind TypeSafe's System One API (`POST /v1/systemone` with `model: "oniblock1"`, the numeric Features as `state` and the `informed` noul question; `GET /health` lists each model's SHA-256, its ENS `model-hash`). Same prediction as the keeper's in-process scoring; port `SYSTEMONE_PORT` (8010).
 
 ### Tests
 

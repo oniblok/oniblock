@@ -13,8 +13,8 @@ LightGBM retrained in this pipeline. Writes ml/models/tabular-v2.json (format of
 ml/models/tabular_v2_results.json.
 
 usage: python train_tabular_v2.py
-       python train_tabular_v2.py --data ml/train_kev4b/data/v2-fresh --name tabular-v2-fresh \
-           --results /tmp/ml-research/data-fresh/tabular_v2_fresh_results.json      (fresh-CEX variant, build_v2.py --query-lag 3)
+       python train_tabular_v2.py --data ml/train_kev4b/data/v2-fresh --name oniblock1 \
+           --results ml/models/oniblock1_results.json      (oniblock1, the production model: fresh-CEX data, build_v2.py --query-lag 3)
 """
 import argparse, json, math, hashlib
 from pathlib import Path
@@ -62,6 +62,17 @@ def export(booster, name):
     d = booster.dump_model()
     return {"version": 2, "name": name, "model": "lightgbm", "objective": d["objective"], "features": d["feature_names"],
             "trees": [conv(t["tree_structure"]) for t in d["tree_info"]]}
+
+
+def summary(name, n_trees, n_features, lag):
+    s = (f"{name}: LightGBM gradient-boosted decision trees ({n_trees} trees, binary logistic: p = sigmoid(sum of leaf values)) "
+         f"over {n_features} features: pool gap to Binance, edge over the base fee, base fee, arb-direction and absolute flow imbalance, "
+         "size to depth, realized volatility, swap count, arb share, gap / fee, log size, edge in sigmas, 5 min volatility, 12 s / 36 s / 15 min "
+         "Binance returns and the signed gap. Trained on real mainnet blocks")
+    if lag is None:
+        return s + "."
+    s += f" with the Binance features read ~{lag - 1} s before the block"
+    return s + (", so it is meant for a keeper whose post lands first in the block." if lag - 1 <= 2 else ".")
 
 
 def predict_json(m, X):
@@ -152,6 +163,7 @@ def main():
         "node": node,
         "chargeThreshold": opv["threshold"],
         "notes": {
+            "summary": summary(name, len(out["trees"]), len(out["features"]), lag),
             "inputs": "tabular.ts tabularInputs order: v1 11 inputs, then edgeSigma, vol5mBps, ret12Bps, ret36Bps, ret900Bps "
                       "(the keeper Features fields as given), sgap = gapSign * gapPips",
             "orientation": "canonical training orientation (baseIsToken0 = false): gapSign +1 = ETH cheaper in the pool than on Binance; "

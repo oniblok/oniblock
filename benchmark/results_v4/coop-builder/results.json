@@ -1,5 +1,5 @@
 {
- "generatedAt": "2026-09-26T20:51:06.549Z",
+ "generatedAt": "2026-09-26T21:09:48.778Z",
  "tiers": {
   "500": [
    {
@@ -1746,7 +1746,7 @@
     "arm": "C",
     "run": "coop",
     "pool": "ai",
-    "label": "C: keeper posts first in the block (cooperating builder), mid 2 s old; tabular-v2-fresh + charge gate",
+    "label": "C: keeper posts first in the block (cooperating builder), mid 2 s old; oniblock1 + charge gate",
     "all": {
      "n": 6,
      "grossBps": {
@@ -2230,7 +2230,7 @@
      },
      "threshold": 0.8224
     },
-    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/tabular-v2-fresh.json",
+    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
     "rows": [
      {
       "windowId": "ETH-vol1",
@@ -2279,8 +2279,8 @@
       "reverts": 0,
       "runtimeSec": 5,
       "tab": {
-       "model": "tabular-v2-fresh",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/tabular-v2-fresh.json",
+       "model": "oniblock1",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -2343,8 +2343,8 @@
       "reverts": 0,
       "runtimeSec": 4,
       "tab": {
-       "model": "tabular-v2-fresh",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/tabular-v2-fresh.json",
+       "model": "oniblock1",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -2407,8 +2407,8 @@
       "reverts": 0,
       "runtimeSec": 4,
       "tab": {
-       "model": "tabular-v2-fresh",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/tabular-v2-fresh.json",
+       "model": "oniblock1",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -2469,8 +2469,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "tabular-v2-fresh",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/tabular-v2-fresh.json",
+       "model": "oniblock1",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -2531,8 +2531,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "tabular-v2-fresh",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/tabular-v2-fresh.json",
+       "model": "oniblock1",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -2593,8 +2593,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "tabular-v2-fresh",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/tabular-v2-fresh.json",
+       "model": "oniblock1",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -3100,7 +3100,7 @@
      },
      "threshold": 0.8224
     },
-    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/tabular-v2-fresh.json",
+    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
     "rows": [
      {
       "windowId": "ETH-vol1",
@@ -3149,8 +3149,8 @@
       "reverts": 0,
       "runtimeSec": 5,
       "tab": {
-       "model": "tabular-v2-fresh",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/tabular-v2-fresh.json",
+       "model": "oniblock1",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -3213,8 +3213,8 @@
       "reverts": 0,
       "runtimeSec": 4,
       "tab": {
-       "model": "tabular-v2-fresh",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/tabular-v2-fresh.json",
+       "model": "oniblock1",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -3277,8 +3277,8 @@
       "reverts": 0,
       "runtimeSec": 4,
       "tab": {
-       "model": "tabular-v2-fresh",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/tabular-v2-fresh.json",
+       "model": "oniblock1",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -3339,8 +3339,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "tabular-v2-fresh",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/tabular-v2-fresh.json",
+       "model": "oniblock1",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -3401,8 +3401,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "tabular-v2-fresh",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/tabular-v2-fresh.json",
+       "model": "oniblock1",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -3463,8 +3463,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "tabular-v2-fresh",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/tabular-v2-fresh.json",
+       "model": "oniblock1",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -4653,7 +4653,7 @@
       "neg": 0
      }
     },
-    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/tabular-v2-fresh.json",
+    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
     "rows": [
      {
       "windowId": "ETH-vol1",
@@ -6675,7 +6675,7 @@
     "arm": "C",
     "run": "coop",
     "pool": "ai",
-    "label": "C: keeper posts first in the block (cooperating builder), mid 2 s old; tabular-v2-fresh + charge gate",
+    "label": "C: keeper posts first in the block (cooperating builder), mid 2 s old; oniblock1 + charge gate",
     "all": {
      "n": 6,
      "grossBps": {
@@ -7159,7 +7159,7 @@
      },
      "threshold": 0.8224
     },
-    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/tabular-v2-fresh.json",
+    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
     "rows": [
      {
       "windowId": "ETH-vol1",
@@ -7208,8 +7208,8 @@
       "reverts": 0,
       "runtimeSec": 5,
       "tab": {
-       "model": "tabular-v2-fresh",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/tabular-v2-fresh.json",
+       "model": "oniblock1",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -7272,8 +7272,8 @@
       "reverts": 0,
       "runtimeSec": 4,
       "tab": {
-       "model": "tabular-v2-fresh",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/tabular-v2-fresh.json",
+       "model": "oniblock1",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -7336,8 +7336,8 @@
       "reverts": 0,
       "runtimeSec": 4,
       "tab": {
-       "model": "tabular-v2-fresh",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/tabular-v2-fresh.json",
+       "model": "oniblock1",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -7397,8 +7397,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "tabular-v2-fresh",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/tabular-v2-fresh.json",
+       "model": "oniblock1",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -7458,8 +7458,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "tabular-v2-fresh",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/tabular-v2-fresh.json",
+       "model": "oniblock1",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -7519,8 +7519,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "tabular-v2-fresh",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/tabular-v2-fresh.json",
+       "model": "oniblock1",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -8026,7 +8026,7 @@
      },
      "threshold": 0.8224
     },
-    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/tabular-v2-fresh.json",
+    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
     "rows": [
      {
       "windowId": "ETH-vol1",
@@ -8075,8 +8075,8 @@
       "reverts": 0,
       "runtimeSec": 5,
       "tab": {
-       "model": "tabular-v2-fresh",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/tabular-v2-fresh.json",
+       "model": "oniblock1",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -8139,8 +8139,8 @@
       "reverts": 0,
       "runtimeSec": 4,
       "tab": {
-       "model": "tabular-v2-fresh",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/tabular-v2-fresh.json",
+       "model": "oniblock1",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -8203,8 +8203,8 @@
       "reverts": 0,
       "runtimeSec": 4,
       "tab": {
-       "model": "tabular-v2-fresh",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/tabular-v2-fresh.json",
+       "model": "oniblock1",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -8265,8 +8265,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "tabular-v2-fresh",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/tabular-v2-fresh.json",
+       "model": "oniblock1",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -8327,8 +8327,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "tabular-v2-fresh",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/tabular-v2-fresh.json",
+       "model": "oniblock1",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -8389,8 +8389,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "tabular-v2-fresh",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/tabular-v2-fresh.json",
+       "model": "oniblock1",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -9585,7 +9585,7 @@
       "neg": 0
      }
     },
-    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/tabular-v2-fresh.json",
+    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
     "rows": [
      {
       "windowId": "ETH-vol1",
@@ -9875,7 +9875,7 @@
  "paired": {
   "500": {
    "C-R": {
-    "what": "value of the builder deal (first position + 2 s mid + fresh model vs no deal)",
+    "what": "value of the builder deal (first position + 2 s mid + oniblock1 vs no deal)",
     "net": {
      "n": 6,
      "mean": 0.2321,
@@ -10004,7 +10004,7 @@
     }
    },
    "C-Ch": {
-    "what": "tabular-v2-fresh vs the heuristic, coop timing",
+    "what": "oniblock1 vs the heuristic, coop timing",
     "net": {
      "n": 6,
      "mean": -0.0198,
@@ -10092,7 +10092,7 @@
   },
   "3000": {
    "C-R": {
-    "what": "value of the builder deal (first position + 2 s mid + fresh model vs no deal)",
+    "what": "value of the builder deal (first position + 2 s mid + oniblock1 vs no deal)",
     "net": {
      "n": 6,
      "mean": 0.1154,
@@ -10221,7 +10221,7 @@
     }
    },
    "C-Ch": {
-    "what": "tabular-v2-fresh vs the heuristic, coop timing",
+    "what": "oniblock1 vs the heuristic, coop timing",
     "net": {
      "n": 6,
      "mean": 0.0095,

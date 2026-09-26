@@ -1,12 +1,12 @@
-# Mainnet block timing, with and without a cooperating builder (v4 benchmark, tabular v2 models)
+# Mainnet block timing, with and without a cooperating builder (v4 benchmark, LightGBM models)
 
-Generated 2026-09-26T20:51:06.549Z by `benchmark/src/v4/coop4.ts` (sim4.ts mainnet block mode). 6 ETHUSDT one-hour windows (3 volatile, 3 calm; data/windows_v2.json), 3600 s each = 300 blocks of 12 s, $20M full-range TVL per pool. Each Oniblock pool competes with its own vanilla neighbour (same fee tier, same liquidity) for the same routed retail and the same two arbitrageurs; **the vanilla neighbour is the "without this hook" baseline** and every LP number below is Oniblock minus that neighbour.
+Generated 2026-09-26T21:09:48.778Z by `benchmark/src/v4/coop4.ts` (sim4.ts mainnet block mode). 6 ETHUSDT one-hour windows (3 volatile, 3 calm; data/windows_v2.json), 3600 s each = 300 blocks of 12 s, $20M full-range TVL per pool. Each Oniblock pool competes with its own vanilla neighbour (same fee tier, same liquidity) for the same routed retail and the same two arbitrageurs; **the vanilla neighbour is the "without this hook" baseline** and every LP number below is Oniblock minus that neighbour.
 
 ## What the mainnet block mode simulates
 
 - Time advances in 12 s blocks. In block b (timestamp s) everything acts at s, in this order: settler, keeper (if its post lands in this block), the two arbitrageurs (vs the Binance mid at s), then retail. Nothing trades between blocks. Arbs and retail are in the same anvil block, so retail that follows an arb in the arb direction pays the hook's per-block high-water fee (the fee quote for retail is taken after the arbs on a throw-away copy of the chain, then the real block is mined).
 - **realistic** (no builder deal): the keeper reads Binance 13 s before the block it prices and the chain as it is then (pool state and swaps up to block b−1; block b is not built yet); its post lands last in block b and prices block b+1. Model `tabular-v2` (trained on ~11 s-old mids).
-- **coop** (cooperating builder): the keeper reads Binance 2 s before block b and the chain after block b−1; the builder puts its post first in block b, so it prices block b. Model `tabular-v2-fresh` (trained on ~2 s-old mids).
+- **coop** (cooperating builder): the keeper reads Binance 2 s before block b and the chain after block b−1; the builder puts its post first in block b, so it prices block b. Model `oniblock1` (trained on ~2 s-old mids).
 - Keeper: in-process LightGBM (services/src/model/tabular.ts) on the features the live keeper computes (services/src/features.ts computeFeatures: a MidHistory with one CEX read per block, pre-filled from the 30 min before the window; realized vol over its last 120 reads; 20-block swap window; inputs canonicalised to the training orientation), then the keeper's charge gate at the model JSON's `chargeThreshold` (confidence = p ≥ t ? 1 : 0, so k = 0.8·p above the gate and 0 below; pToxic is posted unchanged and graded). Post policy `change` (services/src/postPolicy.ts), heartbeat 4 blocks, stale after 5 blocks, 5% of posts missed.
 - Settler: grades every block with arb-direction flow against the Binance mid at the block timestamp, label y = markout at the base fee > max($1, 1 bp of arb volume) (the live settler default and the label the models are trained on; blocks inside the dead band are not graded), posts calibration every 2 blocks; a model is demoted to k = kDefault = 0 (a vanilla pool) until it has 10 graded blocks or while its Brier > 0.25.
 - Retail: the v4 model (Poisson 0.1 orders/s → 1.2 per block, lognormal size median $400, autocorrelated direction, 5% informed over 30 s), routed per market between the two pools by best execution (optimal split). Keeper gas from the setAttestation receipts; net = gross − keeper gas at 1 gwei (LPs fund the keeper).
@@ -20,7 +20,7 @@ Generated 2026-09-26T20:51:06.549Z by `benchmark/src/v4/coop4.ts` (sim4.ts mainn
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | R: post lands last in the previous block (no builder deal), mid 13 s old; tabular-v2 + charge gate | 0.043 [-0.109, 0.230] | 85 | 26.0 | 0.030 [-0.124, 0.217] | 59 | 0.026 | INCONCLUSIVE | 2/4 | 137 | 43.4 | 28.7 / 31.4 | -0.52 | 0.508% / 0.300% | 60% |
 | R0: as R, gate off (k = 0.8 p) | 0.065 [-0.125, 0.302] | 130 | 28.9 | 0.051 [-0.142, 0.261] | 102 | 0.046 | INCONCLUSIVE | 2/4 | 152 | 40.1 | 29.0 / 31.4 | -0.33 | 0.584% / 0.300% | 54% |
-| C: keeper posts first in the block (cooperating builder), mid 2 s old; tabular-v2-fresh + charge gate | 0.156 [-0.003, 0.365] | 313 | 22.4 | 0.145 [-0.011, 0.350] | 290 | 0.141 | INCONCLUSIVE | 2/4 | 123 | 43.7 | 28.5 / 31.0 | -0.83 | 0.670% / 0.300% | 57% |
+| C: keeper posts first in the block (cooperating builder), mid 2 s old; oniblock1 + charge gate | 0.156 [-0.003, 0.365] | 313 | 22.4 | 0.145 [-0.011, 0.350] | 290 | 0.141 | INCONCLUSIVE | 2/4 | 123 | 43.7 | 28.5 / 31.0 | -0.83 | 0.670% / 0.300% | 57% |
 | C0: as C, gate off (k = 0.8 p) | 0.168 [-0.014, 0.376] | 335 | 27.0 | 0.154 [-0.023, 0.358] | 308 | 0.149 | INCONCLUSIVE | 2/4 | 148 | 40.7 | 28.6 / 30.8 | -0.79 | 0.738% / 0.300% | 53% |
 | Rh: realistic timing, heuristic scorer (reference) | 0.022 [-0.119, 0.224] | 43 | 27.4 | 0.008 [-0.132, 0.207] | 16 | 0.004 | INCONCLUSIVE | 1/5 | 145 | 42.3 | 29.6 / 31.1 | -0.26 | 0.457% / 0.300% | 73% |
 | Ch: coop timing, heuristic scorer (reference) | 0.150 [-0.022, 0.352] | 299 | 27.9 | 0.136 [-0.031, 0.333] | 271 | 0.131 | INCONCLUSIVE | 3/3 | 153 | 39.9 | 28.2 / 31.1 | -0.71 | 0.720% / 0.300% | 54% |
@@ -44,17 +44,17 @@ charged = the probability in force at the block ≥ the model's chargeThreshold 
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | R | tabular-v2 (0.7951) | 277 | 31.4% | 66 | 90.9% | 3.2% | 23.8% | 69.0% | 0.072 | 21.6% | 90.9% / 10.0% / 69.0% | - / 0.0% / - |
 | R0 | tabular-v2 (0.7951) | 267 | 34.1% | 86 | 91.9% | 4.0% | 32.2% | 86.8% | 0.052 | 24.3% | 91.9% / 14.0% / 86.8% | - / 0.0% / - |
-| C | tabular-v2-fresh (0.8224) | 283 | 33.2% | 80 | 97.5% | 1.1% | 28.3% | 83.0% | 0.029 | 20.3% | 97.5% / 3.3% / 83.0% | - / 0.0% / - |
-| C0 | tabular-v2-fresh (0.8224) | 266 | 35.3% | 85 | 97.6% | 1.2% | 32.0% | 88.3% | 0.027 | 22.2% | 97.6% / 4.1% / 88.3% | - / 0.0% / - |
+| C | oniblock1 (0.8224) | 283 | 33.2% | 80 | 97.5% | 1.1% | 28.3% | 83.0% | 0.029 | 20.3% | 97.5% / 3.3% / 83.0% | - / 0.0% / - |
+| C0 | oniblock1 (0.8224) | 266 | 35.3% | 85 | 97.6% | 1.2% | 32.0% | 88.3% | 0.027 | 22.2% | 97.6% / 4.1% / 88.3% | - / 0.0% / - |
 
 ### Paired differences (per window, then bootstrap over windows)
 
 | difference | net bps/h @1 gwei [CI] | net $/h | windows +/− | retail share pp | volatile net bps/h [CI] | calm net bps/h [CI] |
 |---|---|---|---|---|---|---|
-| C − R: value of the builder deal (first position + 2 s mid + fresh model vs no deal) | 0.115 [0.024, 0.218] | 231 | 3/3 | 0.3 | 0.234 [0.163, 0.307] | -0.003 [-0.004, -0.002] |
+| C − R: value of the builder deal (first position + 2 s mid + oniblock1 vs no deal) | 0.115 [0.024, 0.218] | 231 | 3/3 | 0.3 | 0.234 [0.163, 0.307] | -0.003 [-0.004, -0.002] |
 | C − C0: charge gate on vs off (coop) | -0.009 [-0.052, 0.017] | -18 | 4/2 | 3.0 | -0.033 [-0.115, 0.019] | 0.015 [0.012, 0.021] |
 | R − R0: charge gate on vs off (realistic) | -0.021 [-0.082, 0.032] | -42 | 4/2 | 3.3 | -0.053 [-0.140, 0.076] | 0.010 [0.008, 0.012] |
-| C − Ch: tabular-v2-fresh vs the heuristic, coop timing | 0.009 [-0.019, 0.035] | 19 | 4/2 | 3.9 | -0.009 [-0.046, 0.047] | 0.028 [0.018, 0.034] |
+| C − Ch: oniblock1 vs the heuristic, coop timing | 0.009 [-0.019, 0.035] | 19 | 4/2 | 3.9 | -0.009 [-0.046, 0.047] | 0.028 [0.018, 0.034] |
 | R − Rh: tabular-v2 vs the heuristic, realistic timing | 0.022 [-0.005, 0.050] | 43 | 4/2 | 1.1 | 0.013 [-0.023, 0.081] | 0.030 [0.018, 0.038] |
 
 ### Break-even payment to the builder (arm C)
@@ -119,7 +119,7 @@ The most the LPs could pay the builder for first position before the hooked pool
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | R: post lands last in the previous block (no builder deal), mid 13 s old; tabular-v2 + charge gate | 0.029 [0.009, 0.052] | 59 | 30.9 | 0.014 [-0.002, 0.032] | 28 | 0.009 | INCONCLUSIVE | 3/3 | 164 | 45.2 | 5.3 / 6.5 | 0.05 | 0.063% / 0.050% | 92% |
 | R0: as R, gate off (k = 0.8 p) | 0.047 [0.013, 0.086] | 94 | 32.5 | 0.031 [0.002, 0.065] | 62 | 0.026 | YES | 3/3 | 173 | 42.6 | 4.9 / 6.7 | 0.08 | 0.070% / 0.050% | 89% |
-| C: keeper posts first in the block (cooperating builder), mid 2 s old; tabular-v2-fresh + charge gate | 0.261 [0.056, 0.511] | 522 | 29.9 | 0.246 [0.046, 0.482] | 492 | 0.240 | YES | 3/3 | 166 | 44.4 | 4.8 / 6.4 | -0.25 | 0.146% / 0.050% | 79% |
+| C: keeper posts first in the block (cooperating builder), mid 2 s old; oniblock1 + charge gate | 0.261 [0.056, 0.511] | 522 | 29.9 | 0.246 [0.046, 0.482] | 492 | 0.240 | YES | 3/3 | 166 | 44.4 | 4.8 / 6.4 | -0.25 | 0.146% / 0.050% | 79% |
 | C0: as C, gate off (k = 0.8 p) | 0.273 [0.057, 0.537] | 546 | 30.9 | 0.258 [0.046, 0.511] | 515 | 0.252 | YES | 3/3 | 171 | 43.1 | 4.9 / 6.4 | -0.13 | 0.168% / 0.050% | 74% |
 | Rh: realistic timing, heuristic scorer (reference) | 0.044 [0.002, 0.093] | 87 | 32.4 | 0.027 [-0.008, 0.072] | 55 | 0.022 | INCONCLUSIVE | 2/4 | 172 | 43.3 | 5.1 / 6.6 | 0.09 | 0.066% / 0.050% | 89% |
 | Ch: coop timing, heuristic scorer (reference) | 0.281 [0.062, 0.539] | 563 | 31.3 | 0.266 [0.051, 0.528] | 531 | 0.260 | YES | 3/3 | 174 | 42.6 | 4.9 / 6.4 | -0.12 | 0.174% / 0.050% | 73% |
@@ -143,17 +143,17 @@ charged = the probability in force at the block ≥ the model's chargeThreshold 
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | R | tabular-v2 (0.7951) | 198 | 91.9% | 111 | 98.2% | 12.5% | 56.1% | 59.9% | 0.078 | 42.3% | 98.1% / 22.2% / 58.0% | 100.0% / 0.0% / 100.0% |
 | R0 | tabular-v2 (0.7951) | 192 | 91.1% | 126 | 97.6% | 17.6% | 65.6% | 70.3% | 0.071 | 44.6% | 97.5% / 30.0% / 68.9% | 100.0% / 0.0% / 100.0% |
-| C | tabular-v2-fresh (0.8224) | 226 | 92.9% | 165 | 99.4% | 6.3% | 73.0% | 78.1% | 0.055 | 45.2% | 99.4% / 11.1% / 77.2% | 100.0% / 0.0% / 100.0% |
-| C0 | tabular-v2-fresh (0.8224) | 201 | 94.0% | 166 | 99.4% | 8.3% | 82.6% | 87.3% | 0.038 | 46.5% | 99.4% / 20.0% / 86.7% | 100.0% / 0.0% / 100.0% |
+| C | oniblock1 (0.8224) | 226 | 92.9% | 165 | 99.4% | 6.3% | 73.0% | 78.1% | 0.055 | 45.2% | 99.4% / 11.1% / 77.2% | 100.0% / 0.0% / 100.0% |
+| C0 | oniblock1 (0.8224) | 201 | 94.0% | 166 | 99.4% | 8.3% | 82.6% | 87.3% | 0.038 | 46.5% | 99.4% / 20.0% / 86.7% | 100.0% / 0.0% / 100.0% |
 
 ### Paired differences (per window, then bootstrap over windows)
 
 | difference | net bps/h @1 gwei [CI] | net $/h | windows +/− | retail share pp | volatile net bps/h [CI] | calm net bps/h [CI] |
 |---|---|---|---|---|---|---|
-| C − R: value of the builder deal (first position + 2 s mid + fresh model vs no deal) | 0.232 [0.047, 0.463] | 464 | 6/0 | -0.8 | 0.464 [0.281, 0.695] | 0.001 [0.000, 0.001] |
+| C − R: value of the builder deal (first position + 2 s mid + oniblock1 vs no deal) | 0.232 [0.047, 0.463] | 464 | 6/0 | -0.8 | 0.464 [0.281, 0.695] | 0.001 [0.000, 0.001] |
 | C − C0: charge gate on vs off (coop) | -0.012 [-0.026, -0.001] | -23 | 3/3 | 1.3 | -0.023 [-0.043, -0.004] | 0.000 [0.000, 0.000] |
 | R − R0: charge gate on vs off (realistic) | -0.017 [-0.036, -0.002] | -34 | 3/3 | 2.6 | -0.034 [-0.061, -0.010] | 0.000 [0.000, 0.000] |
-| C − Ch: tabular-v2-fresh vs the heuristic, coop timing | -0.020 [-0.037, -0.005] | -40 | 2/4 | 1.8 | -0.040 [-0.052, -0.033] | 0.000 [-0.000, 0.001] |
+| C − Ch: oniblock1 vs the heuristic, coop timing | -0.020 [-0.037, -0.005] | -40 | 2/4 | 1.8 | -0.040 [-0.052, -0.033] | 0.000 [-0.000, 0.001] |
 | R − Rh: tabular-v2 vs the heuristic, realistic timing | -0.014 [-0.046, 0.016] | -27 | 1/5 | 1.9 | -0.027 [-0.092, 0.041] | -0.000 [-0.001, -0.000] |
 
 ### Break-even payment to the builder (arm C)

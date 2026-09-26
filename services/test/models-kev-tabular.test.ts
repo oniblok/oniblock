@@ -35,8 +35,9 @@ describe('tabular-v1 (LightGBM JSON, pure TS)', () => {
     expect(hi.pJitBps).toBe(0); // v5: no JIT head yet
     expect(hi.pToxicBps).toBeGreaterThan(lo.pToxicBps);
   });
-  it('score() dispatches MODEL_MODE=tabular', async () => {
+  it('score() dispatches MODEL_MODE=tabular and MODEL_MODE=oniblock1', async () => {
     expect((await score({ ...base, gapPips: 900 }, { mode: 'tabular' })).model).toBe('tabular');
+    expect((await score({ ...base, gapPips: 900 }, { mode: 'oniblock1' })).model).toBe('tabular');
   });
 });
 
@@ -73,6 +74,7 @@ describe('kev client (System One noul)', () => {
     expect(kevModelName('0.8b')).toBe('kev-v1.models.oniblock.eth');
     expect(kevModelName('4b')).toBe('kev4b-v1.models.oniblock.eth');
     expect(defaultModelName('tabular')).toBe('tabular-v1.models.oniblock.eth');
+    expect(defaultModelName('oniblock1')).toBe('oniblock1.models.oniblock.eth');
     expect(defaultModelName('auto')).toBe('jev-v1.models.oniblock.eth');
   });
 

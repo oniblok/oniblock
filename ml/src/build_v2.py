@@ -29,7 +29,7 @@ Fresh-CEX variant (--query-lag S, default 12 = the dataset's cex_mid_obs convent
   subset rows are unchanged (verified against v1 / the v2 key files). The parity fixture is only written for S = 12.
 
 usage: python build_v2.py [--query-lag 12] [--out DIR] [--no-fixture]
-       python build_v2.py --query-lag 3 --out ml/train_kev4b/data/v2-fresh      (age 2 s: keeper posts first in the block)
+       python build_v2.py --query-lag 3 --out ml/train_kev4b/data/v2-fresh      (age 2 s: keeper posts first in the block; oniblock1)
 """
 import argparse, json, hashlib, os
 from pathlib import Path

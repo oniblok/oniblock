@@ -16,10 +16,13 @@ export { scoreHeuristic, heuristicAttack, heuristicPJitBps } from './heuristic.j
 export { scoreWithJev, parseJev, JevCache, JEV_QUESTIONS, JEV_QUESTIONS_V1, JEV_QUESTIONS_V4, JEV_QUESTIONS_V5, JEV_QUESTIONS_V6, JEV_MODEL, jevCacheKey, jevQuestions, defaultJevPrompt, type JevPrompt } from './jev.js';
 
 export { scoreWithKev, parseKev, KEV_QUESTIONS, kevModelName, kevSize } from './kev.js';
-export { scoreTabular, predictTabular, loadTabularModel, tabularInputs, tabularVersion, TABULAR_FEATURES, TABULAR_V1_FEATURES } from './tabular.js';
+export { scoreTabular, predictTabular, loadTabularModel, tabularInputs, tabularVersion, tabularModelName, TABULAR_FEATURES, TABULAR_V1_FEATURES } from './tabular.js';
 
-/** kev = local fine-tuned Kev server (KEV_URL, KEV_MODEL=0.8b|4b, KEV_STATE_FORMAT=auto|kev2); tabular = tabular-v1|v2 LightGBM (in-process, TABULAR_MODEL). Both fall back to the heuristic. */
-export type ModelMode = 'auto' | 'jev' | 'heuristic' | 'kev' | 'tabular';
+/**
+ * kev = local fine-tuned Kev server (KEV_URL, KEV_MODEL=0.8b|4b, KEV_STATE_FORMAT=auto|kev2); tabular = LightGBM trees in-process
+ * (TABULAR_MODEL, default tabular-v1); oniblock1 = tabular with the oniblock1 model. All fall back to the heuristic.
+ */
+export type ModelMode = 'auto' | 'jev' | 'heuristic' | 'kev' | 'tabular' | 'oniblock1';
 
 export interface ScoreOpts {
   /** auto = Jev then heuristic (default); jev = Jev only (heuristic still used if Jev fails); heuristic = skip Jev. */
@@ -71,8 +74,8 @@ export async function score(f: Features, opts: ScoreOpts = {}): Promise<ModelSco
   let s: ModelScore | null = null;
   if (mode === 'kev') {
     s = await scoreWithKev(kevState(f, opts.baseIsToken0), { timeoutMs: opts.timeoutMs });
-  } else if (mode === 'tabular') {
-    s = scoreTabular(canonicalFeatures(f, opts.baseIsToken0));
+  } else if (mode === 'tabular' || mode === 'oniblock1') {
+    s = scoreTabular(canonicalFeatures(f, opts.baseIsToken0), undefined, mode === 'oniblock1' ? 'oniblock1' : undefined);
   } else if (mode !== 'heuristic') {
     const prompt = opts.prompt ?? defaultJevPrompt();
     s = await scoreWithJev(featuresToState(f, { baseIsToken0: opts.baseIsToken0, format: stateFormatFor(prompt) }), {
