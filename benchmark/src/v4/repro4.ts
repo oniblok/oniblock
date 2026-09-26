@@ -1,12 +1,15 @@
 /**
- * Reproduction check: keepercost4 arm a (the v4 default, 1 s loop) must reproduce results_v4/heuristic-full exactly —
- * every PoolTotals field of all 14 pools in the 6 ETH windows (84 pool totals).
- * Since PR #5 (probation / minSamples removed from the hook) this is EXPECTED TO FAIL against the saved reference:
- * results_v4/heuristic-full was generated with minSamples 10, so its model pools sat at kDefault for the first 200-240
- * steps of every window (demoted.*.seasonedAtStep), while the current hook makes an allowlisted node active from its
- * first attestation. Regenerate the reference before using this as a reproduction check again.
+ * Determinism check: re-run keepercost4 arm a (the v4 default config, 1 s loop, post every, lag 1) for the 6 ETH windows
+ * and compare with the committed results_v4/keeper-cost/raw-a.json — every PoolTotals field of all 14 pools must be
+ * exactly equal (84 pool totals, no tolerance).
  *
- *   tsx src/v4/repro4.ts [--windows ETH-vol1,...] [--port 8900]
+ * This used to compare against results_v4/heuristic-full, main's historical artifact. That artifact predates PR #5
+ * (the hook's sample-minimum probation, minSamples 10, since removed): its model pools sat at kDefault for the first
+ * 200-240 steps of every window (demoted.*.seasonedAtStep), while the current hook makes an allowlisted node active from
+ * its first attestation, so the current contract cannot reproduce it. It is kept unchanged as a record; what can still
+ * be checked on the current contract is that the benchmark is deterministic.
+ *
+ *   tsx src/v4/repro4.ts [--windows ETH-vol1,...] [--port 8900] [--ref results_v4/keeper-cost/raw-a.json]
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -21,7 +24,8 @@ const arg = (k: string) => {
   const i = argv.indexOf(`--${k}`);
   return i >= 0 ? argv[i + 1] : undefined;
 };
-const ref = JSON.parse(readFileSync(resolve(BENCH_DIR, 'results_v4/heuristic-full/runs.partial.json'), 'utf8')) as { steps: number; results: RunResultV4[] };
+const refPath = resolve(BENCH_DIR, arg('ref') ?? 'results_v4/keeper-cost/raw-a.json');
+const ref = JSON.parse(readFileSync(refPath, 'utf8')) as { steps: number; results: RunResultV4[] };
 const wanted = (arg('windows') ?? 'ETH-vol1,ETH-vol2,ETH-vol3,ETH-calm1,ETH-calm2,ETH-calm3').split(',');
 const windows = (await selectWindowsV2()).filter((w) => wanted.includes(w.id));
 let port = Number(arg('port') ?? 8900);
@@ -38,11 +42,13 @@ for (const w of windows) {
     total++;
     const a = r.totals[n] as unknown as Record<string, number | null>;
     const b = o.totals[n] as unknown as Record<string, number | null>;
-    const bad = Object.keys(b).filter((k) => a[k] !== b[k] && !(typeof a[k] === 'number' && typeof b[k] === 'number' && Math.abs(a[k]! - b[k]!) <= 1e-9 * Math.max(1, Math.abs(b[k]!))));
+    // exact: JSON round-trips a double exactly, so a deterministic re-run matches the saved totals bit for bit
+    const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+    const bad = [...keys].filter((k) => a[k] !== b[k]);
     if (bad.length) diffs.push(`${w.id} ${n}: ${bad.map((k) => `${k} ${a[k]} vs ${b[k]}`).join(', ')}`);
     else same++;
   }
   log('repro_window', { window: w.id, same, total });
 }
-console.log(JSON.stringify({ identicalPoolTotals: same, of: total, diffs: diffs.slice(0, 20) }));
+console.log(JSON.stringify({ ref: refPath, identicalPoolTotals: same, of: total, diffs: diffs.slice(0, 20) }));
 process.exit(same === total ? 0 : 1);

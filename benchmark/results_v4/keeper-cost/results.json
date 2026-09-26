@@ -1,5 +1,5 @@
 {
- "generatedAt": "2026-09-26T18:51:29.802Z",
+ "generatedAt": "2026-09-26T22:16:38.392Z",
  "comp": "aiheur",
  "vanilla": "v_aiheur",
  "arms": [
@@ -24,42 +24,42 @@
       "every": 3422
      },
      "kPredictMiss": 0,
-     "gas": 276150868,
-     "gasPerPost": 80698.6756,
-     "simUsd1gwei": 620.4257,
-     "simBps1gwei": 0.3102,
+     "gas": 277375974,
+     "gasPerPost": 81056.6844,
+     "simUsd1gwei": 623.1781,
+     "simBps1gwei": 0.3116,
      "mainnetPostsPerHour": 285.1667,
      "mainnetUsdPerHour": {
-      "1": 51.7021,
-      "2": 103.4043,
-      "0.5": 25.8511
+      "1": 51.9315,
+      "2": 103.863,
+      "0.5": 25.9658
      },
      "mainnetBpsPerHour": {
-      "1": 0.0259,
-      "2": 0.0517,
-      "0.5": 0.0129
+      "1": 0.026,
+      "2": 0.0519,
+      "0.5": 0.013
      },
      "mainnetUsdPerHour110k": 70.475,
-     "grossBpsPerHour": 0.8446,
-     "grossUsdPerHour": 1689.2045,
+     "grossBpsPerHour": 0.8426,
+     "grossUsdPerHour": 1685.1208,
      "grossWithinCIPerHour": {
-      "lo": -201.43,
-      "hi": 4053.04
+      "lo": -202.47,
+      "hi": 4044.92
      },
      "netBpsPerHour": {
-      "1": 0.8188,
-      "2": 0.7929,
-      "0.5": 0.8317
+      "1": 0.8166,
+      "2": 0.7906,
+      "0.5": 0.8296
      },
-     "netUsdPerHour1gwei": 1637.5024,
-     "netBpsPerHour110k1gwei": 0.8094,
-     "sharePct": 39.363,
+     "netUsdPerHour1gwei": 1633.1892,
+     "netBpsPerHour110k1gwei": 0.8073,
+     "sharePct": 39.1369,
      "compArbFeePips": 7021,
      "compNArb": 75,
      "vanNArb": 131,
      "staleSteps": 0,
      "reverts": 0,
-     "runtimeSec": 23
+     "runtimeSec": 32
     },
     {
      "label": "ETH-vol2:base",
@@ -74,42 +74,42 @@
       "every": 3422
      },
      "kPredictMiss": 0,
-     "gas": 275797032,
-     "gasPerPost": 80595.2753,
-     "simUsd1gwei": 675.4216,
-     "simBps1gwei": 0.3377,
+     "gas": 276980778,
+     "gasPerPost": 80941.1975,
+     "simUsd1gwei": 678.3206,
+     "simBps1gwei": 0.3392,
      "mainnetPostsPerHour": 285.1667,
      "mainnetUsdPerHour": {
-      "1": 56.2851,
-      "2": 112.5703,
-      "0.5": 28.1426
+      "1": 56.5267,
+      "2": 113.0534,
+      "0.5": 28.2634
      },
      "mainnetBpsPerHour": {
-      "1": 0.0281,
-      "2": 0.0563,
+      "1": 0.0283,
+      "2": 0.0565,
       "0.5": 0.0141
      },
      "mainnetUsdPerHour110k": 76.8204,
-     "grossBpsPerHour": 0.3613,
-     "grossUsdPerHour": 722.5131,
+     "grossBpsPerHour": 0.3552,
+     "grossUsdPerHour": 710.4213,
      "grossWithinCIPerHour": {
-      "lo": -859.67,
-      "hi": 3490.44
+      "lo": -865.28,
+      "hi": 3477.92
      },
      "netBpsPerHour": {
-      "1": 0.3331,
-      "2": 0.305,
-      "0.5": 0.3472
+      "1": 0.3269,
+      "2": 0.2987,
+      "0.5": 0.3411
      },
-     "netUsdPerHour1gwei": 666.228,
-     "netBpsPerHour110k1gwei": 0.3228,
-     "sharePct": 32.4549,
+     "netUsdPerHour1gwei": 653.8946,
+     "netBpsPerHour110k1gwei": 0.3168,
+     "sharePct": 31.7553,
      "compArbFeePips": 7676,
      "compNArb": 42,
      "vanNArb": 95,
      "staleSteps": 0,
      "reverts": 0,
-     "runtimeSec": 23
+     "runtimeSec": 29
     },
     {
      "label": "ETH-vol3:base",
@@ -124,42 +124,42 @@
       "every": 3422
      },
      "kPredictMiss": 0,
-     "gas": 275932314,
-     "gasPerPost": 80634.8083,
-     "simUsd1gwei": 704.4866,
-     "simBps1gwei": 0.3522,
+     "gas": 277098398,
+     "gasPerPost": 80975.5693,
+     "simUsd1gwei": 707.4638,
+     "simBps1gwei": 0.3537,
      "mainnetPostsPerHour": 285.1667,
      "mainnetUsdPerHour": {
-      "1": 58.7072,
-      "2": 117.4144,
-      "0.5": 29.3536
+      "1": 58.9553,
+      "2": 117.9106,
+      "0.5": 29.4777
      },
      "mainnetBpsPerHour": {
-      "1": 0.0294,
-      "2": 0.0587,
+      "1": 0.0295,
+      "2": 0.059,
       "0.5": 0.0147
      },
      "mainnetUsdPerHour110k": 80.0869,
-     "grossBpsPerHour": 0.1204,
-     "grossUsdPerHour": 240.8587,
+     "grossBpsPerHour": 0.1193,
+     "grossUsdPerHour": 238.5416,
      "grossWithinCIPerHour": {
-      "lo": -414.54,
-      "hi": 1166.31
+      "lo": -416.73,
+      "hi": 1165.34
      },
      "netBpsPerHour": {
-      "1": 0.0911,
-      "2": 0.0617,
-      "0.5": 0.1058
+      "1": 0.0898,
+      "2": 0.0603,
+      "0.5": 0.1045
      },
-     "netUsdPerHour1gwei": 182.1515,
-     "netBpsPerHour110k1gwei": 0.0804,
-     "sharePct": 32.8057,
+     "netUsdPerHour1gwei": 179.5863,
+     "netBpsPerHour110k1gwei": 0.0792,
+     "sharePct": 32.6761,
      "compArbFeePips": 6052,
      "compNArb": 47,
      "vanNArb": 85,
      "staleSteps": 0,
      "reverts": 0,
-     "runtimeSec": 23
+     "runtimeSec": 28
     },
     {
      "label": "ETH-calm1:base",
@@ -174,42 +174,42 @@
       "every": 3422
      },
      "kPredictMiss": 0,
-     "gas": 269742848,
-     "gasPerPost": 78826.0807,
-     "simUsd1gwei": 503.9252,
-     "simBps1gwei": 0.252,
+     "gas": 270981142,
+     "gasPerPost": 79187.9433,
+     "simUsd1gwei": 506.2386,
+     "simBps1gwei": 0.2531,
      "mainnetPostsPerHour": 285.1667,
      "mainnetUsdPerHour": {
-      "1": 41.9938,
-      "2": 83.9875,
-      "0.5": 20.9969
+      "1": 42.1865,
+      "2": 84.3731,
+      "0.5": 21.0933
      },
      "mainnetBpsPerHour": {
-      "1": 0.021,
-      "2": 0.042,
+      "1": 0.0211,
+      "2": 0.0422,
       "0.5": 0.0105
      },
      "mainnetUsdPerHour110k": 58.6013,
-     "grossBpsPerHour": -0.0818,
-     "grossUsdPerHour": -163.5706,
+     "grossBpsPerHour": -0.0841,
+     "grossUsdPerHour": -168.1104,
      "grossWithinCIPerHour": {
-      "lo": -261.72,
-      "hi": -76.32
+      "lo": -264.24,
+      "hi": -85.18
      },
      "netBpsPerHour": {
-      "1": -0.1028,
-      "2": -0.1238,
-      "0.5": -0.0923
+      "1": -0.1051,
+      "2": -0.1262,
+      "0.5": -0.0946
      },
-     "netUsdPerHour1gwei": -205.5644,
-     "netBpsPerHour110k1gwei": -0.1111,
-     "sharePct": 40.206,
+     "netUsdPerHour1gwei": -210.297,
+     "netBpsPerHour110k1gwei": -0.1134,
+     "sharePct": 39.9428,
      "compArbFeePips": null,
      "compNArb": 0,
      "vanNArb": 0,
      "staleSteps": 0,
      "reverts": 0,
-     "runtimeSec": 22
+     "runtimeSec": 25
     },
     {
      "label": "ETH-calm2:base",
@@ -224,42 +224,42 @@
       "every": 3422
      },
      "kPredictMiss": 0,
-     "gas": 270017324,
-     "gasPerPost": 78906.2899,
-     "simUsd1gwei": 505.5648,
-     "simBps1gwei": 0.2528,
+     "gas": 271192410,
+     "gasPerPost": 79249.6815,
+     "simUsd1gwei": 507.765,
+     "simBps1gwei": 0.2539,
      "mainnetPostsPerHour": 285.1667,
      "mainnetUsdPerHour": {
-      "1": 42.1304,
-      "2": 84.2608,
-      "0.5": 21.0652
+      "1": 42.3137,
+      "2": 84.6275,
+      "0.5": 21.1569
      },
      "mainnetBpsPerHour": {
-      "1": 0.0211,
-      "2": 0.0421,
-      "0.5": 0.0105
+      "1": 0.0212,
+      "2": 0.0423,
+      "0.5": 0.0106
      },
      "mainnetUsdPerHour110k": 58.7323,
-     "grossBpsPerHour": -0.1245,
-     "grossUsdPerHour": -249.0407,
+     "grossBpsPerHour": -0.1252,
+     "grossUsdPerHour": -250.4609,
      "grossWithinCIPerHour": {
-      "lo": -402.31,
-      "hi": -103.59
+      "lo": -403.19,
+      "hi": -104.2
      },
      "netBpsPerHour": {
-      "1": -0.1456,
-      "2": -0.1667,
-      "0.5": -0.1351
+      "1": -0.1464,
+      "2": -0.1675,
+      "0.5": -0.1358
      },
-     "netUsdPerHour1gwei": -291.1711,
-     "netBpsPerHour110k1gwei": -0.1539,
-     "sharePct": 37.1025,
+     "netUsdPerHour1gwei": -292.7746,
+     "netBpsPerHour110k1gwei": -0.1546,
+     "sharePct": 37.0203,
      "compArbFeePips": 3347,
      "compNArb": 1,
      "vanNArb": 4,
      "staleSteps": 0,
      "reverts": 0,
-     "runtimeSec": 23
+     "runtimeSec": 22
     },
     {
      "label": "ETH-calm3:base",
@@ -274,42 +274,42 @@
       "every": 3422
      },
      "kPredictMiss": 0,
-     "gas": 270032342,
-     "gasPerPost": 78910.6786,
-     "simUsd1gwei": 504.6835,
-     "simBps1gwei": 0.2523,
+     "gas": 271275866,
+     "gasPerPost": 79274.0695,
+     "simUsd1gwei": 507.0076,
+     "simBps1gwei": 0.2535,
      "mainnetPostsPerHour": 285.1667,
      "mainnetUsdPerHour": {
-      "1": 42.057,
-      "2": 84.1139,
-      "0.5": 21.0285
+      "1": 42.2506,
+      "2": 84.5013,
+      "0.5": 21.1253
      },
      "mainnetBpsPerHour": {
-      "1": 0.021,
-      "2": 0.0421,
-      "0.5": 0.0105
+      "1": 0.0211,
+      "2": 0.0423,
+      "0.5": 0.0106
      },
      "mainnetUsdPerHour110k": 58.6266,
-     "grossBpsPerHour": -0.0826,
-     "grossUsdPerHour": -165.1771,
+     "grossBpsPerHour": -0.083,
+     "grossUsdPerHour": -165.918,
      "grossWithinCIPerHour": {
-      "lo": -343.85,
-      "hi": -30.02
+      "lo": -344.58,
+      "hi": -31.43
      },
      "netBpsPerHour": {
-      "1": -0.1036,
-      "2": -0.1246,
-      "0.5": -0.0931
+      "1": -0.1041,
+      "2": -0.1252,
+      "0.5": -0.0935
      },
-     "netUsdPerHour1gwei": -207.234,
-     "netBpsPerHour110k1gwei": -0.1119,
-     "sharePct": 41.1397,
+     "netUsdPerHour1gwei": -208.1687,
+     "netBpsPerHour110k1gwei": -0.1123,
+     "sharePct": 41.0975,
      "compArbFeePips": null,
      "compNArb": 0,
      "vanNArb": 1,
      "staleSteps": 0,
      "reverts": 0,
-     "runtimeSec": 22
+     "runtimeSec": 21
     }
    ],
    "all": {
@@ -332,9 +332,9 @@
     },
     "gasPerPost": {
      "n": 6,
-     "mean": 79761.968,
-     "lo": 79154.2717,
-     "hi": 80372.0667,
+     "mean": 80114.1909,
+     "lo": 79510.525,
+     "hi": 80722.7502,
      "pos": 6,
      "neg": 0
     },
@@ -349,25 +349,25 @@
     "mainnetUsdPerHour": {
      "1": {
       "n": 6,
-      "mean": 48.8126,
-      "lo": 43.6557,
-      "hi": 54.3973,
+      "mean": 49.0274,
+      "lo": 43.8533,
+      "hi": 54.6339,
       "pos": 6,
       "neg": 0
      },
      "2": {
       "n": 6,
-      "mean": 97.6252,
-      "lo": 87.3113,
-      "hi": 109.4212,
+      "mean": 98.0548,
+      "lo": 87.7065,
+      "hi": 109.8924,
       "pos": 6,
       "neg": 0
      },
      "0.5": {
       "n": 6,
-      "mean": 24.4063,
-      "lo": 21.8278,
-      "hi": 27.1987,
+      "mean": 24.5137,
+      "lo": 21.9266,
+      "hi": 27.3169,
       "pos": 6,
       "neg": 0
      }
@@ -382,67 +382,67 @@
     },
     "grossBps": {
      "n": 6,
-     "mean": 0.1729,
-     "lo": -0.0626,
-     "hi": 0.4822,
+     "mean": 0.1708,
+     "lo": -0.0635,
+     "hi": 0.4795,
      "pos": 3,
      "neg": 3
     },
     "grossUsd": {
      "n": 6,
-     "mean": 345.798,
-     "lo": -125.1912,
-     "hi": 963.6574,
+     "mean": 341.599,
+     "lo": -127.4199,
+     "hi": 956.6745,
      "pos": 3,
      "neg": 3
     },
     "netBps": {
      "1": {
       "n": 6,
-      "mean": 0.1485,
-      "lo": -0.085,
-      "hi": 0.4558,
+      "mean": 0.1463,
+      "lo": -0.0862,
+      "hi": 0.4534,
       "pos": 3,
       "neg": 3
      },
      "2": {
       "n": 6,
-      "mean": 0.1241,
-      "lo": -0.1074,
-      "hi": 0.4298,
+      "mean": 0.1218,
+      "lo": -0.1087,
+      "hi": 0.4272,
       "pos": 3,
       "neg": 3
      },
      "0.5": {
       "n": 6,
-      "mean": 0.1607,
-      "lo": -0.0738,
-      "hi": 0.4428,
+      "mean": 0.1585,
+      "lo": -0.075,
+      "hi": 0.4403,
       "pos": 3,
       "neg": 3
      }
     },
     "netUsd1gwei": {
      "n": 6,
-     "mean": 296.9854,
-     "lo": -170.3155,
-     "hi": 861.2677,
+     "mean": 292.5716,
+     "lo": -172.809,
+     "hi": 856.1875,
      "pos": 3,
      "neg": 3
     },
     "netBps110k": {
      "n": 6,
-     "mean": 0.1393,
-     "lo": -0.0937,
-     "hi": 0.4215,
+     "mean": 0.1372,
+     "lo": -0.0948,
+     "hi": 0.419,
      "pos": 3,
      "neg": 3
     },
     "sharePct": {
      "n": 6,
-     "mean": 37.1786,
-     "lo": 34.3809,
-     "hi": 39.8444,
+     "mean": 36.9381,
+     "lo": 33.9707,
+     "hi": 39.6481,
      "pos": 6,
      "neg": 0
     },
@@ -491,9 +491,9 @@
     },
     "gasPerPost": {
      "n": 3,
-     "mean": 80642.9197,
-     "lo": 80595.2753,
-     "hi": 80698.6756,
+     "mean": 80991.1504,
+     "lo": 80941.1975,
+     "hi": 81056.6844,
      "pos": 3,
      "neg": 0
     },
@@ -508,25 +508,25 @@
     "mainnetUsdPerHour": {
      "1": {
       "n": 3,
-      "mean": 55.5648,
-      "lo": 51.7021,
-      "hi": 58.7072,
+      "mean": 55.8045,
+      "lo": 51.9315,
+      "hi": 58.9553,
       "pos": 3,
       "neg": 0
      },
      "2": {
       "n": 3,
-      "mean": 111.1297,
-      "lo": 103.4043,
-      "hi": 117.4144,
+      "mean": 111.609,
+      "lo": 103.863,
+      "hi": 117.9106,
       "pos": 3,
       "neg": 0
      },
      "0.5": {
       "n": 3,
-      "mean": 27.7824,
-      "lo": 25.8511,
-      "hi": 29.3536,
+      "mean": 27.9023,
+      "lo": 25.9658,
+      "hi": 29.4777,
       "pos": 3,
       "neg": 0
      }
@@ -541,67 +541,67 @@
     },
     "grossBps": {
      "n": 3,
-     "mean": 0.4421,
-     "lo": 0.1204,
-     "hi": 0.8446,
+     "mean": 0.439,
+     "lo": 0.1193,
+     "hi": 0.8426,
      "pos": 3,
      "neg": 0
     },
     "grossUsd": {
      "n": 3,
-     "mean": 884.1921,
-     "lo": 240.8587,
-     "hi": 1689.2045,
+     "mean": 878.0279,
+     "lo": 238.5416,
+     "hi": 1685.1208,
      "pos": 3,
      "neg": 0
     },
     "netBps": {
      "1": {
       "n": 3,
-      "mean": 0.4143,
-      "lo": 0.0911,
-      "hi": 0.8188,
+      "mean": 0.4111,
+      "lo": 0.0898,
+      "hi": 0.8166,
       "pos": 3,
       "neg": 0
      },
      "2": {
       "n": 3,
-      "mean": 0.3865,
-      "lo": 0.0617,
-      "hi": 0.7929,
+      "mean": 0.3832,
+      "lo": 0.0603,
+      "hi": 0.7906,
       "pos": 3,
       "neg": 0
      },
      "0.5": {
       "n": 3,
-      "mean": 0.4282,
-      "lo": 0.1058,
-      "hi": 0.8317,
+      "mean": 0.4251,
+      "lo": 0.1045,
+      "hi": 0.8296,
       "pos": 3,
       "neg": 0
      }
     },
     "netUsd1gwei": {
      "n": 3,
-     "mean": 828.6273,
-     "lo": 182.1515,
-     "hi": 1637.5024,
+     "mean": 822.2234,
+     "lo": 179.5863,
+     "hi": 1633.1892,
      "pos": 3,
      "neg": 0
     },
     "netBps110k": {
      "n": 3,
-     "mean": 0.4042,
-     "lo": 0.0804,
-     "hi": 0.8094,
+     "mean": 0.4011,
+     "lo": 0.0792,
+     "hi": 0.8073,
      "pos": 3,
      "neg": 0
     },
     "sharePct": {
      "n": 3,
-     "mean": 34.8745,
-     "lo": 32.4549,
-     "hi": 39.363,
+     "mean": 34.5228,
+     "lo": 31.7553,
+     "hi": 39.1369,
      "pos": 3,
      "neg": 0
     },
@@ -650,9 +650,9 @@
     },
     "gasPerPost": {
      "n": 3,
-     "mean": 78881.0164,
-     "lo": 78826.0807,
-     "hi": 78910.6786,
+     "mean": 79237.2314,
+     "lo": 79187.9433,
+     "hi": 79274.0695,
      "pos": 3,
      "neg": 0
     },
@@ -667,25 +667,25 @@
     "mainnetUsdPerHour": {
      "1": {
       "n": 3,
-      "mean": 42.0604,
-      "lo": 41.9938,
-      "hi": 42.1304,
+      "mean": 42.2503,
+      "lo": 42.1865,
+      "hi": 42.3137,
       "pos": 3,
       "neg": 0
      },
      "2": {
       "n": 3,
-      "mean": 84.1208,
-      "lo": 83.9875,
-      "hi": 84.2608,
+      "mean": 84.5006,
+      "lo": 84.3731,
+      "hi": 84.6275,
       "pos": 3,
       "neg": 0
      },
      "0.5": {
       "n": 3,
-      "mean": 21.0302,
-      "lo": 20.9969,
-      "hi": 21.0652,
+      "mean": 21.1252,
+      "lo": 21.0933,
+      "hi": 21.1569,
       "pos": 3,
       "neg": 0
      }
@@ -700,67 +700,67 @@
     },
     "grossBps": {
      "n": 3,
-     "mean": -0.0963,
-     "lo": -0.1245,
-     "hi": -0.0818,
+     "mean": -0.0974,
+     "lo": -0.1252,
+     "hi": -0.083,
      "pos": 0,
      "neg": 3
     },
     "grossUsd": {
      "n": 3,
-     "mean": -192.5961,
-     "lo": -249.0407,
-     "hi": -163.5706,
+     "mean": -194.8298,
+     "lo": -250.4609,
+     "hi": -165.918,
      "pos": 0,
      "neg": 3
     },
     "netBps": {
      "1": {
       "n": 3,
-      "mean": -0.1173,
-      "lo": -0.1456,
-      "hi": -0.1028,
+      "mean": -0.1185,
+      "lo": -0.1464,
+      "hi": -0.1041,
       "pos": 0,
       "neg": 3
      },
      "2": {
       "n": 3,
-      "mean": -0.1384,
-      "lo": -0.1667,
-      "hi": -0.1238,
+      "mean": -0.1397,
+      "lo": -0.1675,
+      "hi": -0.1252,
       "pos": 0,
       "neg": 3
      },
      "0.5": {
       "n": 3,
-      "mean": -0.1068,
-      "lo": -0.1351,
-      "hi": -0.0923,
+      "mean": -0.108,
+      "lo": -0.1358,
+      "hi": -0.0935,
       "pos": 0,
       "neg": 3
      }
     },
     "netUsd1gwei": {
      "n": 3,
-     "mean": -234.6565,
-     "lo": -291.1711,
-     "hi": -205.5644,
+     "mean": -237.0801,
+     "lo": -292.7746,
+     "hi": -208.1687,
      "pos": 0,
      "neg": 3
     },
     "netBps110k": {
      "n": 3,
-     "mean": -0.1256,
-     "lo": -0.1539,
-     "hi": -0.1111,
+     "mean": -0.1267,
+     "lo": -0.1546,
+     "hi": -0.1123,
      "pos": 0,
      "neg": 3
     },
     "sharePct": {
      "n": 3,
-     "mean": 39.4827,
-     "lo": 37.1025,
-     "hi": 41.1397,
+     "mean": 39.3535,
+     "lo": 37.0203,
+     "hi": 41.0975,
      "pos": 3,
      "neg": 0
     },
@@ -803,220 +803,220 @@
      "windowId": "ETH-vol1",
      "regime": "volatile",
      "ethUsd": 2246.6911,
-     "posts": 2271,
+     "posts": 2281,
      "reverted": 0,
-     "postsPerStep": 0.6308,
-     "postsPerTurn": 0.6308,
+     "postsPerStep": 0.6336,
+     "postsPerTurn": 0.6336,
      "reasons": {
       "first": 1,
-      "skip": 1151,
-      "heartbeat": 92,
-      "p": 82,
+      "skip": 1141,
+      "mid": 806,
+      "heartbeat": 76,
       "k": 1314,
-      "mid": 782
+      "p": 84
      },
      "kPredictMiss": 0,
-     "gas": 183887129,
-     "gasPerPost": 80971.8754,
-     "simUsd1gwei": 413.1376,
-     "simBps1gwei": 0.2066,
-     "mainnetPostsPerHour": 189.25,
+     "gas": 185326506,
+     "gasPerPost": 81247.9202,
+     "simUsd1gwei": 416.3714,
+     "simBps1gwei": 0.2082,
+     "mainnetPostsPerHour": 190.0833,
      "mainnetUsdPerHour": {
-      "1": 34.4281,
-      "2": 68.8563,
-      "0.5": 17.2141
+      "1": 34.6976,
+      "2": 69.3952,
+      "0.5": 17.3488
      },
      "mainnetBpsPerHour": {
-      "1": 0.0172,
-      "2": 0.0344,
-      "0.5": 0.0086
+      "1": 0.0173,
+      "2": 0.0347,
+      "0.5": 0.0087
      },
-     "mainnetUsdPerHour110k": 46.7705,
-     "grossBpsPerHour": 0.8386,
-     "grossUsdPerHour": 1677.1571,
+     "mainnetUsdPerHour110k": 46.9764,
+     "grossBpsPerHour": 0.8373,
+     "grossUsdPerHour": 1674.6764,
      "grossWithinCIPerHour": {
-      "lo": -117.22,
-      "hi": 3903.2
+      "lo": -117.91,
+      "hi": 3896.88
      },
      "netBpsPerHour": {
-      "1": 0.8214,
-      "2": 0.8042,
-      "0.5": 0.83
+      "1": 0.82,
+      "2": 0.8026,
+      "0.5": 0.8287
      },
-     "netUsdPerHour1gwei": 1642.7289,
-     "netBpsPerHour110k1gwei": 0.8152,
-     "sharePct": 40.9373,
+     "netUsdPerHour1gwei": 1639.9787,
+     "netBpsPerHour110k1gwei": 0.8138,
+     "sharePct": 40.8004,
      "compArbFeePips": 6306,
      "compNArb": 89,
      "vanNArb": 133,
      "staleSteps": 5,
      "reverts": 0,
-     "runtimeSec": 20
+     "runtimeSec": 27
     },
     {
      "label": "ETH-vol2:base",
      "windowId": "ETH-vol2",
      "regime": "volatile",
      "ethUsd": 2448.9808,
-     "posts": 1970,
+     "posts": 1995,
      "reverted": 0,
-     "postsPerStep": 0.5472,
-     "postsPerTurn": 0.5472,
+     "postsPerStep": 0.5542,
+     "postsPerTurn": 0.5542,
      "reasons": {
       "first": 1,
-      "skip": 1452,
-      "heartbeat": 141,
-      "p": 75,
-      "k": 1145,
-      "mid": 608
+      "skip": 1427,
+      "heartbeat": 128,
+      "mid": 617,
+      "k": 1176,
+      "p": 73
      },
      "kPredictMiss": 0,
-     "gas": 159376864,
-     "gasPerPost": 80901.9614,
-     "simUsd1gwei": 390.3109,
-     "simBps1gwei": 0.1952,
-     "mainnetPostsPerHour": 164.1667,
+     "gas": 161949554,
+     "gasPerPost": 81177.7213,
+     "simUsd1gwei": 396.6113,
+     "simBps1gwei": 0.1983,
+     "mainnetPostsPerHour": 166.25,
      "mainnetUsdPerHour": {
-      "1": 32.5259,
-      "2": 65.0518,
-      "0.5": 16.263
+      "1": 33.0509,
+      "2": 66.1019,
+      "0.5": 16.5255
      },
      "mainnetBpsPerHour": {
-      "1": 0.0163,
-      "2": 0.0325,
-      "0.5": 0.0081
+      "1": 0.0165,
+      "2": 0.0331,
+      "0.5": 0.0083
      },
-     "mainnetUsdPerHour110k": 44.2245,
-     "grossBpsPerHour": 0.227,
-     "grossUsdPerHour": 453.9829,
+     "mainnetUsdPerHour110k": 44.7857,
+     "grossBpsPerHour": 0.2207,
+     "grossUsdPerHour": 441.3387,
      "grossWithinCIPerHour": {
-      "lo": -690.97,
-      "hi": 2450
+      "lo": -701.45,
+      "hi": 2429.59
      },
      "netBpsPerHour": {
-      "1": 0.2107,
-      "2": 0.1945,
-      "0.5": 0.2189
+      "1": 0.2041,
+      "2": 0.1876,
+      "0.5": 0.2124
      },
-     "netUsdPerHour1gwei": 421.457,
-     "netBpsPerHour110k1gwei": 0.2049,
-     "sharePct": 33.6123,
+     "netUsdPerHour1gwei": 408.2878,
+     "netBpsPerHour110k1gwei": 0.1983,
+     "sharePct": 32.8812,
      "compArbFeePips": 5979,
      "compNArb": 54,
      "vanNArb": 97,
-     "staleSteps": 7,
+     "staleSteps": 6,
      "reverts": 0,
-     "runtimeSec": 17
+     "runtimeSec": 23
     },
     {
      "label": "ETH-vol3:base",
      "windowId": "ETH-vol3",
      "regime": "volatile",
      "ethUsd": 2553.1139,
-     "posts": 2108,
+     "posts": 2114,
      "reverted": 0,
-     "postsPerStep": 0.5856,
-     "postsPerTurn": 0.5856,
+     "postsPerStep": 0.5872,
+     "postsPerTurn": 0.5872,
      "reasons": {
       "first": 1,
-      "skip": 1314,
-      "heartbeat": 120,
-      "mid": 560,
+      "skip": 1308,
+      "heartbeat": 108,
+      "mid": 578,
       "k": 1376,
       "p": 51
      },
      "kPredictMiss": 0,
-     "gas": 170602078,
-     "gasPerPost": 80930.777,
-     "simUsd1gwei": 435.5665,
-     "simBps1gwei": 0.2178,
-     "mainnetPostsPerHour": 175.6667,
+     "gas": 171674104,
+     "gasPerPost": 81208.1854,
+     "simUsd1gwei": 438.3035,
+     "simBps1gwei": 0.2192,
+     "mainnetPostsPerHour": 176.1667,
      "mainnetUsdPerHour": {
-      "1": 36.2972,
-      "2": 72.5944,
-      "0.5": 18.1486
+      "1": 36.5253,
+      "2": 73.0506,
+      "0.5": 18.2626
      },
      "mainnetBpsPerHour": {
-      "1": 0.0181,
-      "2": 0.0363,
+      "1": 0.0183,
+      "2": 0.0365,
       "0.5": 0.0091
      },
-     "mainnetUsdPerHour110k": 49.3347,
-     "grossBpsPerHour": 0.0622,
-     "grossUsdPerHour": 124.3749,
+     "mainnetUsdPerHour110k": 49.4751,
+     "grossBpsPerHour": 0.0615,
+     "grossUsdPerHour": 122.9819,
      "grossWithinCIPerHour": {
-      "lo": -318.25,
-      "hi": 698.06
+      "lo": -320.14,
+      "hi": 697.98
      },
      "netBpsPerHour": {
-      "1": 0.044,
-      "2": 0.0259,
-      "0.5": 0.0531
+      "1": 0.0432,
+      "2": 0.025,
+      "0.5": 0.0524
      },
-     "netUsdPerHour1gwei": 88.0777,
-     "netBpsPerHour110k1gwei": 0.0375,
-     "sharePct": 35.3123,
+     "netUsdPerHour1gwei": 86.4566,
+     "netBpsPerHour110k1gwei": 0.0368,
+     "sharePct": 35.2345,
      "compArbFeePips": 5122,
      "compNArb": 49,
      "vanNArb": 84,
-     "staleSteps": 6,
+     "staleSteps": 5,
      "reverts": 0,
-     "runtimeSec": 17
+     "runtimeSec": 23
     },
     {
      "label": "ETH-calm1:base",
      "windowId": "ETH-calm1",
      "regime": "calm",
      "ethUsd": 1868.169,
-     "posts": 1144,
+     "posts": 1145,
      "reverted": 0,
-     "postsPerStep": 0.3178,
-     "postsPerTurn": 0.3178,
+     "postsPerStep": 0.3181,
+     "postsPerTurn": 0.3181,
      "reasons": {
       "first": 1,
-      "skip": 2278,
-      "heartbeat": 516,
-      "mid": 11,
+      "skip": 2277,
+      "heartbeat": 515,
+      "mid": 13,
       "p": 19,
       "k": 597
      },
      "kPredictMiss": 0,
-     "gas": 90808808,
-     "gasPerPost": 79378.3287,
-     "simUsd1gwei": 169.6462,
-     "simBps1gwei": 0.0848,
-     "mainnetPostsPerHour": 95.3333,
+     "gas": 91255324,
+     "gasPerPost": 79698.9729,
+     "simUsd1gwei": 170.4804,
+     "simBps1gwei": 0.0852,
+     "mainnetPostsPerHour": 95.4167,
      "mainnetUsdPerHour": {
-      "1": 14.1372,
-      "2": 28.2744,
-      "0.5": 7.0686
+      "1": 14.2067,
+      "2": 28.4134,
+      "0.5": 7.1033
      },
      "mainnetBpsPerHour": {
       "1": 0.0071,
-      "2": 0.0141,
-      "0.5": 0.0035
+      "2": 0.0142,
+      "0.5": 0.0036
      },
-     "mainnetUsdPerHour110k": 19.5909,
-     "grossBpsPerHour": -0.0707,
-     "grossUsdPerHour": -141.3284,
+     "mainnetUsdPerHour110k": 19.608,
+     "grossBpsPerHour": -0.0725,
+     "grossUsdPerHour": -144.9182,
      "grossWithinCIPerHour": {
-      "lo": -239.93,
-      "hi": -54.52
+      "lo": -242.04,
+      "hi": -60.78
      },
      "netBpsPerHour": {
-      "1": -0.0777,
-      "2": -0.0848,
-      "0.5": -0.0742
+      "1": -0.0796,
+      "2": -0.0867,
+      "0.5": -0.076
      },
-     "netUsdPerHour1gwei": -155.4656,
-     "netBpsPerHour110k1gwei": -0.0805,
-     "sharePct": 41.6063,
+     "netUsdPerHour1gwei": -159.1249,
+     "netBpsPerHour110k1gwei": -0.0823,
+     "sharePct": 41.3988,
      "compArbFeePips": null,
      "compNArb": 0,
      "vanNArb": 0,
-     "staleSteps": 29,
+     "staleSteps": 30,
      "reverts": 0,
-     "runtimeSec": 16
+     "runtimeSec": 19
     },
     {
      "label": "ETH-calm2:base",
@@ -1030,48 +1030,48 @@
      "reasons": {
       "first": 1,
       "skip": 2079,
-      "heartbeat": 431,
-      "mid": 13,
+      "heartbeat": 430,
+      "mid": 14,
       "k": 885,
       "p": 13
      },
      "kPredictMiss": 0,
-     "gas": 106633331,
-     "gasPerPost": 79399.3529,
-     "simUsd1gwei": 199.6541,
-     "simBps1gwei": 0.0998,
+     "gas": 107036128,
+     "gasPerPost": 79699.2762,
+     "simUsd1gwei": 200.4083,
+     "simBps1gwei": 0.1002,
      "mainnetPostsPerHour": 111.9167,
      "mainnetUsdPerHour": {
-      "1": 16.6378,
-      "2": 33.2757,
-      "0.5": 8.3189
+      "1": 16.7007,
+      "2": 33.4014,
+      "0.5": 8.3503
      },
      "mainnetBpsPerHour": {
-      "1": 0.0083,
-      "2": 0.0166,
+      "1": 0.0084,
+      "2": 0.0167,
       "0.5": 0.0042
      },
      "mainnetUsdPerHour110k": 23.0501,
-     "grossBpsPerHour": -0.1163,
-     "grossUsdPerHour": -232.6378,
+     "grossBpsPerHour": -0.1167,
+     "grossUsdPerHour": -233.4178,
      "grossWithinCIPerHour": {
-      "lo": -388.11,
-      "hi": -87.88
+      "lo": -388.34,
+      "hi": -88.18
      },
      "netBpsPerHour": {
-      "1": -0.1246,
-      "2": -0.133,
-      "0.5": -0.1205
+      "1": -0.1251,
+      "2": -0.1334,
+      "0.5": -0.1209
      },
-     "netUsdPerHour1gwei": -249.2756,
-     "netBpsPerHour110k1gwei": -0.1278,
-     "sharePct": 38.1354,
+     "netUsdPerHour1gwei": -250.1185,
+     "netBpsPerHour110k1gwei": -0.1282,
+     "sharePct": 38.0909,
      "compArbFeePips": 3345,
      "compNArb": 1,
      "vanNArb": 4,
      "staleSteps": 23,
      "reverts": 0,
-     "runtimeSec": 22
+     "runtimeSec": 18
     },
     {
      "label": "ETH-calm3:base",
@@ -1091,175 +1091,175 @@
       "k": 458
      },
      "kPredictMiss": 0,
-     "gas": 83837249,
-     "gasPerPost": 79617.5204,
-     "simUsd1gwei": 156.6897,
-     "simBps1gwei": 0.0783,
+     "gas": 84178714,
+     "gasPerPost": 79941.7987,
+     "simUsd1gwei": 157.3279,
+     "simBps1gwei": 0.0787,
      "mainnetPostsPerHour": 87.75,
      "mainnetUsdPerHour": {
-      "1": 13.0575,
-      "2": 26.1149,
-      "0.5": 6.5287
+      "1": 13.1107,
+      "2": 26.2213,
+      "0.5": 6.5553
      },
      "mainnetBpsPerHour": {
-      "1": 0.0065,
+      "1": 0.0066,
       "2": 0.0131,
       "0.5": 0.0033
      },
      "mainnetUsdPerHour110k": 18.0403,
-     "grossBpsPerHour": -0.083,
-     "grossUsdPerHour": -165.9305,
+     "grossBpsPerHour": -0.0832,
+     "grossUsdPerHour": -166.3463,
      "grossWithinCIPerHour": {
-      "lo": -345.27,
-      "hi": -29.49
+      "lo": -345.55,
+      "hi": -30.17
      },
      "netBpsPerHour": {
-      "1": -0.0895,
-      "2": -0.096,
-      "0.5": -0.0862
+      "1": -0.0897,
+      "2": -0.0963,
+      "0.5": -0.0865
      },
-     "netUsdPerHour1gwei": -178.9879,
-     "netBpsPerHour110k1gwei": -0.092,
-     "sharePct": 41.1909,
+     "netUsdPerHour1gwei": -179.4569,
+     "netBpsPerHour110k1gwei": -0.0922,
+     "sharePct": 41.1672,
      "compArbFeePips": null,
      "compNArb": 0,
      "vanNArb": 1,
      "staleSteps": 27,
      "reverts": 0,
-     "runtimeSec": 17
+     "runtimeSec": 15
     }
    ],
    "all": {
     "n": 6,
     "postsPerStep": {
      "n": 6,
-     "mean": 0.4578,
-     "lo": 0.3568,
-     "hi": 0.56,
+     "mean": 0.4598,
+     "lo": 0.3579,
+     "hi": 0.5652,
      "pos": 6,
      "neg": 0
     },
     "postsPerTurn": {
      "n": 6,
-     "mean": 0.4578,
-     "lo": 0.3531,
-     "hi": 0.56,
+     "mean": 0.4598,
+     "lo": 0.3538,
+     "hi": 0.5637,
      "pos": 6,
      "neg": 0
     },
     "gasPerPost": {
      "n": 6,
-     "mean": 80199.9693,
-     "lo": 79647.5822,
-     "hi": 80722.8449,
+     "mean": 80495.6458,
+     "lo": 79950.7106,
+     "hi": 81006.8337,
      "pos": 6,
      "neg": 0
     },
     "mainnetPostsPerHour": {
      "n": 6,
-     "mean": 137.3472,
-     "lo": 106.1944,
-     "hi": 169.5694,
+     "mean": 137.9306,
+     "lo": 106.3194,
+     "hi": 170.3333,
      "pos": 6,
      "neg": 0
     },
     "mainnetUsdPerHour": {
      "1": {
       "n": 6,
-      "mean": 24.514,
-      "lo": 17.1591,
-      "hi": 31.9753,
+      "mean": 24.7153,
+      "lo": 17.2565,
+      "hi": 32.1963,
       "pos": 6,
       "neg": 0
      },
      "2": {
       "n": 6,
-      "mean": 49.0279,
-      "lo": 34.3182,
-      "hi": 63.5381,
+      "mean": 49.4306,
+      "lo": 34.513,
+      "hi": 64.0658,
       "pos": 6,
       "neg": 0
      },
      "0.5": {
       "n": 6,
-      "mean": 12.257,
-      "lo": 8.601,
-      "hi": 15.9877,
+      "mean": 12.3577,
+      "lo": 8.6534,
+      "hi": 16.0982,
       "pos": 6,
       "neg": 0
      }
     },
     "mainnetUsdPerHour110k": {
      "n": 6,
-     "mean": 33.5018,
-     "lo": 23.4977,
-     "hi": 43.5226,
+     "mean": 33.6559,
+     "lo": 23.5941,
+     "hi": 43.6644,
      "pos": 6,
      "neg": 0
     },
     "grossBps": {
      "n": 6,
-     "mean": 0.143,
-     "lo": -0.0678,
-     "hi": 0.4295,
+     "mean": 0.1412,
+     "lo": -0.0685,
+     "hi": 0.4271,
      "pos": 3,
      "neg": 3
     },
     "grossUsd": {
      "n": 6,
-     "mean": 285.9364,
-     "lo": -139.782,
-     "hi": 896.1986,
+     "mean": 282.3858,
+     "lo": -140.4821,
+     "hi": 892.4886,
      "pos": 3,
      "neg": 3
     },
     "netBps": {
      "1": {
       "n": 6,
-      "mean": 0.1307,
-      "lo": -0.075,
-      "hi": 0.4179,
+      "mean": 0.1288,
+      "lo": -0.076,
+      "hi": 0.4158,
       "pos": 3,
       "neg": 3
      },
      "2": {
       "n": 6,
-      "mean": 0.1185,
-      "lo": -0.0861,
-      "hi": 0.4166,
+      "mean": 0.1165,
+      "lo": -0.0868,
+      "hi": 0.4145,
       "pos": 3,
       "neg": 3
      },
      "0.5": {
       "n": 6,
-      "mean": 0.1368,
-      "lo": -0.0724,
-      "hi": 0.4247,
+      "mean": 0.135,
+      "lo": -0.0731,
+      "hi": 0.4227,
       "pos": 3,
       "neg": 3
      }
     },
     "netUsd1gwei": {
      "n": 6,
-     "mean": 261.4224,
-     "lo": -153.9858,
-     "hi": 839.7854,
+     "mean": 257.6705,
+     "lo": -155.3032,
+     "hi": 834.9957,
      "pos": 3,
      "neg": 3
     },
     "netBps110k": {
      "n": 6,
-     "mean": 0.1262,
-     "lo": -0.0824,
-     "hi": 0.413,
+     "mean": 0.1244,
+     "lo": -0.0827,
+     "hi": 0.4109,
      "pos": 3,
      "neg": 3
     },
     "sharePct": {
      "n": 6,
-     "mean": 38.4657,
-     "lo": 35.8703,
-     "hi": 40.8048,
+     "mean": 38.2622,
+     "lo": 35.4774,
+     "hi": 40.6706,
      "pos": 6,
      "neg": 0
     },
@@ -1281,9 +1281,9 @@
     },
     "staleSteps": {
      "n": 6,
-     "mean": 16.1667,
-     "lo": 8.6667,
-     "hi": 24,
+     "mean": 16,
+     "lo": 8.1667,
+     "hi": 24.3333,
      "pos": 6,
      "neg": 0
     }
@@ -1292,133 +1292,133 @@
     "n": 3,
     "postsPerStep": {
      "n": 3,
-     "mean": 0.5879,
-     "lo": 0.5472,
-     "hi": 0.6308,
+     "mean": 0.5917,
+     "lo": 0.5542,
+     "hi": 0.6336,
      "pos": 3,
      "neg": 0
     },
     "postsPerTurn": {
      "n": 3,
-     "mean": 0.5879,
-     "lo": 0.5472,
-     "hi": 0.6308,
+     "mean": 0.5917,
+     "lo": 0.5542,
+     "hi": 0.6336,
      "pos": 3,
      "neg": 0
     },
     "gasPerPost": {
      "n": 3,
-     "mean": 80934.8713,
-     "lo": 80901.9614,
-     "hi": 80971.8754,
+     "mean": 81211.2756,
+     "lo": 81177.7213,
+     "hi": 81247.9202,
      "pos": 3,
      "neg": 0
     },
     "mainnetPostsPerHour": {
      "n": 3,
-     "mean": 176.3611,
-     "lo": 164.1667,
-     "hi": 189.25,
+     "mean": 177.5,
+     "lo": 166.25,
+     "hi": 190.0833,
      "pos": 3,
      "neg": 0
     },
     "mainnetUsdPerHour": {
      "1": {
       "n": 3,
-      "mean": 34.4171,
-      "lo": 32.5259,
-      "hi": 36.2972,
+      "mean": 34.758,
+      "lo": 33.0509,
+      "hi": 36.5253,
       "pos": 3,
       "neg": 0
      },
      "2": {
       "n": 3,
-      "mean": 68.8342,
-      "lo": 65.0518,
-      "hi": 72.5944,
+      "mean": 69.5159,
+      "lo": 66.1019,
+      "hi": 73.0506,
       "pos": 3,
       "neg": 0
      },
      "0.5": {
       "n": 3,
-      "mean": 17.2085,
-      "lo": 16.263,
-      "hi": 18.1486,
+      "mean": 17.379,
+      "lo": 16.5255,
+      "hi": 18.2626,
       "pos": 3,
       "neg": 0
      }
     },
     "mainnetUsdPerHour110k": {
      "n": 3,
-     "mean": 46.7766,
-     "lo": 44.2245,
-     "hi": 49.3347,
+     "mean": 47.0791,
+     "lo": 44.7857,
+     "hi": 49.4751,
      "pos": 3,
      "neg": 0
     },
     "grossBps": {
      "n": 3,
-     "mean": 0.3759,
-     "lo": 0.0622,
-     "hi": 0.8386,
+     "mean": 0.3732,
+     "lo": 0.0615,
+     "hi": 0.8373,
      "pos": 3,
      "neg": 0
     },
     "grossUsd": {
      "n": 3,
-     "mean": 751.8383,
-     "lo": 124.3749,
-     "hi": 1677.1571,
+     "mean": 746.3323,
+     "lo": 122.9819,
+     "hi": 1674.6764,
      "pos": 3,
      "neg": 0
     },
     "netBps": {
      "1": {
       "n": 3,
-      "mean": 0.3587,
-      "lo": 0.044,
-      "hi": 0.8214,
+      "mean": 0.3558,
+      "lo": 0.0432,
+      "hi": 0.82,
       "pos": 3,
       "neg": 0
      },
      "2": {
       "n": 3,
-      "mean": 0.3415,
-      "lo": 0.0259,
-      "hi": 0.8042,
+      "mean": 0.3384,
+      "lo": 0.025,
+      "hi": 0.8026,
       "pos": 3,
       "neg": 0
      },
      "0.5": {
       "n": 3,
-      "mean": 0.3673,
-      "lo": 0.0531,
-      "hi": 0.83,
+      "mean": 0.3645,
+      "lo": 0.0524,
+      "hi": 0.8287,
       "pos": 3,
       "neg": 0
      }
     },
     "netUsd1gwei": {
      "n": 3,
-     "mean": 717.4212,
-     "lo": 88.0777,
-     "hi": 1642.7289,
+     "mean": 711.5744,
+     "lo": 86.4566,
+     "hi": 1639.9787,
      "pos": 3,
      "neg": 0
     },
     "netBps110k": {
      "n": 3,
-     "mean": 0.3525,
-     "lo": 0.0375,
-     "hi": 0.8152,
+     "mean": 0.3496,
+     "lo": 0.0368,
+     "hi": 0.8138,
      "pos": 3,
      "neg": 0
     },
     "sharePct": {
      "n": 3,
-     "mean": 36.6206,
-     "lo": 33.6123,
-     "hi": 40.9373,
+     "mean": 36.3053,
+     "lo": 32.8812,
+     "hi": 40.8004,
      "pos": 3,
      "neg": 0
     },
@@ -1440,9 +1440,9 @@
     },
     "staleSteps": {
      "n": 3,
-     "mean": 6,
+     "mean": 5.3333,
      "lo": 5,
-     "hi": 7,
+     "hi": 6,
      "pos": 3,
      "neg": 0
     }
@@ -1451,7 +1451,7 @@
     "n": 3,
     "postsPerStep": {
      "n": 3,
-     "mean": 0.3278,
+     "mean": 0.3279,
      "lo": 0.2925,
      "hi": 0.3731,
      "pos": 3,
@@ -1459,7 +1459,7 @@
     },
     "postsPerTurn": {
      "n": 3,
-     "mean": 0.3278,
+     "mean": 0.3279,
      "lo": 0.2925,
      "hi": 0.3731,
      "pos": 3,
@@ -1467,15 +1467,15 @@
     },
     "gasPerPost": {
      "n": 3,
-     "mean": 79465.0673,
-     "lo": 79378.3287,
-     "hi": 79617.5204,
+     "mean": 79780.0159,
+     "lo": 79698.9729,
+     "hi": 79941.7987,
      "pos": 3,
      "neg": 0
     },
     "mainnetPostsPerHour": {
      "n": 3,
-     "mean": 98.3333,
+     "mean": 98.3611,
      "lo": 87.75,
      "hi": 111.9167,
      "pos": 3,
@@ -1484,32 +1484,32 @@
     "mainnetUsdPerHour": {
      "1": {
       "n": 3,
-      "mean": 14.6108,
-      "lo": 13.0575,
-      "hi": 16.6378,
+      "mean": 14.6727,
+      "lo": 13.1107,
+      "hi": 16.7007,
       "pos": 3,
       "neg": 0
      },
      "2": {
       "n": 3,
-      "mean": 29.2217,
-      "lo": 26.1149,
-      "hi": 33.2757,
+      "mean": 29.3454,
+      "lo": 26.2213,
+      "hi": 33.4014,
       "pos": 3,
       "neg": 0
      },
      "0.5": {
       "n": 3,
-      "mean": 7.3054,
-      "lo": 6.5287,
-      "hi": 8.3189,
+      "mean": 7.3363,
+      "lo": 6.5553,
+      "hi": 8.3503,
       "pos": 3,
       "neg": 0
      }
     },
     "mainnetUsdPerHour110k": {
      "n": 3,
-     "mean": 20.2271,
+     "mean": 20.2328,
      "lo": 18.0403,
      "hi": 23.0501,
      "pos": 3,
@@ -1517,67 +1517,67 @@
     },
     "grossBps": {
      "n": 3,
-     "mean": -0.09,
-     "lo": -0.1163,
-     "hi": -0.0707,
+     "mean": -0.0908,
+     "lo": -0.1167,
+     "hi": -0.0725,
      "pos": 0,
      "neg": 3
     },
     "grossUsd": {
      "n": 3,
-     "mean": -179.9656,
-     "lo": -232.6378,
-     "hi": -141.3284,
+     "mean": -181.5607,
+     "lo": -233.4178,
+     "hi": -144.9182,
      "pos": 0,
      "neg": 3
     },
     "netBps": {
      "1": {
       "n": 3,
-      "mean": -0.0973,
-      "lo": -0.1246,
-      "hi": -0.0777,
+      "mean": -0.0981,
+      "lo": -0.1251,
+      "hi": -0.0796,
       "pos": 0,
       "neg": 3
      },
      "2": {
       "n": 3,
-      "mean": -0.1046,
-      "lo": -0.133,
-      "hi": -0.0848,
+      "mean": -0.1055,
+      "lo": -0.1334,
+      "hi": -0.0867,
       "pos": 0,
       "neg": 3
      },
      "0.5": {
       "n": 3,
-      "mean": -0.0936,
-      "lo": -0.1205,
-      "hi": -0.0742,
+      "mean": -0.0944,
+      "lo": -0.1209,
+      "hi": -0.076,
       "pos": 0,
       "neg": 3
      }
     },
     "netUsd1gwei": {
      "n": 3,
-     "mean": -194.5764,
-     "lo": -249.2756,
-     "hi": -155.4656,
+     "mean": -196.2334,
+     "lo": -250.1185,
+     "hi": -159.1249,
      "pos": 0,
      "neg": 3
     },
     "netBps110k": {
      "n": 3,
-     "mean": -0.1001,
-     "lo": -0.1278,
-     "hi": -0.0805,
+     "mean": -0.1009,
+     "lo": -0.1282,
+     "hi": -0.0823,
      "pos": 0,
      "neg": 3
     },
     "sharePct": {
      "n": 3,
-     "mean": 40.3109,
-     "lo": 38.1354,
-     "hi": 41.6063,
+     "mean": 40.219,
+     "lo": 38.0909,
+     "hi": 41.3988,
      "pos": 3,
      "neg": 0
     },
@@ -1599,9 +1599,9 @@
     },
     "staleSteps": {
      "n": 3,
-     "mean": 26.3333,
+     "mean": 26.6667,
      "lo": 23,
-     "hi": 29,
+     "hi": 30,
      "pos": 3,
      "neg": 0
     }
@@ -1628,42 +1628,42 @@
       "every": 3422
      },
      "kPredictMiss": 0,
-     "gas": 273767268,
-     "gasPerPost": 80002.1239,
-     "simUsd1gwei": 615.0705,
-     "simBps1gwei": 0.3075,
+     "gas": 275098066,
+     "gasPerPost": 80391.0187,
+     "simUsd1gwei": 618.0604,
+     "simBps1gwei": 0.309,
      "mainnetPostsPerHour": 285.1667,
      "mainnetUsdPerHour": {
-      "1": 51.2559,
-      "2": 102.5117,
-      "0.5": 25.6279
+      "1": 51.505,
+      "2": 103.0101,
+      "0.5": 25.7525
      },
      "mainnetBpsPerHour": {
-      "1": 0.0256,
-      "2": 0.0513,
-      "0.5": 0.0128
+      "1": 0.0258,
+      "2": 0.0515,
+      "0.5": 0.0129
      },
      "mainnetUsdPerHour110k": 70.475,
-     "grossBpsPerHour": -0.0634,
-     "grossUsdPerHour": -126.7837,
+     "grossBpsPerHour": -0.0648,
+     "grossUsdPerHour": -129.5079,
      "grossWithinCIPerHour": {
-      "lo": -242.8,
-      "hi": -23.41
+      "lo": -244.54,
+      "hi": -26.87
      },
      "netBpsPerHour": {
-      "1": -0.089,
-      "2": -0.1146,
-      "0.5": -0.0762
+      "1": -0.0905,
+      "2": -0.1163,
+      "0.5": -0.0776
      },
-     "netUsdPerHour1gwei": -178.0395,
-     "netBpsPerHour110k1gwei": -0.0986,
-     "sharePct": 43.5378,
+     "netUsdPerHour1gwei": -181.0129,
+     "netBpsPerHour110k1gwei": -0.1,
+     "sharePct": 43.3859,
      "compArbFeePips": 3082,
      "compNArb": 121,
      "vanNArb": 128,
      "staleSteps": 0,
      "reverts": 0,
-     "runtimeSec": 23
+     "runtimeSec": 32
     },
     {
      "label": "ETH-vol2:base",
@@ -1678,42 +1678,42 @@
       "every": 3422
      },
      "kPredictMiss": 0,
-     "gas": 274221385,
-     "gasPerPost": 80134.829,
-     "simUsd1gwei": 671.5629,
-     "simBps1gwei": 0.3358,
+     "gas": 275167602,
+     "gasPerPost": 80411.339,
+     "simUsd1gwei": 673.8802,
+     "simBps1gwei": 0.3369,
      "mainnetPostsPerHour": 285.1667,
      "mainnetUsdPerHour": {
-      "1": 55.9636,
-      "2": 111.9272,
-      "0.5": 27.9818
+      "1": 56.1567,
+      "2": 112.3134,
+      "0.5": 28.0783
      },
      "mainnetBpsPerHour": {
-      "1": 0.028,
-      "2": 0.056,
+      "1": 0.0281,
+      "2": 0.0562,
       "0.5": 0.014
      },
      "mainnetUsdPerHour110k": 76.8204,
-     "grossBpsPerHour": -0.0768,
-     "grossUsdPerHour": -153.6493,
+     "grossBpsPerHour": -0.0817,
+     "grossUsdPerHour": -163.4739,
      "grossWithinCIPerHour": {
-      "lo": -342.47,
-      "hi": 34.08
+      "lo": -350.46,
+      "hi": 27.15
      },
      "netBpsPerHour": {
-      "1": -0.1048,
-      "2": -0.1328,
-      "0.5": -0.0908
+      "1": -0.1098,
+      "2": -0.1379,
+      "0.5": -0.0958
      },
-     "netUsdPerHour1gwei": -209.6128,
-     "netBpsPerHour110k1gwei": -0.1152,
-     "sharePct": 40.3903,
-     "compArbFeePips": 3184,
-     "compNArb": 93,
+     "netUsdPerHour1gwei": -219.6306,
+     "netBpsPerHour110k1gwei": -0.1201,
+     "sharePct": 39.2425,
+     "compArbFeePips": 3182,
+     "compNArb": 94,
      "vanNArb": 101,
      "staleSteps": 0,
      "reverts": 0,
-     "runtimeSec": 23
+     "runtimeSec": 29
     },
     {
      "label": "ETH-vol3:base",
@@ -1728,42 +1728,42 @@
       "every": 3422
      },
      "kPredictMiss": 0,
-     "gas": 274510212,
-     "gasPerPost": 80219.232,
-     "simUsd1gwei": 700.8558,
-     "simBps1gwei": 0.3504,
+     "gas": 275727992,
+     "gasPerPost": 80575.0999,
+     "simUsd1gwei": 703.965,
+     "simBps1gwei": 0.352,
      "mainnetPostsPerHour": 285.1667,
      "mainnetUsdPerHour": {
-      "1": 58.4047,
-      "2": 116.8093,
-      "0.5": 29.2023
+      "1": 58.6637,
+      "2": 117.3275,
+      "0.5": 29.3319
      },
      "mainnetBpsPerHour": {
-      "1": 0.0292,
-      "2": 0.0584,
-      "0.5": 0.0146
+      "1": 0.0293,
+      "2": 0.0587,
+      "0.5": 0.0147
      },
      "mainnetUsdPerHour110k": 80.0869,
-     "grossBpsPerHour": -0.1182,
-     "grossUsdPerHour": -236.453,
+     "grossBpsPerHour": -0.1199,
+     "grossUsdPerHour": -239.7163,
      "grossWithinCIPerHour": {
-      "lo": -401.73,
-      "hi": -81.95
+      "lo": -404.16,
+      "hi": -88.22
      },
      "netBpsPerHour": {
-      "1": -0.1474,
-      "2": -0.1766,
-      "0.5": -0.1328
+      "1": -0.1492,
+      "2": -0.1785,
+      "0.5": -0.1345
      },
-     "netUsdPerHour1gwei": -294.8576,
-     "netBpsPerHour110k1gwei": -0.1583,
-     "sharePct": 37.7544,
+     "netUsdPerHour1gwei": -298.3801,
+     "netBpsPerHour110k1gwei": -0.1599,
+     "sharePct": 37.5734,
      "compArbFeePips": 3239,
      "compNArb": 64,
      "vanNArb": 78,
      "staleSteps": 0,
      "reverts": 0,
-     "runtimeSec": 23
+     "runtimeSec": 29
     },
     {
      "label": "ETH-calm1:base",
@@ -1778,42 +1778,42 @@
       "every": 3422
      },
      "kPredictMiss": 0,
-     "gas": 269722404,
-     "gasPerPost": 78820.1064,
-     "simUsd1gwei": 503.887,
-     "simBps1gwei": 0.2519,
+     "gas": 270965210,
+     "gasPerPost": 79183.2876,
+     "simUsd1gwei": 506.2088,
+     "simBps1gwei": 0.2531,
      "mainnetPostsPerHour": 285.1667,
      "mainnetUsdPerHour": {
-      "1": 41.9906,
-      "2": 83.9812,
-      "0.5": 20.9953
+      "1": 42.1841,
+      "2": 84.3681,
+      "0.5": 21.092
      },
      "mainnetBpsPerHour": {
-      "1": 0.021,
-      "2": 0.042,
+      "1": 0.0211,
+      "2": 0.0422,
       "0.5": 0.0105
      },
      "mainnetUsdPerHour110k": 58.6013,
-     "grossBpsPerHour": -0.0823,
-     "grossUsdPerHour": -164.561,
+     "grossBpsPerHour": -0.0846,
+     "grossUsdPerHour": -169.2735,
      "grossWithinCIPerHour": {
-      "lo": -261.28,
-      "hi": -77.72
+      "lo": -262.4,
+      "hi": -87.15
      },
      "netBpsPerHour": {
-      "1": -0.1033,
-      "2": -0.1243,
-      "0.5": -0.0928
+      "1": -0.1057,
+      "2": -0.1268,
+      "0.5": -0.0952
      },
-     "netUsdPerHour1gwei": -206.5516,
-     "netBpsPerHour110k1gwei": -0.1116,
-     "sharePct": 40.1437,
+     "netUsdPerHour1gwei": -211.4575,
+     "netBpsPerHour110k1gwei": -0.1139,
+     "sharePct": 39.8713,
      "compArbFeePips": null,
      "compNArb": 0,
      "vanNArb": 0,
      "staleSteps": 0,
      "reverts": 0,
-     "runtimeSec": 22
+     "runtimeSec": 25
     },
     {
      "label": "ETH-calm2:base",
@@ -1828,42 +1828,42 @@
       "every": 3422
      },
      "kPredictMiss": 0,
-     "gas": 269951728,
-     "gasPerPost": 78887.121,
-     "simUsd1gwei": 505.442,
-     "simBps1gwei": 0.2527,
+     "gas": 271194866,
+     "gasPerPost": 79250.3992,
+     "simUsd1gwei": 507.7696,
+     "simBps1gwei": 0.2539,
      "mainnetPostsPerHour": 285.1667,
      "mainnetUsdPerHour": {
-      "1": 42.1202,
-      "2": 84.2403,
-      "0.5": 21.0601
+      "1": 42.3141,
+      "2": 84.6283,
+      "0.5": 21.1571
      },
      "mainnetBpsPerHour": {
-      "1": 0.0211,
-      "2": 0.0421,
-      "0.5": 0.0105
+      "1": 0.0212,
+      "2": 0.0423,
+      "0.5": 0.0106
      },
      "mainnetUsdPerHour110k": 58.7323,
-     "grossBpsPerHour": -0.1233,
-     "grossUsdPerHour": -246.5737,
+     "grossBpsPerHour": -0.1239,
+     "grossUsdPerHour": -247.8471,
      "grossWithinCIPerHour": {
-      "lo": -402.13,
-      "hi": -101.67
+      "lo": -402.22,
+      "hi": -102.51
      },
      "netBpsPerHour": {
-      "1": -0.1443,
-      "2": -0.1654,
-      "0.5": -0.1338
+      "1": -0.1451,
+      "2": -0.1662,
+      "0.5": -0.1345
      },
-     "netUsdPerHour1gwei": -288.6939,
-     "netBpsPerHour110k1gwei": -0.1527,
-     "sharePct": 37.148,
+     "netUsdPerHour1gwei": -290.1613,
+     "netBpsPerHour110k1gwei": -0.1533,
+     "sharePct": 37.0744,
      "compArbFeePips": 3336,
      "compNArb": 1,
      "vanNArb": 4,
      "staleSteps": 0,
      "reverts": 0,
-     "runtimeSec": 23
+     "runtimeSec": 22
     },
     {
      "label": "ETH-calm3:base",
@@ -1878,42 +1878,42 @@
       "every": 3422
      },
      "kPredictMiss": 0,
-     "gas": 269952848,
-     "gasPerPost": 78887.4483,
-     "simUsd1gwei": 504.5349,
-     "simBps1gwei": 0.2523,
+     "gas": 271272676,
+     "gasPerPost": 79273.1373,
+     "simUsd1gwei": 507.0017,
+     "simBps1gwei": 0.2535,
      "mainnetPostsPerHour": 285.1667,
      "mainnetUsdPerHour": {
-      "1": 42.0446,
-      "2": 84.0892,
-      "0.5": 21.0223
+      "1": 42.2501,
+      "2": 84.5003,
+      "0.5": 21.1251
      },
      "mainnetBpsPerHour": {
-      "1": 0.021,
-      "2": 0.042,
-      "0.5": 0.0105
+      "1": 0.0211,
+      "2": 0.0423,
+      "0.5": 0.0106
      },
      "mainnetUsdPerHour110k": 58.6266,
-     "grossBpsPerHour": -0.0819,
-     "grossUsdPerHour": -163.8781,
+     "grossBpsPerHour": -0.0823,
+     "grossUsdPerHour": -164.5521,
      "grossWithinCIPerHour": {
-      "lo": -342.03,
-      "hi": -28.75
+      "lo": -342.7,
+      "hi": -29.59
      },
      "netBpsPerHour": {
-      "1": -0.103,
-      "2": -0.124,
-      "0.5": -0.0925
+      "1": -0.1034,
+      "2": -0.1245,
+      "0.5": -0.0928
      },
-     "netUsdPerHour1gwei": -205.9227,
-     "netBpsPerHour110k1gwei": -0.1113,
-     "sharePct": 41.2132,
+     "netUsdPerHour1gwei": -206.8023,
+     "netBpsPerHour110k1gwei": -0.1116,
+     "sharePct": 41.1743,
      "compArbFeePips": null,
      "compNArb": 0,
      "vanNArb": 1,
      "staleSteps": 0,
      "reverts": 0,
-     "runtimeSec": 22
+     "runtimeSec": 21
     }
    ],
    "all": {
@@ -1936,9 +1936,9 @@
     },
     "gasPerPost": {
      "n": 6,
-     "mean": 79491.8101,
-     "lo": 79050.6711,
-     "hi": 79957.9101,
+     "mean": 79847.3803,
+     "lo": 79414.123,
+     "hi": 80300.1325,
      "pos": 6,
      "neg": 0
     },
@@ -1953,25 +1953,25 @@
     "mainnetUsdPerHour": {
      "1": {
       "n": 6,
-      "mean": 48.6299,
-      "lo": 43.5654,
-      "hi": 54.0923,
+      "mean": 48.8456,
+      "lo": 43.7706,
+      "hi": 54.3278,
       "pos": 6,
       "neg": 0
      },
      "2": {
       "n": 6,
-      "mean": 97.2598,
-      "lo": 87.1488,
-      "hi": 108.1593,
+      "mean": 97.6913,
+      "lo": 87.5625,
+      "hi": 108.6344,
       "pos": 6,
       "neg": 0
      },
      "0.5": {
       "n": 6,
-      "mean": 24.315,
-      "lo": 21.7827,
-      "hi": 27.0461,
+      "mean": 24.4228,
+      "lo": 21.8853,
+      "hi": 27.1639,
       "pos": 6,
       "neg": 0
      }
@@ -1986,83 +1986,83 @@
     },
     "grossBps": {
      "n": 6,
-     "mean": -0.091,
-     "lo": -0.1079,
-     "hi": -0.0742,
+     "mean": -0.0929,
+     "lo": -0.1097,
+     "hi": -0.0766,
      "pos": 0,
      "neg": 6
     },
     "grossUsd": {
      "n": 6,
-     "mean": -181.9831,
-     "lo": -217.3217,
-     "hi": -148.3313,
+     "mean": -185.7285,
+     "lo": -219.5139,
+     "hi": -153.2982,
      "pos": 0,
      "neg": 6
     },
     "netBps": {
      "1": {
       "n": 6,
-      "mean": -0.1153,
-      "lo": -0.1324,
-      "hi": -0.0987,
+      "mean": -0.1173,
+      "lo": -0.1343,
+      "hi": -0.1006,
       "pos": 0,
       "neg": 6
      },
      "2": {
       "n": 6,
-      "mean": -0.1396,
-      "lo": -0.1587,
-      "hi": -0.1224,
+      "mean": -0.1417,
+      "lo": -0.1611,
+      "hi": -0.1244,
       "pos": 0,
       "neg": 6
      },
      "0.5": {
       "n": 6,
-      "mean": -0.1031,
-      "lo": -0.1198,
-      "hi": -0.0865,
+      "mean": -0.1051,
+      "lo": -0.1215,
+      "hi": -0.0886,
       "pos": 0,
       "neg": 6
      }
     },
     "netUsd1gwei": {
      "n": 6,
-     "mean": -230.613,
-     "lo": -264.8004,
-     "hi": -197.453,
+     "mean": -234.5741,
+     "lo": -269.3906,
+     "hi": -201.8956,
      "pos": 0,
      "neg": 6
     },
     "netBps110k": {
      "n": 6,
-     "mean": -0.1246,
-     "lo": -0.1423,
-     "hi": -0.1078,
+     "mean": -0.1265,
+     "lo": -0.1444,
+     "hi": -0.1095,
      "pos": 0,
      "neg": 6
     },
     "sharePct": {
      "n": 6,
-     "mean": 40.0312,
-     "lo": 38.3898,
-     "hi": 41.6727,
+     "mean": 39.7203,
+     "lo": 38.1191,
+     "hi": 41.4628,
      "pos": 6,
      "neg": 0
     },
     "compArbFeePips": {
      "n": 4,
-     "mean": 3210.25,
+     "mean": 3209.75,
      "lo": 3121.25,
-     "hi": 3298,
+     "hi": 3297.5,
      "pos": 4,
      "neg": 0
     },
     "arbRatio": {
      "n": 5,
-     "mean": 0.5873,
-     "lo": 0.2342,
-     "hi": 0.9105,
+     "mean": 0.5893,
+     "lo": 0.2361,
+     "hi": 0.9145,
      "pos": 4,
      "neg": 0
     },
@@ -2095,9 +2095,9 @@
     },
     "gasPerPost": {
      "n": 3,
-     "mean": 80118.7283,
-     "lo": 80002.1239,
-     "hi": 80219.232,
+     "mean": 80459.1525,
+     "lo": 80391.0187,
+     "hi": 80575.0999,
      "pos": 3,
      "neg": 0
     },
@@ -2112,25 +2112,25 @@
     "mainnetUsdPerHour": {
      "1": {
       "n": 3,
-      "mean": 55.208,
-      "lo": 51.2559,
-      "hi": 58.4047,
+      "mean": 55.4418,
+      "lo": 51.505,
+      "hi": 58.6637,
       "pos": 3,
       "neg": 0
      },
      "2": {
       "n": 3,
-      "mean": 110.4161,
-      "lo": 102.5117,
-      "hi": 116.8093,
+      "mean": 110.8836,
+      "lo": 103.0101,
+      "hi": 117.3275,
       "pos": 3,
       "neg": 0
      },
      "0.5": {
       "n": 3,
-      "mean": 27.604,
-      "lo": 25.6279,
-      "hi": 29.2023,
+      "mean": 27.7209,
+      "lo": 25.7525,
+      "hi": 29.3319,
       "pos": 3,
       "neg": 0
      }
@@ -2145,73 +2145,73 @@
     },
     "grossBps": {
      "n": 3,
-     "mean": -0.0861,
-     "lo": -0.1182,
-     "hi": -0.0634,
+     "mean": -0.0888,
+     "lo": -0.1199,
+     "hi": -0.0648,
      "pos": 0,
      "neg": 3
     },
     "grossUsd": {
      "n": 3,
-     "mean": -172.2953,
-     "lo": -236.453,
-     "hi": -126.7837,
+     "mean": -177.566,
+     "lo": -239.7163,
+     "hi": -129.5079,
      "pos": 0,
      "neg": 3
     },
     "netBps": {
      "1": {
       "n": 3,
-      "mean": -0.1138,
-      "lo": -0.1474,
-      "hi": -0.089,
+      "mean": -0.1165,
+      "lo": -0.1492,
+      "hi": -0.0905,
       "pos": 0,
       "neg": 3
      },
      "2": {
       "n": 3,
-      "mean": -0.1414,
-      "lo": -0.1766,
-      "hi": -0.1146,
+      "mean": -0.1442,
+      "lo": -0.1785,
+      "hi": -0.1163,
       "pos": 0,
       "neg": 3
      },
      "0.5": {
       "n": 3,
-      "mean": -0.0999,
-      "lo": -0.1328,
-      "hi": -0.0762,
+      "mean": -0.1026,
+      "lo": -0.1345,
+      "hi": -0.0776,
       "pos": 0,
       "neg": 3
      }
     },
     "netUsd1gwei": {
      "n": 3,
-     "mean": -227.5033,
-     "lo": -294.8576,
-     "hi": -178.0395,
+     "mean": -233.0079,
+     "lo": -298.3801,
+     "hi": -181.0129,
      "pos": 0,
      "neg": 3
     },
     "netBps110k": {
      "n": 3,
-     "mean": -0.124,
-     "lo": -0.1583,
-     "hi": -0.0986,
+     "mean": -0.1267,
+     "lo": -0.1599,
+     "hi": -0.1,
      "pos": 0,
      "neg": 3
     },
     "sharePct": {
      "n": 3,
-     "mean": 40.5608,
-     "lo": 37.7544,
-     "hi": 43.5378,
+     "mean": 40.0673,
+     "lo": 37.5734,
+     "hi": 43.3859,
      "pos": 3,
      "neg": 0
     },
     "compArbFeePips": {
      "n": 3,
-     "mean": 3168.3333,
+     "mean": 3167.6667,
      "lo": 3082,
      "hi": 3239,
      "pos": 3,
@@ -2219,7 +2219,7 @@
     },
     "arbRatio": {
      "n": 3,
-     "mean": 0.8955,
+     "mean": 0.8988,
      "lo": 0.8205,
      "hi": 0.9453,
      "pos": 3,
@@ -2254,9 +2254,9 @@
     },
     "gasPerPost": {
      "n": 3,
-     "mean": 78864.8919,
-     "lo": 78820.1064,
-     "hi": 78887.4483,
+     "mean": 79235.608,
+     "lo": 79183.2876,
+     "hi": 79273.1373,
      "pos": 3,
      "neg": 0
     },
@@ -2271,25 +2271,25 @@
     "mainnetUsdPerHour": {
      "1": {
       "n": 3,
-      "mean": 42.0518,
-      "lo": 41.9906,
-      "hi": 42.1202,
+      "mean": 42.2494,
+      "lo": 42.1841,
+      "hi": 42.3141,
       "pos": 3,
       "neg": 0
      },
      "2": {
       "n": 3,
-      "mean": 84.1036,
-      "lo": 83.9812,
-      "hi": 84.2403,
+      "mean": 84.4989,
+      "lo": 84.3681,
+      "hi": 84.6283,
       "pos": 3,
       "neg": 0
      },
      "0.5": {
       "n": 3,
-      "mean": 21.0259,
-      "lo": 20.9953,
-      "hi": 21.0601,
+      "mean": 21.1247,
+      "lo": 21.092,
+      "hi": 21.1571,
       "pos": 3,
       "neg": 0
      }
@@ -2304,67 +2304,67 @@
     },
     "grossBps": {
      "n": 3,
-     "mean": -0.0958,
-     "lo": -0.1233,
-     "hi": -0.0819,
+     "mean": -0.0969,
+     "lo": -0.1239,
+     "hi": -0.0823,
      "pos": 0,
      "neg": 3
     },
     "grossUsd": {
      "n": 3,
-     "mean": -191.671,
-     "lo": -246.5737,
-     "hi": -163.8781,
+     "mean": -193.8909,
+     "lo": -247.8471,
+     "hi": -164.5521,
      "pos": 0,
      "neg": 3
     },
     "netBps": {
      "1": {
       "n": 3,
-      "mean": -0.1169,
-      "lo": -0.1443,
-      "hi": -0.103,
+      "mean": -0.1181,
+      "lo": -0.1451,
+      "hi": -0.1034,
       "pos": 0,
       "neg": 3
      },
      "2": {
       "n": 3,
-      "mean": -0.1379,
-      "lo": -0.1654,
-      "hi": -0.124,
+      "mean": -0.1392,
+      "lo": -0.1662,
+      "hi": -0.1245,
       "pos": 0,
       "neg": 3
      },
      "0.5": {
       "n": 3,
-      "mean": -0.1063,
-      "lo": -0.1338,
-      "hi": -0.0925,
+      "mean": -0.1075,
+      "lo": -0.1345,
+      "hi": -0.0928,
       "pos": 0,
       "neg": 3
      }
     },
     "netUsd1gwei": {
      "n": 3,
-     "mean": -233.7227,
-     "lo": -288.6939,
-     "hi": -205.9227,
+     "mean": -236.1404,
+     "lo": -290.1613,
+     "hi": -206.8023,
      "pos": 0,
      "neg": 3
     },
     "netBps110k": {
      "n": 3,
-     "mean": -0.1252,
-     "lo": -0.1527,
-     "hi": -0.1113,
+     "mean": -0.1263,
+     "lo": -0.1533,
+     "hi": -0.1116,
      "pos": 0,
      "neg": 3
     },
     "sharePct": {
      "n": 3,
-     "mean": 39.5017,
-     "lo": 37.148,
-     "hi": 41.2132,
+     "mean": 39.3733,
+     "lo": 37.0744,
+     "hi": 41.1743,
      "pos": 3,
      "neg": 0
     },
@@ -2407,165 +2407,165 @@
      "windowId": "ETH-vol1",
      "regime": "volatile",
      "ethUsd": 2246.6911,
-     "posts": 1780,
+     "posts": 1782,
      "reverted": 0,
-     "postsPerStep": 0.4944,
-     "postsPerTurn": 0.4944,
+     "postsPerStep": 0.495,
+     "postsPerTurn": 0.495,
      "reasons": {
       "first": 1,
-      "skip": 1642,
-      "heartbeat": 211,
-      "k": 743,
-      "mid": 504,
+      "skip": 1640,
+      "heartbeat": 194,
+      "mid": 527,
+      "k": 739,
       "p": 321
      },
      "kPredictMiss": 0,
-     "gas": 143397848,
-     "gasPerPost": 80560.5888,
-     "simUsd1gwei": 322.1707,
-     "simBps1gwei": 0.1611,
-     "mainnetPostsPerHour": 148.3333,
+     "gas": 144098288,
+     "gasPerPost": 80863.2368,
+     "simUsd1gwei": 323.7443,
+     "simBps1gwei": 0.1619,
+     "mainnetPostsPerHour": 148.5,
      "mainnetUsdPerHour": {
-      "1": 26.8476,
-      "2": 53.6951,
-      "0.5": 13.4238
+      "1": 26.9787,
+      "2": 53.9574,
+      "0.5": 13.4893
      },
      "mainnetBpsPerHour": {
-      "1": 0.0134,
-      "2": 0.0268,
+      "1": 0.0135,
+      "2": 0.027,
       "0.5": 0.0067
      },
-     "mainnetUsdPerHour110k": 36.6585,
-     "grossBpsPerHour": -0.0613,
-     "grossUsdPerHour": -122.6879,
+     "mainnetUsdPerHour110k": 36.6997,
+     "grossBpsPerHour": -0.0625,
+     "grossUsdPerHour": -124.9842,
      "grossWithinCIPerHour": {
-      "lo": -244.1,
-      "hi": -16.97
+      "lo": -246.41,
+      "hi": -19.19
      },
      "netBpsPerHour": {
-      "1": -0.0748,
-      "2": -0.0882,
-      "0.5": -0.0681
+      "1": -0.076,
+      "2": -0.0895,
+      "0.5": -0.0692
      },
-     "netUsdPerHour1gwei": -149.5354,
-     "netBpsPerHour110k1gwei": -0.0797,
-     "sharePct": 42.5117,
+     "netUsdPerHour1gwei": -151.9629,
+     "netBpsPerHour110k1gwei": -0.0808,
+     "sharePct": 42.3833,
      "compArbFeePips": 3072,
      "compNArb": 124,
      "vanNArb": 128,
-     "staleSteps": 14,
+     "staleSteps": 18,
      "reverts": 0,
-     "runtimeSec": 19
+     "runtimeSec": 26
     },
     {
      "label": "ETH-vol2:base",
      "windowId": "ETH-vol2",
      "regime": "volatile",
      "ethUsd": 2448.9808,
-     "posts": 1587,
+     "posts": 1616,
      "reverted": 0,
-     "postsPerStep": 0.4408,
-     "postsPerTurn": 0.4408,
+     "postsPerStep": 0.4489,
+     "postsPerTurn": 0.4489,
      "reasons": {
       "first": 1,
-      "skip": 1835,
-      "heartbeat": 238,
-      "p": 230,
-      "k": 753,
-      "mid": 365
+      "skip": 1806,
+      "heartbeat": 223,
+      "mid": 383,
+      "p": 234,
+      "k": 775
      },
      "kPredictMiss": 0,
-     "gas": 127841609,
-     "gasPerPost": 80555.5192,
-     "simUsd1gwei": 313.0816,
-     "simBps1gwei": 0.1565,
-     "mainnetPostsPerHour": 132.25,
+     "gas": 130674478,
+     "gasPerPost": 80862.9196,
+     "simUsd1gwei": 320.0193,
+     "simBps1gwei": 0.16,
+     "mainnetPostsPerHour": 134.6667,
      "mainnetUsdPerHour": {
-      "1": 26.0901,
-      "2": 52.1803,
-      "0.5": 13.0451
+      "1": 26.6683,
+      "2": 53.3365,
+      "0.5": 13.3341
      },
      "mainnetBpsPerHour": {
-      "1": 0.013,
-      "2": 0.0261,
-      "0.5": 0.0065
+      "1": 0.0133,
+      "2": 0.0267,
+      "0.5": 0.0067
      },
-     "mainnetUsdPerHour110k": 35.6265,
-     "grossBpsPerHour": -0.0693,
-     "grossUsdPerHour": -138.6093,
+     "mainnetUsdPerHour110k": 36.2776,
+     "grossBpsPerHour": -0.1013,
+     "grossUsdPerHour": -202.5969,
      "grossWithinCIPerHour": {
-      "lo": -307.88,
-      "hi": 33.84
+      "lo": -350.32,
+      "hi": -59.09
      },
      "netBpsPerHour": {
-      "1": -0.0823,
-      "2": -0.0954,
-      "0.5": -0.0758
+      "1": -0.1146,
+      "2": -0.128,
+      "0.5": -0.108
      },
-     "netUsdPerHour1gwei": -164.6995,
-     "netBpsPerHour110k1gwei": -0.0871,
-     "sharePct": 40.7746,
-     "compArbFeePips": 3178,
+     "netUsdPerHour1gwei": -229.2652,
+     "netBpsPerHour110k1gwei": -0.1194,
+     "sharePct": 38.7984,
+     "compArbFeePips": 3154,
      "compNArb": 94,
      "vanNArb": 101,
-     "staleSteps": 8,
+     "staleSteps": 10,
      "reverts": 0,
-     "runtimeSec": 17
+     "runtimeSec": 22
     },
     {
      "label": "ETH-vol3:base",
      "windowId": "ETH-vol3",
      "regime": "volatile",
      "ethUsd": 2553.1139,
-     "posts": 1675,
+     "posts": 1680,
      "reverted": 0,
-     "postsPerStep": 0.4653,
-     "postsPerTurn": 0.4653,
+     "postsPerStep": 0.4667,
+     "postsPerTurn": 0.4667,
      "reasons": {
       "first": 1,
-      "skip": 1747,
-      "heartbeat": 229,
-      "mid": 434,
+      "skip": 1742,
+      "heartbeat": 219,
+      "mid": 449,
       "k": 803,
       "p": 208
      },
      "kPredictMiss": 0,
-     "gas": 135037924,
-     "gasPerPost": 80619.6561,
-     "simUsd1gwei": 344.7672,
-     "simBps1gwei": 0.1724,
-     "mainnetPostsPerHour": 139.5833,
+     "gas": 135937992,
+     "gasPerPost": 80915.4714,
+     "simUsd1gwei": 347.0652,
+     "simBps1gwei": 0.1735,
+     "mainnetPostsPerHour": 140,
      "mainnetUsdPerHour": {
-      "1": 28.7306,
-      "2": 57.4612,
-      "0.5": 14.3653
+      "1": 28.9221,
+      "2": 57.8442,
+      "0.5": 14.461
      },
      "mainnetBpsPerHour": {
-      "1": 0.0144,
-      "2": 0.0287,
+      "1": 0.0145,
+      "2": 0.0289,
       "0.5": 0.0072
      },
-     "mainnetUsdPerHour110k": 39.2009,
-     "grossBpsPerHour": -0.1065,
-     "grossUsdPerHour": -212.918,
+     "mainnetUsdPerHour110k": 39.318,
+     "grossBpsPerHour": -0.1075,
+     "grossUsdPerHour": -215.0792,
      "grossWithinCIPerHour": {
-      "lo": -343.35,
-      "hi": -102.29
+      "lo": -344.54,
+      "hi": -105.4
      },
      "netBpsPerHour": {
-      "1": -0.1208,
-      "2": -0.1352,
-      "0.5": -0.1136
+      "1": -0.122,
+      "2": -0.1365,
+      "0.5": -0.1148
      },
-     "netUsdPerHour1gwei": -241.6486,
-     "netBpsPerHour110k1gwei": -0.1261,
-     "sharePct": 37.6882,
+     "netUsdPerHour1gwei": -244.0013,
+     "netBpsPerHour110k1gwei": -0.1272,
+     "sharePct": 37.5681,
      "compArbFeePips": 3176,
      "compNArb": 69,
      "vanNArb": 77,
-     "staleSteps": 12,
+     "staleSteps": 14,
      "reverts": 0,
-     "runtimeSec": 17
+     "runtimeSec": 22
     },
     {
      "label": "ETH-calm1:base",
@@ -2579,103 +2579,103 @@
      "reasons": {
       "first": 1,
       "skip": 2274,
-      "heartbeat": 515,
-      "mid": 11,
+      "heartbeat": 513,
+      "mid": 13,
       "p": 22,
       "k": 599
      },
      "kPredictMiss": 0,
-     "gas": 91194824,
-     "gasPerPost": 79438,
-     "simUsd1gwei": 170.3673,
-     "simBps1gwei": 0.0852,
+     "gas": 91558100,
+     "gasPerPost": 79754.4425,
+     "simUsd1gwei": 171.046,
+     "simBps1gwei": 0.0855,
      "mainnetPostsPerHour": 95.6667,
      "mainnetUsdPerHour": {
-      "1": 14.1973,
-      "2": 28.3946,
-      "0.5": 7.0986
+      "1": 14.2538,
+      "2": 28.5077,
+      "0.5": 7.1269
      },
      "mainnetBpsPerHour": {
       "1": 0.0071,
-      "2": 0.0142,
-      "0.5": 0.0035
+      "2": 0.0143,
+      "0.5": 0.0036
      },
      "mainnetUsdPerHour110k": 19.6594,
-     "grossBpsPerHour": -0.0735,
-     "grossUsdPerHour": -146.9942,
+     "grossBpsPerHour": -0.0753,
+     "grossUsdPerHour": -150.5623,
      "grossWithinCIPerHour": {
-      "lo": -242.17,
-      "hi": -62.78
+      "lo": -242.55,
+      "hi": -68.38
      },
      "netBpsPerHour": {
-      "1": -0.0806,
-      "2": -0.0877,
-      "0.5": -0.077
+      "1": -0.0824,
+      "2": -0.0895,
+      "0.5": -0.0788
      },
-     "netUsdPerHour1gwei": -161.1915,
-     "netBpsPerHour110k1gwei": -0.0833,
-     "sharePct": 41.2842,
+     "netUsdPerHour1gwei": -164.8161,
+     "netBpsPerHour110k1gwei": -0.0851,
+     "sharePct": 41.0784,
      "compArbFeePips": null,
      "compNArb": 0,
      "vanNArb": 0,
      "staleSteps": 24,
      "reverts": 0,
-     "runtimeSec": 16
+     "runtimeSec": 19
     },
     {
      "label": "ETH-calm2:base",
      "windowId": "ETH-calm2",
      "regime": "calm",
      "ethUsd": 1872.3422,
-     "posts": 1327,
+     "posts": 1328,
      "reverted": 0,
-     "postsPerStep": 0.3686,
-     "postsPerTurn": 0.3686,
+     "postsPerStep": 0.3689,
+     "postsPerTurn": 0.3689,
      "reasons": {
       "first": 1,
-      "skip": 2095,
+      "skip": 2094,
       "heartbeat": 438,
-      "mid": 10,
+      "mid": 11,
       "k": 868,
       "p": 10
      },
      "kPredictMiss": 0,
-     "gas": 105339143,
-     "gasPerPost": 79381.419,
-     "simUsd1gwei": 197.2309,
-     "simBps1gwei": 0.0986,
-     "mainnetPostsPerHour": 110.5833,
+     "gas": 105834044,
+     "gasPerPost": 79694.3102,
+     "simUsd1gwei": 198.1575,
+     "simBps1gwei": 0.0991,
+     "mainnetPostsPerHour": 110.6667,
      "mainnetUsdPerHour": {
-      "1": 16.4359,
-      "2": 32.8718,
-      "0.5": 8.218
+      "1": 16.5131,
+      "2": 33.0263,
+      "0.5": 8.2566
      },
      "mainnetBpsPerHour": {
-      "1": 0.0082,
-      "2": 0.0164,
+      "1": 0.0083,
+      "2": 0.0165,
       "0.5": 0.0041
      },
-     "mainnetUsdPerHour110k": 22.7755,
-     "grossBpsPerHour": -0.1136,
-     "grossUsdPerHour": -227.1011,
+     "mainnetUsdPerHour110k": 22.7926,
+     "grossBpsPerHour": -0.1139,
+     "grossUsdPerHour": -227.7923,
      "grossWithinCIPerHour": {
       "lo": -373.94,
-      "hi": -90.79
+      "hi": -91.52
      },
      "netBpsPerHour": {
-      "1": -0.1218,
-      "2": -0.13,
-      "0.5": -0.1177
+      "1": -0.1222,
+      "2": -0.1304,
+      "0.5": -0.118
      },
-     "netUsdPerHour1gwei": -243.537,
-     "netBpsPerHour110k1gwei": -0.1249,
-     "sharePct": 38.4308,
+     "netUsdPerHour1gwei": -244.3054,
+     "netBpsPerHour110k1gwei": -0.1253,
+     "sharePct": 38.3914,
      "compArbFeePips": 3334,
      "compNArb": 1,
      "vanNArb": 4,
-     "staleSteps": 16,
+     "staleSteps": 15,
      "reverts": 0,
-     "runtimeSec": 22
+     "runtimeSec": 18
     },
     {
      "label": "ETH-calm3:base",
@@ -2695,183 +2695,183 @@
       "k": 474
      },
      "kPredictMiss": 0,
-     "gas": 84074514,
-     "gasPerPost": 79616.017,
-     "simUsd1gwei": 157.1331,
-     "simBps1gwei": 0.0786,
+     "gas": 84432014,
+     "gasPerPost": 79954.5587,
+     "simUsd1gwei": 157.8013,
+     "simBps1gwei": 0.0789,
      "mainnetPostsPerHour": 88,
      "mainnetUsdPerHour": {
-      "1": 13.0944,
-      "2": 26.1889,
-      "0.5": 6.5472
+      "1": 13.1501,
+      "2": 26.3002,
+      "0.5": 6.5751
      },
      "mainnetBpsPerHour": {
-      "1": 0.0065,
-      "2": 0.0131,
+      "1": 0.0066,
+      "2": 0.0132,
       "0.5": 0.0033
      },
      "mainnetUsdPerHour110k": 18.0917,
-     "grossBpsPerHour": -0.079,
-     "grossUsdPerHour": -157.9169,
+     "grossBpsPerHour": -0.0792,
+     "grossUsdPerHour": -158.3583,
      "grossWithinCIPerHour": {
-      "lo": -334.82,
-      "hi": -27.43
+      "lo": -334.88,
+      "hi": -28.27
      },
      "netBpsPerHour": {
-      "1": -0.0855,
-      "2": -0.0921,
-      "0.5": -0.0822
+      "1": -0.0858,
+      "2": -0.0923,
+      "0.5": -0.0825
      },
-     "netUsdPerHour1gwei": -171.0113,
-     "netBpsPerHour110k1gwei": -0.088,
-     "sharePct": 41.6317,
+     "netUsdPerHour1gwei": -171.5084,
+     "netBpsPerHour110k1gwei": -0.0882,
+     "sharePct": 41.6064,
      "compArbFeePips": null,
      "compNArb": 0,
      "vanNArb": 1,
      "staleSteps": 32,
      "reverts": 0,
-     "runtimeSec": 17
+     "runtimeSec": 15
     }
    ],
    "all": {
     "n": 6,
     "postsPerStep": {
      "n": 6,
-     "mean": 0.3969,
-     "lo": 0.3388,
-     "hi": 0.4555,
+     "mean": 0.3986,
+     "lo": 0.3391,
+     "hi": 0.458,
      "pos": 6,
      "neg": 0
     },
     "postsPerTurn": {
      "n": 6,
-     "mean": 0.3969,
-     "lo": 0.3388,
-     "hi": 0.4548,
+     "mean": 0.3986,
+     "lo": 0.3391,
+     "hi": 0.4569,
      "pos": 6,
      "neg": 0
     },
     "gasPerPost": {
      "n": 6,
-     "mean": 80028.5334,
-     "lo": 79625.0981,
-     "hi": 80422.8493,
+     "mean": 80340.8232,
+     "lo": 79937.9253,
+     "hi": 80729.202,
      "pos": 6,
      "neg": 0
     },
     "mainnetPostsPerHour": {
      "n": 6,
-     "mean": 119.0694,
-     "lo": 101.6389,
-     "hi": 136.6389,
+     "mean": 119.5833,
+     "lo": 101.7222,
+     "hi": 137.5833,
      "pos": 6,
      "neg": 0
     },
     "mainnetUsdPerHour": {
      "1": {
       "n": 6,
-      "mean": 20.8993,
-      "lo": 15.938,
-      "hi": 25.8013,
+      "mean": 21.081,
+      "lo": 16.0067,
+      "hi": 26.1018,
       "pos": 6,
       "neg": 0
      },
      "2": {
       "n": 6,
-      "mean": 41.7986,
-      "lo": 32.1361,
-      "hi": 51.4799,
+      "mean": 42.162,
+      "lo": 32.2952,
+      "hi": 51.7645,
       "pos": 6,
       "neg": 0
      },
      "0.5": {
       "n": 6,
-      "mean": 10.4497,
-      "lo": 7.9978,
-      "hi": 12.8422,
+      "mean": 10.5405,
+      "lo": 8.0695,
+      "hi": 12.9411,
       "pos": 6,
       "neg": 0
      }
     },
     "mainnetUsdPerHour110k": {
      "n": 6,
-     "mean": 28.6688,
-     "lo": 21.97,
-     "hi": 35.259,
+     "mean": 28.8065,
+     "lo": 21.9769,
+     "hi": 35.3439,
      "pos": 6,
      "neg": 0
     },
     "grossBps": {
      "n": 6,
-     "mean": -0.0839,
-     "lo": -0.0999,
-     "hi": -0.0692,
+     "mean": -0.0899,
+     "lo": -0.1049,
+     "hi": -0.0749,
      "pos": 0,
      "neg": 6
     },
     "grossUsd": {
      "n": 6,
-     "mean": -167.7046,
-     "lo": -199.312,
-     "hi": -138.4819,
+     "mean": -179.8955,
+     "lo": -209.8634,
+     "hi": -149.8254,
      "pos": 0,
      "neg": 6
     },
     "netBps": {
      "1": {
       "n": 6,
-      "mean": -0.0943,
-      "lo": -0.109,
-      "hi": -0.0798,
+      "mean": -0.1005,
+      "lo": -0.1148,
+      "hi": -0.0853,
       "pos": 0,
       "neg": 6
      },
      "2": {
       "n": 6,
-      "mean": -0.1048,
-      "lo": -0.1202,
-      "hi": -0.09,
+      "mean": -0.111,
+      "lo": -0.1262,
+      "hi": -0.0964,
       "pos": 0,
       "neg": 6
      },
      "0.5": {
       "n": 6,
-      "mean": -0.0891,
-      "lo": -0.1041,
-      "hi": -0.0747,
+      "mean": -0.0952,
+      "lo": -0.1098,
+      "hi": -0.08,
       "pos": 0,
       "neg": 6
      }
     },
     "netUsd1gwei": {
      "n": 6,
-     "mean": -188.6039,
-     "lo": -217.9951,
-     "hi": -159.5274,
+     "mean": -200.9766,
+     "lo": -229.6152,
+     "hi": -170.6109,
      "pos": 0,
      "neg": 6
     },
     "netBps110k": {
      "n": 6,
-     "mean": -0.0982,
-     "lo": -0.1129,
-     "hi": -0.0835,
+     "mean": -0.1044,
+     "lo": -0.1191,
+     "hi": -0.0897,
      "pos": 0,
      "neg": 6
     },
     "sharePct": {
      "n": 6,
-     "mean": 40.3869,
-     "lo": 38.9836,
-     "hi": 41.6934,
+     "mean": 39.971,
+     "lo": 38.5648,
+     "hi": 41.371,
      "pos": 6,
      "neg": 0
     },
     "compArbFeePips": {
      "n": 4,
-     "mean": 3190,
-     "lo": 3098.5,
-     "hi": 3294.5,
+     "mean": 3184,
+     "lo": 3098,
+     "hi": 3289,
      "pos": 4,
      "neg": 0
     },
@@ -2885,9 +2885,9 @@
     },
     "staleSteps": {
      "n": 6,
-     "mean": 17.6667,
-     "lo": 11.6667,
-     "hi": 24.6667,
+     "mean": 18.8333,
+     "lo": 13.5,
+     "hi": 25,
      "pos": 6,
      "neg": 0
     }
@@ -2896,141 +2896,141 @@
     "n": 3,
     "postsPerStep": {
      "n": 3,
-     "mean": 0.4669,
-     "lo": 0.4408,
-     "hi": 0.4944,
+     "mean": 0.4702,
+     "lo": 0.4489,
+     "hi": 0.495,
      "pos": 3,
      "neg": 0
     },
     "postsPerTurn": {
      "n": 3,
-     "mean": 0.4669,
-     "lo": 0.4408,
-     "hi": 0.4944,
+     "mean": 0.4702,
+     "lo": 0.4489,
+     "hi": 0.495,
      "pos": 3,
      "neg": 0
     },
     "gasPerPost": {
      "n": 3,
-     "mean": 80578.588,
-     "lo": 80555.5192,
-     "hi": 80619.6561,
+     "mean": 80880.5426,
+     "lo": 80862.9196,
+     "hi": 80915.4714,
      "pos": 3,
      "neg": 0
     },
     "mainnetPostsPerHour": {
      "n": 3,
-     "mean": 140.0556,
-     "lo": 132.25,
-     "hi": 148.3333,
+     "mean": 141.0556,
+     "lo": 134.6667,
+     "hi": 148.5,
      "pos": 3,
      "neg": 0
     },
     "mainnetUsdPerHour": {
      "1": {
       "n": 3,
-      "mean": 27.2228,
-      "lo": 26.0901,
-      "hi": 28.7306,
+      "mean": 27.523,
+      "lo": 26.6683,
+      "hi": 28.9221,
       "pos": 3,
       "neg": 0
      },
      "2": {
       "n": 3,
-      "mean": 54.4455,
-      "lo": 52.1803,
-      "hi": 57.4612,
+      "mean": 55.046,
+      "lo": 53.3365,
+      "hi": 57.8442,
       "pos": 3,
       "neg": 0
      },
      "0.5": {
       "n": 3,
-      "mean": 13.6114,
-      "lo": 13.0451,
-      "hi": 14.3653,
+      "mean": 13.7615,
+      "lo": 13.3341,
+      "hi": 14.461,
       "pos": 3,
       "neg": 0
      }
     },
     "mainnetUsdPerHour110k": {
      "n": 3,
-     "mean": 37.162,
-     "lo": 35.6265,
-     "hi": 39.2009,
+     "mean": 37.4317,
+     "lo": 36.2776,
+     "hi": 39.318,
      "pos": 3,
      "neg": 0
     },
     "grossBps": {
      "n": 3,
-     "mean": -0.079,
-     "lo": -0.1065,
-     "hi": -0.0613,
+     "mean": -0.0904,
+     "lo": -0.1075,
+     "hi": -0.0625,
      "pos": 0,
      "neg": 3
     },
     "grossUsd": {
      "n": 3,
-     "mean": -158.0717,
-     "lo": -212.918,
-     "hi": -122.6879,
+     "mean": -180.8868,
+     "lo": -215.0792,
+     "hi": -124.9842,
      "pos": 0,
      "neg": 3
     },
     "netBps": {
      "1": {
       "n": 3,
-      "mean": -0.0926,
-      "lo": -0.1208,
-      "hi": -0.0748,
+      "mean": -0.1042,
+      "lo": -0.122,
+      "hi": -0.076,
       "pos": 0,
       "neg": 3
      },
      "2": {
       "n": 3,
-      "mean": -0.1063,
-      "lo": -0.1352,
-      "hi": -0.0882,
+      "mean": -0.118,
+      "lo": -0.1365,
+      "hi": -0.0895,
       "pos": 0,
       "neg": 3
      },
      "0.5": {
       "n": 3,
-      "mean": -0.0858,
-      "lo": -0.1136,
-      "hi": -0.0681,
+      "mean": -0.0973,
+      "lo": -0.1148,
+      "hi": -0.0692,
       "pos": 0,
       "neg": 3
      }
     },
     "netUsd1gwei": {
      "n": 3,
-     "mean": -185.2945,
-     "lo": -241.6486,
-     "hi": -149.5354,
+     "mean": -208.4098,
+     "lo": -244.0013,
+     "hi": -151.9629,
      "pos": 0,
      "neg": 3
     },
     "netBps110k": {
      "n": 3,
-     "mean": -0.0976,
-     "lo": -0.1261,
-     "hi": -0.0797,
+     "mean": -0.1092,
+     "lo": -0.1272,
+     "hi": -0.0808,
      "pos": 0,
      "neg": 3
     },
     "sharePct": {
      "n": 3,
-     "mean": 40.3249,
-     "lo": 37.6882,
-     "hi": 42.5117,
+     "mean": 39.5832,
+     "lo": 37.5681,
+     "hi": 42.3833,
      "pos": 3,
      "neg": 0
     },
     "compArbFeePips": {
      "n": 3,
-     "mean": 3142,
+     "mean": 3134,
      "lo": 3072,
-     "hi": 3178,
+     "hi": 3176,
      "pos": 3,
      "neg": 0
     },
@@ -3044,9 +3044,9 @@
     },
     "staleSteps": {
      "n": 3,
-     "mean": 11.3333,
-     "lo": 8,
-     "hi": 14,
+     "mean": 14,
+     "lo": 10,
+     "hi": 18,
      "pos": 3,
      "neg": 0
     }
@@ -3055,133 +3055,133 @@
     "n": 3,
     "postsPerStep": {
      "n": 3,
-     "mean": 0.3269,
+     "mean": 0.327,
      "lo": 0.2933,
-     "hi": 0.3686,
+     "hi": 0.3689,
      "pos": 3,
      "neg": 0
     },
     "postsPerTurn": {
      "n": 3,
-     "mean": 0.3269,
+     "mean": 0.327,
      "lo": 0.2933,
-     "hi": 0.3686,
+     "hi": 0.3689,
      "pos": 3,
      "neg": 0
     },
     "gasPerPost": {
      "n": 3,
-     "mean": 79478.4787,
-     "lo": 79381.419,
-     "hi": 79616.017,
+     "mean": 79801.1038,
+     "lo": 79694.3102,
+     "hi": 79954.5587,
      "pos": 3,
      "neg": 0
     },
     "mainnetPostsPerHour": {
      "n": 3,
-     "mean": 98.0833,
+     "mean": 98.1111,
      "lo": 88,
-     "hi": 110.5833,
+     "hi": 110.6667,
      "pos": 3,
      "neg": 0
     },
     "mainnetUsdPerHour": {
      "1": {
       "n": 3,
-      "mean": 14.5759,
-      "lo": 13.0944,
-      "hi": 16.4359,
+      "mean": 14.639,
+      "lo": 13.1501,
+      "hi": 16.5131,
       "pos": 3,
       "neg": 0
      },
      "2": {
       "n": 3,
-      "mean": 29.1517,
-      "lo": 26.1889,
-      "hi": 32.8718,
+      "mean": 29.278,
+      "lo": 26.3002,
+      "hi": 33.0263,
       "pos": 3,
       "neg": 0
      },
      "0.5": {
       "n": 3,
-      "mean": 7.2879,
-      "lo": 6.5472,
-      "hi": 8.218,
+      "mean": 7.3195,
+      "lo": 6.5751,
+      "hi": 8.2566,
       "pos": 3,
       "neg": 0
      }
     },
     "mainnetUsdPerHour110k": {
      "n": 3,
-     "mean": 20.1755,
+     "mean": 20.1812,
      "lo": 18.0917,
-     "hi": 22.7755,
+     "hi": 22.7926,
      "pos": 3,
      "neg": 0
     },
     "grossBps": {
      "n": 3,
-     "mean": -0.0887,
-     "lo": -0.1136,
-     "hi": -0.0735,
+     "mean": -0.0895,
+     "lo": -0.1139,
+     "hi": -0.0753,
      "pos": 0,
      "neg": 3
     },
     "grossUsd": {
      "n": 3,
-     "mean": -177.3374,
-     "lo": -227.1011,
-     "hi": -146.9942,
+     "mean": -178.9043,
+     "lo": -227.7923,
+     "hi": -150.5623,
      "pos": 0,
      "neg": 3
     },
     "netBps": {
      "1": {
       "n": 3,
-      "mean": -0.096,
-      "lo": -0.1218,
-      "hi": -0.0806,
+      "mean": -0.0968,
+      "lo": -0.1222,
+      "hi": -0.0824,
       "pos": 0,
       "neg": 3
      },
      "2": {
       "n": 3,
-      "mean": -0.1032,
-      "lo": -0.13,
-      "hi": -0.0877,
+      "mean": -0.1041,
+      "lo": -0.1304,
+      "hi": -0.0895,
       "pos": 0,
       "neg": 3
      },
      "0.5": {
       "n": 3,
-      "mean": -0.0923,
-      "lo": -0.1177,
-      "hi": -0.077,
+      "mean": -0.0931,
+      "lo": -0.118,
+      "hi": -0.0788,
       "pos": 0,
       "neg": 3
      }
     },
     "netUsd1gwei": {
      "n": 3,
-     "mean": -191.9133,
-     "lo": -243.537,
-     "hi": -161.1915,
+     "mean": -193.5433,
+     "lo": -244.3054,
+     "hi": -164.8161,
      "pos": 0,
      "neg": 3
     },
     "netBps110k": {
      "n": 3,
-     "mean": -0.0988,
-     "lo": -0.1249,
-     "hi": -0.0833,
+     "mean": -0.0995,
+     "lo": -0.1253,
+     "hi": -0.0851,
      "pos": 0,
      "neg": 3
     },
     "sharePct": {
      "n": 3,
-     "mean": 40.4489,
-     "lo": 38.4308,
-     "hi": 41.6317,
+     "mean": 40.3587,
+     "lo": 38.3914,
+     "hi": 41.6064,
      "pos": 3,
      "neg": 0
     },
@@ -3203,8 +3203,8 @@
     },
     "staleSteps": {
      "n": 3,
-     "mean": 24,
-     "lo": 16,
+     "mean": 23.6667,
+     "lo": 15,
      "hi": 32,
      "pos": 3,
      "neg": 0
@@ -3235,42 +3235,42 @@
       "every": 283
      },
      "kPredictMiss": 0,
-     "gas": 22784665,
-     "gasPerPost": 80511.1837,
-     "simUsd1gwei": 51.1901,
-     "simBps1gwei": 0.0256,
+     "gas": 22893650,
+     "gasPerPost": 80896.2898,
+     "simUsd1gwei": 51.435,
+     "simBps1gwei": 0.0257,
      "mainnetPostsPerHour": 283,
      "mainnetUsdPerHour": {
-      "1": 51.1901,
-      "2": 102.3802,
-      "0.5": 25.5951
+      "1": 51.435,
+      "2": 102.8699,
+      "0.5": 25.7175
      },
      "mainnetBpsPerHour": {
-      "1": 0.0256,
-      "2": 0.0512,
-      "0.5": 0.0128
+      "1": 0.0257,
+      "2": 0.0514,
+      "0.5": 0.0129
      },
      "mainnetUsdPerHour110k": 69.9395,
-     "grossBpsPerHour": -0.0424,
-     "grossUsdPerHour": -84.8451,
+     "grossBpsPerHour": -0.0432,
+     "grossUsdPerHour": -86.4391,
      "grossWithinCIPerHour": {
-      "lo": -188.06,
-      "hi": 7.19
+      "lo": -189.59,
+      "hi": 3.75
      },
      "netBpsPerHour": {
-      "1": -0.068,
-      "2": -0.0936,
-      "0.5": -0.0552
+      "1": -0.0689,
+      "2": -0.0947,
+      "0.5": -0.0561
      },
-     "netUsdPerHour1gwei": -136.0352,
-     "netBpsPerHour110k1gwei": -0.0774,
-     "sharePct": 42.2147,
+     "netUsdPerHour1gwei": -137.8741,
+     "netBpsPerHour110k1gwei": -0.0782,
+     "sharePct": 42.1268,
      "compArbFeePips": 3115,
      "compNArb": 125,
      "vanNArb": 128,
      "staleSteps": 0,
      "reverts": 0,
-     "runtimeSec": 14
+     "runtimeSec": 19
     },
     {
      "label": "ETH-vol2:base",
@@ -3285,42 +3285,42 @@
       "every": 283
      },
      "kPredictMiss": 0,
-     "gas": 22936211,
-     "gasPerPost": 81046.682,
-     "simUsd1gwei": 56.1703,
-     "simBps1gwei": 0.0281,
+     "gas": 23037720,
+     "gasPerPost": 81405.371,
+     "simUsd1gwei": 56.4189,
+     "simBps1gwei": 0.0282,
      "mainnetPostsPerHour": 283,
      "mainnetUsdPerHour": {
-      "1": 56.1703,
-      "2": 112.3407,
-      "0.5": 28.0852
+      "1": 56.4189,
+      "2": 112.8379,
+      "0.5": 28.2095
      },
      "mainnetBpsPerHour": {
-      "1": 0.0281,
-      "2": 0.0562,
-      "0.5": 0.014
+      "1": 0.0282,
+      "2": 0.0564,
+      "0.5": 0.0141
      },
      "mainnetUsdPerHour110k": 76.2368,
-     "grossBpsPerHour": -0.1577,
-     "grossUsdPerHour": -315.4225,
+     "grossBpsPerHour": -0.1608,
+     "grossUsdPerHour": -321.5514,
      "grossWithinCIPerHour": {
-      "lo": -457.48,
-      "hi": -169.72
+      "lo": -458.67,
+      "hi": -182.74
      },
      "netBpsPerHour": {
-      "1": -0.1858,
-      "2": -0.2139,
-      "0.5": -0.1718
+      "1": -0.189,
+      "2": -0.2172,
+      "0.5": -0.1749
      },
-     "netUsdPerHour1gwei": -371.5928,
-     "netBpsPerHour110k1gwei": -0.1958,
-     "sharePct": 37.3251,
+     "netUsdPerHour1gwei": -377.9704,
+     "netBpsPerHour110k1gwei": -0.1989,
+     "sharePct": 36.9697,
      "compArbFeePips": 3268,
      "compNArb": 84,
      "vanNArb": 101,
      "staleSteps": 0,
      "reverts": 0,
-     "runtimeSec": 13
+     "runtimeSec": 18
     },
     {
      "label": "ETH-vol3:base",
@@ -3335,42 +3335,42 @@
       "every": 283
      },
      "kPredictMiss": 0,
-     "gas": 22940315,
-     "gasPerPost": 81061.1837,
-     "simUsd1gwei": 58.5692,
-     "simBps1gwei": 0.0293,
+     "gas": 23039654,
+     "gasPerPost": 81412.2049,
+     "simUsd1gwei": 58.8229,
+     "simBps1gwei": 0.0294,
      "mainnetPostsPerHour": 283,
      "mainnetUsdPerHour": {
-      "1": 58.5692,
-      "2": 117.1385,
-      "0.5": 29.2846
+      "1": 58.8229,
+      "2": 117.6457,
+      "0.5": 29.4114
      },
      "mainnetBpsPerHour": {
-      "1": 0.0293,
-      "2": 0.0586,
-      "0.5": 0.0146
+      "1": 0.0294,
+      "2": 0.0588,
+      "0.5": 0.0147
      },
      "mainnetUsdPerHour110k": 79.4784,
-     "grossBpsPerHour": -0.095,
-     "grossUsdPerHour": -190.039,
+     "grossBpsPerHour": -0.0961,
+     "grossUsdPerHour": -192.2277,
      "grossWithinCIPerHour": {
-      "lo": -328.78,
-      "hi": -50.17
+      "lo": -330.3,
+      "hi": -52.45
      },
      "netBpsPerHour": {
-      "1": -0.1243,
-      "2": -0.1536,
-      "0.5": -0.1097
+      "1": -0.1255,
+      "2": -0.1549,
+      "0.5": -0.1108
      },
-     "netUsdPerHour1gwei": -248.6082,
-     "netBpsPerHour110k1gwei": -0.1348,
-     "sharePct": 38.0593,
+     "netUsdPerHour1gwei": -251.0506,
+     "netBpsPerHour110k1gwei": -0.1359,
+     "sharePct": 37.9375,
      "compArbFeePips": 3363,
      "compNArb": 71,
      "vanNArb": 78,
      "staleSteps": 0,
      "reverts": 0,
-     "runtimeSec": 13
+     "runtimeSec": 16
     },
     {
      "label": "ETH-calm1:base",
@@ -3385,42 +3385,42 @@
       "every": 283
      },
      "kPredictMiss": 0,
-     "gas": 22683961,
-     "gasPerPost": 80155.3392,
-     "simUsd1gwei": 42.3775,
-     "simBps1gwei": 0.0212,
+     "gas": 22787270,
+     "gasPerPost": 80520.3887,
+     "simUsd1gwei": 42.5705,
+     "simBps1gwei": 0.0213,
      "mainnetPostsPerHour": 283,
      "mainnetUsdPerHour": {
-      "1": 42.3775,
-      "2": 84.7549,
-      "0.5": 21.1887
+      "1": 42.5705,
+      "2": 85.1409,
+      "0.5": 21.2852
      },
      "mainnetBpsPerHour": {
-      "1": 0.0212,
-      "2": 0.0424,
+      "1": 0.0213,
+      "2": 0.0426,
       "0.5": 0.0106
      },
      "mainnetUsdPerHour110k": 58.1561,
-     "grossBpsPerHour": -0.0601,
-     "grossUsdPerHour": -120.1643,
+     "grossBpsPerHour": -0.0612,
+     "grossUsdPerHour": -122.4913,
      "grossWithinCIPerHour": {
-      "lo": -195.67,
-      "hi": -53.36
+      "lo": -196.81,
+      "hi": -56.76
      },
      "netBpsPerHour": {
-      "1": -0.0813,
-      "2": -0.1025,
-      "0.5": -0.0707
+      "1": -0.0825,
+      "2": -0.1038,
+      "0.5": -0.0719
      },
-     "netUsdPerHour1gwei": -162.5418,
-     "netBpsPerHour110k1gwei": -0.0892,
-     "sharePct": 42.8413,
+     "netUsdPerHour1gwei": -165.0618,
+     "netBpsPerHour110k1gwei": -0.0903,
+     "sharePct": 42.706,
      "compArbFeePips": null,
      "compNArb": 0,
      "vanNArb": 0,
      "staleSteps": 0,
      "reverts": 0,
-     "runtimeSec": 13
+     "runtimeSec": 16
     },
     {
      "label": "ETH-calm2:base",
@@ -3435,42 +3435,42 @@
       "every": 283
      },
      "kPredictMiss": 0,
-     "gas": 22730443,
-     "gasPerPost": 80319.5866,
-     "simUsd1gwei": 42.5592,
-     "simBps1gwei": 0.0213,
+     "gas": 22829648,
+     "gasPerPost": 80670.1343,
+     "simUsd1gwei": 42.7449,
+     "simBps1gwei": 0.0214,
      "mainnetPostsPerHour": 283,
      "mainnetUsdPerHour": {
-      "1": 42.5592,
-      "2": 85.1183,
-      "0.5": 21.2796
+      "1": 42.7449,
+      "2": 85.4898,
+      "0.5": 21.3725
      },
      "mainnetBpsPerHour": {
-      "1": 0.0213,
-      "2": 0.0426,
-      "0.5": 0.0106
+      "1": 0.0214,
+      "2": 0.0427,
+      "0.5": 0.0107
      },
      "mainnetUsdPerHour110k": 58.286,
-     "grossBpsPerHour": -0.0944,
-     "grossUsdPerHour": -188.873,
+     "grossBpsPerHour": -0.0947,
+     "grossUsdPerHour": -189.4646,
      "grossWithinCIPerHour": {
-      "lo": -316.77,
-      "hi": -69.56
+      "lo": -317.1,
+      "hi": -70.3
      },
      "netBpsPerHour": {
-      "1": -0.1157,
-      "2": -0.137,
-      "0.5": -0.1051
+      "1": -0.1161,
+      "2": -0.1375,
+      "0.5": -0.1054
      },
-     "netUsdPerHour1gwei": -231.4322,
-     "netBpsPerHour110k1gwei": -0.1236,
-     "sharePct": 40.2824,
+     "netUsdPerHour1gwei": -232.2095,
+     "netBpsPerHour110k1gwei": -0.1239,
+     "sharePct": 40.2481,
      "compArbFeePips": 3379,
      "compNArb": 1,
      "vanNArb": 3,
      "staleSteps": 0,
      "reverts": 0,
-     "runtimeSec": 12
+     "runtimeSec": 16
     },
     {
      "label": "ETH-calm3:base",
@@ -3485,42 +3485,42 @@
       "every": 283
      },
      "kPredictMiss": 0,
-     "gas": 22708903,
-     "gasPerPost": 80243.4735,
-     "simUsd1gwei": 42.4424,
-     "simBps1gwei": 0.0212,
+     "gas": 22819918,
+     "gasPerPost": 80635.7527,
+     "simUsd1gwei": 42.6498,
+     "simBps1gwei": 0.0213,
      "mainnetPostsPerHour": 283,
      "mainnetUsdPerHour": {
-      "1": 42.4424,
-      "2": 84.8847,
-      "0.5": 21.2212
+      "1": 42.6498,
+      "2": 85.2997,
+      "0.5": 21.3249
      },
      "mainnetBpsPerHour": {
-      "1": 0.0212,
-      "2": 0.0424,
-      "0.5": 0.0106
+      "1": 0.0213,
+      "2": 0.0426,
+      "0.5": 0.0107
      },
      "mainnetUsdPerHour110k": 58.1812,
-     "grossBpsPerHour": -0.0599,
-     "grossUsdPerHour": -119.8593,
+     "grossBpsPerHour": -0.0601,
+     "grossUsdPerHour": -120.2103,
      "grossWithinCIPerHour": {
-      "lo": -260.66,
-      "hi": -16.59
+      "lo": -261.01,
+      "hi": -17.02
      },
      "netBpsPerHour": {
-      "1": -0.0812,
-      "2": -0.1024,
-      "0.5": -0.0705
+      "1": -0.0814,
+      "2": -0.1028,
+      "0.5": -0.0708
      },
-     "netUsdPerHour1gwei": -162.3016,
-     "netBpsPerHour110k1gwei": -0.089,
-     "sharePct": 43.804,
+     "netUsdPerHour1gwei": -162.8601,
+     "netBpsPerHour110k1gwei": -0.0892,
+     "sharePct": 43.7837,
      "compArbFeePips": null,
      "compNArb": 0,
      "vanNArb": 1,
      "staleSteps": 0,
      "reverts": 0,
-     "runtimeSec": 13
+     "runtimeSec": 16
     }
    ],
    "all": {
@@ -3543,9 +3543,9 @@
     },
     "gasPerPost": {
      "n": 6,
-     "mean": 80556.2415,
-     "lo": 80271.3993,
-     "hi": 80845.9176,
+     "mean": 80923.3569,
+     "lo": 80646.4511,
+     "hi": 81202.5406,
      "pos": 6,
      "neg": 0
     },
@@ -3560,25 +3560,25 @@
     "mainnetUsdPerHour": {
      "1": {
       "n": 6,
-      "mean": 48.8848,
-      "lo": 43.8873,
-      "hi": 54.2713,
+      "mean": 49.107,
+      "lo": 44.0902,
+      "hi": 54.5115,
       "pos": 6,
       "neg": 0
      },
      "2": {
       "n": 6,
-      "mean": 97.7696,
-      "lo": 87.7963,
-      "hi": 108.5424,
+      "mean": 98.214,
+      "lo": 88.2068,
+      "hi": 109.0225,
       "pos": 6,
       "neg": 0
      },
      "0.5": {
       "n": 6,
-      "mean": 24.4424,
-      "lo": 21.9534,
-      "hi": 27.2399,
+      "mean": 24.5535,
+      "lo": 22.053,
+      "hi": 27.3641,
       "pos": 6,
       "neg": 0
      }
@@ -3593,67 +3593,67 @@
     },
     "grossBps": {
      "n": 6,
-     "mean": -0.0849,
-     "lo": -0.1176,
-     "hi": -0.0571,
+     "mean": -0.086,
+     "lo": -0.1196,
+     "hi": -0.0579,
      "pos": 0,
      "neg": 6
     },
     "grossUsd": {
      "n": 6,
-     "mean": -169.8672,
-     "lo": -235.1984,
-     "hi": -114.1505,
+     "mean": -172.0641,
+     "lo": -239.2581,
+     "hi": -115.7223,
      "pos": 0,
      "neg": 6
     },
     "netBps": {
      "1": {
       "n": 6,
-      "mean": -0.1094,
-      "lo": -0.1442,
-      "hi": -0.0818,
+      "mean": -0.1106,
+      "lo": -0.1463,
+      "hi": -0.0829,
       "pos": 0,
       "neg": 6
      },
      "2": {
       "n": 6,
-      "mean": -0.1338,
-      "lo": -0.1709,
-      "hi": -0.1052,
+      "mean": -0.1351,
+      "lo": -0.1728,
+      "hi": -0.106,
       "pos": 0,
       "neg": 6
      },
      "0.5": {
       "n": 6,
-      "mean": -0.0972,
-      "lo": -0.1316,
-      "hi": -0.0694,
+      "mean": -0.0983,
+      "lo": -0.1337,
+      "hi": -0.0701,
       "pos": 0,
       "neg": 6
      }
     },
     "netUsd1gwei": {
      "n": 6,
-     "mean": -218.752,
-     "lo": -288.4757,
-     "hi": -163.5528,
+     "mean": -221.1711,
+     "lo": -292.5075,
+     "hi": -165.0655,
      "pos": 0,
      "neg": 6
     },
     "netBps110k": {
      "n": 6,
-     "mean": -0.1183,
-     "lo": -0.1539,
-     "hi": -0.0908,
+     "mean": -0.1194,
+     "lo": -0.1558,
+     "hi": -0.0915,
      "pos": 0,
      "neg": 6
     },
     "sharePct": {
      "n": 6,
-     "mean": 40.7544,
-     "lo": 38.772,
-     "hi": 42.6313,
+     "mean": 40.6286,
+     "lo": 38.5893,
+     "hi": 42.5591,
      "pos": 6,
      "neg": 0
     },
@@ -3702,9 +3702,9 @@
     },
     "gasPerPost": {
      "n": 3,
-     "mean": 80873.0165,
-     "lo": 80511.1837,
-     "hi": 81061.1837,
+     "mean": 81237.9552,
+     "lo": 80896.2898,
+     "hi": 81412.2049,
      "pos": 3,
      "neg": 0
     },
@@ -3719,25 +3719,25 @@
     "mainnetUsdPerHour": {
      "1": {
       "n": 3,
-      "mean": 55.3099,
-      "lo": 51.1901,
-      "hi": 58.5692,
+      "mean": 55.5589,
+      "lo": 51.435,
+      "hi": 58.8229,
       "pos": 3,
       "neg": 0
      },
      "2": {
       "n": 3,
-      "mean": 110.6198,
-      "lo": 102.3802,
-      "hi": 117.1385,
+      "mean": 111.1178,
+      "lo": 102.8699,
+      "hi": 117.6457,
       "pos": 3,
       "neg": 0
      },
      "0.5": {
       "n": 3,
-      "mean": 27.6549,
-      "lo": 25.5951,
-      "hi": 29.2846,
+      "mean": 27.7795,
+      "lo": 25.7175,
+      "hi": 29.4114,
       "pos": 3,
       "neg": 0
      }
@@ -3752,67 +3752,67 @@
     },
     "grossBps": {
      "n": 3,
-     "mean": -0.0984,
-     "lo": -0.1577,
-     "hi": -0.0424,
+     "mean": -0.1,
+     "lo": -0.1608,
+     "hi": -0.0432,
      "pos": 0,
      "neg": 3
     },
     "grossUsd": {
      "n": 3,
-     "mean": -196.7688,
-     "lo": -315.4225,
-     "hi": -84.8451,
+     "mean": -200.0727,
+     "lo": -321.5514,
+     "hi": -86.4391,
      "pos": 0,
      "neg": 3
     },
     "netBps": {
      "1": {
       "n": 3,
-      "mean": -0.126,
-      "lo": -0.1858,
-      "hi": -0.068,
+      "mean": -0.1278,
+      "lo": -0.189,
+      "hi": -0.0689,
       "pos": 0,
       "neg": 3
      },
      "2": {
       "n": 3,
-      "mean": -0.1537,
-      "lo": -0.2139,
-      "hi": -0.0936,
+      "mean": -0.1556,
+      "lo": -0.2172,
+      "hi": -0.0947,
       "pos": 0,
       "neg": 3
      },
      "0.5": {
       "n": 3,
-      "mean": -0.1122,
-      "lo": -0.1718,
-      "hi": -0.0552,
+      "mean": -0.1139,
+      "lo": -0.1749,
+      "hi": -0.0561,
       "pos": 0,
       "neg": 3
      }
     },
     "netUsd1gwei": {
      "n": 3,
-     "mean": -252.0787,
-     "lo": -371.5928,
-     "hi": -136.0352,
+     "mean": -255.6317,
+     "lo": -377.9704,
+     "hi": -137.8741,
      "pos": 0,
      "neg": 3
     },
     "netBps110k": {
      "n": 3,
-     "mean": -0.136,
-     "lo": -0.1958,
-     "hi": -0.0774,
+     "mean": -0.1376,
+     "lo": -0.1989,
+     "hi": -0.0782,
      "pos": 0,
      "neg": 3
     },
     "sharePct": {
      "n": 3,
-     "mean": 39.1997,
-     "lo": 37.3251,
-     "hi": 42.2147,
+     "mean": 39.0113,
+     "lo": 36.9697,
+     "hi": 42.1268,
      "pos": 3,
      "neg": 0
     },
@@ -3861,9 +3861,9 @@
     },
     "gasPerPost": {
      "n": 3,
-     "mean": 80239.4664,
-     "lo": 80155.3392,
-     "hi": 80319.5866,
+     "mean": 80608.7585,
+     "lo": 80520.3887,
+     "hi": 80670.1343,
      "pos": 3,
      "neg": 0
     },
@@ -3878,25 +3878,25 @@
     "mainnetUsdPerHour": {
      "1": {
       "n": 3,
-      "mean": 42.4597,
-      "lo": 42.3775,
-      "hi": 42.5592,
+      "mean": 42.6551,
+      "lo": 42.5705,
+      "hi": 42.7449,
       "pos": 3,
       "neg": 0
      },
      "2": {
       "n": 3,
-      "mean": 84.9193,
-      "lo": 84.7549,
-      "hi": 85.1183,
+      "mean": 85.3101,
+      "lo": 85.1409,
+      "hi": 85.4898,
       "pos": 3,
       "neg": 0
      },
      "0.5": {
       "n": 3,
-      "mean": 21.2298,
-      "lo": 21.1887,
-      "hi": 21.2796,
+      "mean": 21.3275,
+      "lo": 21.2852,
+      "hi": 21.3725,
       "pos": 3,
       "neg": 0
      }
@@ -3911,67 +3911,67 @@
     },
     "grossBps": {
      "n": 3,
-     "mean": -0.0715,
-     "lo": -0.0944,
-     "hi": -0.0599,
+     "mean": -0.072,
+     "lo": -0.0947,
+     "hi": -0.0601,
      "pos": 0,
      "neg": 3
     },
     "grossUsd": {
      "n": 3,
-     "mean": -142.9655,
-     "lo": -188.873,
-     "hi": -119.8593,
+     "mean": -144.0554,
+     "lo": -189.4646,
+     "hi": -120.2103,
      "pos": 0,
      "neg": 3
     },
     "netBps": {
      "1": {
       "n": 3,
-      "mean": -0.0927,
-      "lo": -0.1157,
-      "hi": -0.0812,
+      "mean": -0.0934,
+      "lo": -0.1161,
+      "hi": -0.0814,
       "pos": 0,
       "neg": 3
      },
      "2": {
       "n": 3,
-      "mean": -0.1139,
-      "lo": -0.137,
-      "hi": -0.1024,
+      "mean": -0.1147,
+      "lo": -0.1375,
+      "hi": -0.1028,
       "pos": 0,
       "neg": 3
      },
      "0.5": {
       "n": 3,
-      "mean": -0.0821,
-      "lo": -0.1051,
-      "hi": -0.0705,
+      "mean": -0.0827,
+      "lo": -0.1054,
+      "hi": -0.0708,
       "pos": 0,
       "neg": 3
      }
     },
     "netUsd1gwei": {
      "n": 3,
-     "mean": -185.4252,
-     "lo": -231.4322,
-     "hi": -162.3016,
+     "mean": -186.7105,
+     "lo": -232.2095,
+     "hi": -162.8601,
      "pos": 0,
      "neg": 3
     },
     "netBps110k": {
      "n": 3,
-     "mean": -0.1006,
-     "lo": -0.1236,
-     "hi": -0.089,
+     "mean": -0.1011,
+     "lo": -0.1239,
+     "hi": -0.0892,
      "pos": 0,
      "neg": 3
     },
     "sharePct": {
      "n": 3,
-     "mean": 42.3092,
-     "lo": 40.2824,
-     "hi": 43.804,
+     "mean": 42.2459,
+     "lo": 40.2481,
+     "hi": 43.7837,
      "pos": 3,
      "neg": 0
     },
@@ -4017,165 +4017,165 @@
      "windowId": "ETH-vol1",
      "regime": "volatile",
      "ethUsd": 2246.6911,
-     "posts": 215,
+     "posts": 220,
      "reverted": 0,
-     "postsPerStep": 0.0597,
-     "postsPerTurn": 0.7167,
+     "postsPerStep": 0.0611,
+     "postsPerTurn": 0.7333,
      "reasons": {
       "first": 1,
-      "skip": 68,
-      "heartbeat": 6,
-      "mid": 76,
+      "mid": 85,
+      "skip": 63,
       "p": 57,
-      "k": 75
+      "k": 75,
+      "heartbeat": 2
      },
      "kPredictMiss": 0,
-     "gas": 17380814,
-     "gasPerPost": 80840.9953,
-     "simUsd1gwei": 39.0493,
-     "simBps1gwei": 0.0195,
-     "mainnetPostsPerHour": 215,
+     "gas": 17849242,
+     "gasPerPost": 81132.9182,
+     "simUsd1gwei": 40.1017,
+     "simBps1gwei": 0.0201,
+     "mainnetPostsPerHour": 220,
      "mainnetUsdPerHour": {
-      "1": 39.0493,
-      "2": 78.0986,
-      "0.5": 19.5247
+      "1": 40.1017,
+      "2": 80.2035,
+      "0.5": 20.0509
      },
      "mainnetBpsPerHour": {
-      "1": 0.0195,
-      "2": 0.039,
-      "0.5": 0.0098
+      "1": 0.0201,
+      "2": 0.0401,
+      "0.5": 0.01
      },
-     "mainnetUsdPerHour110k": 53.1342,
-     "grossBpsPerHour": -0.0448,
-     "grossUsdPerHour": -89.5306,
+     "mainnetUsdPerHour110k": 54.3699,
+     "grossBpsPerHour": -0.0457,
+     "grossUsdPerHour": -91.3749,
      "grossWithinCIPerHour": {
-      "lo": -194.85,
-      "hi": 5.83
+      "lo": -196.22,
+      "hi": 2.6
      },
      "netBpsPerHour": {
-      "1": -0.0643,
-      "2": -0.0838,
-      "0.5": -0.0545
+      "1": -0.0657,
+      "2": -0.0858,
+      "0.5": -0.0557
      },
-     "netUsdPerHour1gwei": -128.5799,
-     "netBpsPerHour110k1gwei": -0.0713,
-     "sharePct": 41.8985,
+     "netUsdPerHour1gwei": -131.4766,
+     "netBpsPerHour110k1gwei": -0.0729,
+     "sharePct": 41.7971,
      "compArbFeePips": 3126,
      "compNArb": 125,
      "vanNArb": 129,
      "staleSteps": 0,
      "reverts": 0,
-     "runtimeSec": 14
+     "runtimeSec": 19
     },
     {
      "label": "ETH-vol2:base",
      "windowId": "ETH-vol2",
      "regime": "volatile",
      "ethUsd": 2448.9808,
-     "posts": 227,
+     "posts": 230,
      "reverted": 0,
-     "postsPerStep": 0.0631,
-     "postsPerTurn": 0.7567,
+     "postsPerStep": 0.0639,
+     "postsPerTurn": 0.7667,
      "reasons": {
       "first": 1,
-      "skip": 56,
-      "heartbeat": 4,
-      "p": 41,
+      "mid": 109,
+      "skip": 53,
+      "p": 38,
       "k": 80,
-      "mid": 101
+      "heartbeat": 2
      },
      "kPredictMiss": 0,
-     "gas": 18420305,
-     "gasPerPost": 81146.7181,
-     "simUsd1gwei": 45.111,
-     "simBps1gwei": 0.0226,
-     "mainnetPostsPerHour": 227,
+     "gas": 18733730,
+     "gasPerPost": 81451,
+     "simUsd1gwei": 45.8785,
+     "simBps1gwei": 0.0229,
+     "mainnetPostsPerHour": 230,
      "mainnetUsdPerHour": {
-      "1": 45.111,
-      "2": 90.2219,
-      "0.5": 22.5555
+      "1": 45.8785,
+      "2": 91.7571,
+      "0.5": 22.9393
      },
      "mainnetBpsPerHour": {
-      "1": 0.0226,
-      "2": 0.0451,
-      "0.5": 0.0113
+      "1": 0.0229,
+      "2": 0.0459,
+      "0.5": 0.0115
      },
-     "mainnetUsdPerHour110k": 61.1511,
-     "grossBpsPerHour": -0.149,
-     "grossUsdPerHour": -297.9435,
+     "mainnetUsdPerHour110k": 61.9592,
+     "grossBpsPerHour": -0.1526,
+     "grossUsdPerHour": -305.2662,
      "grossWithinCIPerHour": {
-      "lo": -433.64,
-      "hi": -150.91
+      "lo": -437.46,
+      "hi": -166.75
      },
      "netBpsPerHour": {
-      "1": -0.1715,
-      "2": -0.1941,
-      "0.5": -0.1602
+      "1": -0.1756,
+      "2": -0.1985,
+      "0.5": -0.1641
      },
-     "netUsdPerHour1gwei": -343.0545,
-     "netBpsPerHour110k1gwei": -0.1795,
-     "sharePct": 37.8734,
+     "netUsdPerHour1gwei": -351.1448,
+     "netBpsPerHour110k1gwei": -0.1836,
+     "sharePct": 37.4502,
      "compArbFeePips": 3269,
      "compNArb": 86,
      "vanNArb": 101,
      "staleSteps": 0,
      "reverts": 0,
-     "runtimeSec": 13
+     "runtimeSec": 17
     },
     {
      "label": "ETH-vol3:base",
      "windowId": "ETH-vol3",
      "regime": "volatile",
      "ethUsd": 2553.1139,
-     "posts": 229,
+     "posts": 233,
      "reverted": 0,
-     "postsPerStep": 0.0636,
-     "postsPerTurn": 0.7633,
+     "postsPerStep": 0.0647,
+     "postsPerTurn": 0.7767,
      "reasons": {
       "first": 1,
-      "skip": 54,
-      "heartbeat": 6,
-      "mid": 106,
+      "skip": 50,
+      "mid": 115,
+      "heartbeat": 1,
       "p": 34,
       "k": 82
      },
      "kPredictMiss": 0,
-     "gas": 18588879,
-     "gasPerPost": 81174.1441,
-     "simUsd1gwei": 47.4595,
-     "simBps1gwei": 0.0237,
-     "mainnetPostsPerHour": 229,
+     "gas": 18979264,
+     "gasPerPost": 81456.0687,
+     "simUsd1gwei": 48.4562,
+     "simBps1gwei": 0.0242,
+     "mainnetPostsPerHour": 233,
      "mainnetUsdPerHour": {
-      "1": 47.4595,
-      "2": 94.9191,
-      "0.5": 23.7298
+      "1": 48.4562,
+      "2": 96.9124,
+      "0.5": 24.2281
      },
      "mainnetBpsPerHour": {
-      "1": 0.0237,
-      "2": 0.0475,
-      "0.5": 0.0119
+      "1": 0.0242,
+      "2": 0.0485,
+      "0.5": 0.0121
      },
-     "mainnetUsdPerHour110k": 64.3129,
-     "grossBpsPerHour": -0.0957,
-     "grossUsdPerHour": -191.4214,
+     "mainnetUsdPerHour110k": 65.4363,
+     "grossBpsPerHour": -0.0972,
+     "grossUsdPerHour": -194.4015,
      "grossWithinCIPerHour": {
-      "lo": -331.32,
-      "hi": -51.84
+      "lo": -332.88,
+      "hi": -54.56
      },
      "netBpsPerHour": {
-      "1": -0.1194,
-      "2": -0.1432,
-      "0.5": -0.1076
+      "1": -0.1214,
+      "2": -0.1457,
+      "0.5": -0.1093
      },
-     "netUsdPerHour1gwei": -238.881,
-     "netBpsPerHour110k1gwei": -0.1279,
-     "sharePct": 37.9892,
+     "netUsdPerHour1gwei": -242.8578,
+     "netBpsPerHour110k1gwei": -0.1299,
+     "sharePct": 37.8234,
      "compArbFeePips": 3363,
      "compNArb": 71,
      "vanNArb": 78,
      "staleSteps": 0,
      "reverts": 0,
-     "runtimeSec": 12
+     "runtimeSec": 16
     },
     {
      "label": "ETH-calm1:base",
@@ -4189,103 +4189,103 @@
      "reasons": {
       "first": 1,
       "skip": 182,
-      "heartbeat": 43,
-      "mid": 16,
+      "heartbeat": 41,
+      "mid": 18,
       "k": 10,
       "p": 31
      },
      "kPredictMiss": 0,
-     "gas": 8163715,
-     "gasPerPost": 80828.8614,
-     "simUsd1gwei": 15.2512,
-     "simBps1gwei": 0.0076,
+     "gas": 8199782,
+     "gasPerPost": 81185.9604,
+     "simUsd1gwei": 15.3186,
+     "simBps1gwei": 0.0077,
      "mainnetPostsPerHour": 101,
      "mainnetUsdPerHour": {
-      "1": 15.2512,
-      "2": 30.5024,
-      "0.5": 7.6256
+      "1": 15.3186,
+      "2": 30.6372,
+      "0.5": 7.6593
      },
      "mainnetBpsPerHour": {
-      "1": 0.0076,
+      "1": 0.0077,
       "2": 0.0153,
       "0.5": 0.0038
      },
      "mainnetUsdPerHour110k": 20.7554,
-     "grossBpsPerHour": -0.06,
-     "grossUsdPerHour": -120.0512,
+     "grossBpsPerHour": -0.061,
+     "grossUsdPerHour": -122.0792,
      "grossWithinCIPerHour": {
-      "lo": -197.86,
-      "hi": -50.73
+      "lo": -198.34,
+      "hi": -54.04
      },
      "netBpsPerHour": {
-      "1": -0.0677,
-      "2": -0.0753,
-      "0.5": -0.0638
+      "1": -0.0687,
+      "2": -0.0764,
+      "0.5": -0.0649
      },
-     "netUsdPerHour1gwei": -135.3024,
-     "netBpsPerHour110k1gwei": -0.0704,
-     "sharePct": 42.8516,
+     "netUsdPerHour1gwei": -137.3978,
+     "netBpsPerHour110k1gwei": -0.0714,
+     "sharePct": 42.7335,
      "compArbFeePips": null,
      "compNArb": 0,
      "vanNArb": 0,
      "staleSteps": 12,
      "reverts": 0,
-     "runtimeSec": 12
+     "runtimeSec": 15
     },
     {
      "label": "ETH-calm2:base",
      "windowId": "ETH-calm2",
      "regime": "calm",
      "ethUsd": 1872.3422,
-     "posts": 99,
+     "posts": 100,
      "reverted": 0,
-     "postsPerStep": 0.0275,
-     "postsPerTurn": 0.33,
+     "postsPerStep": 0.0278,
+     "postsPerTurn": 0.3333,
      "reasons": {
       "first": 1,
-      "skip": 184,
-      "heartbeat": 42,
-      "mid": 20,
+      "skip": 183,
+      "mid": 23,
+      "heartbeat": 40,
       "k": 24,
       "p": 12
      },
      "kPredictMiss": 0,
-     "gas": 8018453,
-     "gasPerPost": 80994.4747,
-     "simUsd1gwei": 15.0133,
-     "simBps1gwei": 0.0075,
-     "mainnetPostsPerHour": 99,
+     "gas": 8135428,
+     "gasPerPost": 81354.28,
+     "simUsd1gwei": 15.2323,
+     "simBps1gwei": 0.0076,
+     "mainnetPostsPerHour": 100,
      "mainnetUsdPerHour": {
-      "1": 15.0133,
-      "2": 30.0266,
-      "0.5": 7.5066
+      "1": 15.2323,
+      "2": 30.4646,
+      "0.5": 7.6162
      },
      "mainnetBpsPerHour": {
-      "1": 0.0075,
-      "2": 0.015,
+      "1": 0.0076,
+      "2": 0.0152,
       "0.5": 0.0038
      },
-     "mainnetUsdPerHour110k": 20.3898,
-     "grossBpsPerHour": -0.1013,
-     "grossUsdPerHour": -202.5104,
+     "mainnetUsdPerHour110k": 20.5958,
+     "grossBpsPerHour": -0.1017,
+     "grossUsdPerHour": -203.4846,
      "grossWithinCIPerHour": {
-      "lo": -344.97,
-      "hi": -72.65
+      "lo": -345.09,
+      "hi": -73.47
      },
      "netBpsPerHour": {
-      "1": -0.1088,
-      "2": -0.1163,
-      "0.5": -0.105
+      "1": -0.1094,
+      "2": -0.117,
+      "0.5": -0.1056
      },
-     "netUsdPerHour1gwei": -217.5237,
-     "netBpsPerHour110k1gwei": -0.1115,
-     "sharePct": 40.6103,
+     "netUsdPerHour1gwei": -218.7169,
+     "netBpsPerHour110k1gwei": -0.112,
+     "sharePct": 40.5538,
      "compArbFeePips": null,
      "compNArb": 0,
      "vanNArb": 4,
      "staleSteps": 0,
      "reverts": 0,
-     "runtimeSec": 12
+     "runtimeSec": 16
     },
     {
      "label": "ETH-calm3:base",
@@ -4299,181 +4299,181 @@
      "reasons": {
       "first": 1,
       "skip": 187,
-      "heartbeat": 45,
-      "mid": 20,
+      "heartbeat": 44,
+      "mid": 21,
       "k": 15,
       "p": 15
      },
      "kPredictMiss": 0,
-     "gas": 7784302,
-     "gasPerPost": 81086.4792,
-     "simUsd1gwei": 14.5487,
+     "gas": 7818468,
+     "gasPerPost": 81442.375,
+     "simUsd1gwei": 14.6125,
      "simBps1gwei": 0.0073,
      "mainnetPostsPerHour": 96,
      "mainnetUsdPerHour": {
-      "1": 14.5487,
-      "2": 29.0973,
-      "0.5": 7.2743
+      "1": 14.6125,
+      "2": 29.225,
+      "0.5": 7.3063
      },
      "mainnetBpsPerHour": {
       "1": 0.0073,
-      "2": 0.0145,
-      "0.5": 0.0036
+      "2": 0.0146,
+      "0.5": 0.0037
      },
      "mainnetUsdPerHour110k": 19.7364,
-     "grossBpsPerHour": -0.0608,
-     "grossUsdPerHour": -121.6817,
+     "grossBpsPerHour": -0.061,
+     "grossUsdPerHour": -122.0636,
      "grossWithinCIPerHour": {
-      "lo": -266.19,
-      "hi": -15.62
+      "lo": -266.96,
+      "hi": -15.91
      },
      "netBpsPerHour": {
-      "1": -0.0681,
-      "2": -0.0754,
-      "0.5": -0.0645
+      "1": -0.0683,
+      "2": -0.0756,
+      "0.5": -0.0647
      },
-     "netUsdPerHour1gwei": -136.2304,
-     "netBpsPerHour110k1gwei": -0.0707,
-     "sharePct": 43.6978,
+     "netUsdPerHour1gwei": -136.6761,
+     "netBpsPerHour110k1gwei": -0.0709,
+     "sharePct": 43.6758,
      "compArbFeePips": null,
      "compNArb": 0,
      "vanNArb": 1,
      "staleSteps": 12,
      "reverts": 0,
-     "runtimeSec": 13
+     "runtimeSec": 15
     }
    ],
    "all": {
     "n": 6,
     "postsPerStep": {
      "n": 6,
-     "mean": 0.0448,
-     "lo": 0.0327,
-     "hi": 0.0572,
+     "mean": 0.0454,
+     "lo": 0.033,
+     "hi": 0.058,
      "pos": 6,
      "neg": 0
     },
     "postsPerTurn": {
      "n": 6,
-     "mean": 0.5372,
-     "lo": 0.3917,
-     "hi": 0.6867,
+     "mean": 0.5444,
+     "lo": 0.3956,
+     "hi": 0.6961,
      "pos": 6,
      "neg": 0
     },
     "gasPerPost": {
      "n": 6,
-     "mean": 81011.9455,
-     "lo": 80901.4222,
-     "hi": 81120.4464,
+     "mean": 81337.1004,
+     "lo": 81230.9784,
+     "hi": 81435.1321,
      "pos": 6,
      "neg": 0
     },
     "mainnetPostsPerHour": {
      "n": 6,
-     "mean": 161.1667,
-     "lo": 117.6667,
-     "hi": 206.1667,
+     "mean": 163.3333,
+     "lo": 118.8333,
+     "hi": 209.1667,
      "pos": 6,
      "neg": 0
     },
     "mainnetUsdPerHour": {
      "1": {
       "n": 6,
-      "mean": 29.4055,
-      "lo": 18.9041,
-      "hi": 40.6501,
+      "mean": 29.9333,
+      "lo": 19.185,
+      "hi": 41.5265,
       "pos": 6,
       "neg": 0
      },
      "2": {
       "n": 6,
-      "mean": 58.811,
-      "lo": 37.7326,
-      "hi": 81.3002,
+      "mean": 59.8666,
+      "lo": 38.3412,
+      "hi": 83.053,
       "pos": 6,
       "neg": 0
      },
      "0.5": {
       "n": 6,
-      "mean": 14.7027,
-      "lo": 9.452,
-      "hi": 20.3449,
+      "mean": 14.9667,
+      "lo": 9.5925,
+      "hi": 20.7634,
       "pos": 6,
       "neg": 0
      }
     },
     "mainnetUsdPerHour110k": {
      "n": 6,
-     "mean": 39.9133,
-     "lo": 25.6903,
-     "hi": 55.4724,
+     "mean": 40.4755,
+     "lo": 25.9649,
+     "hi": 56.2509,
      "pos": 6,
      "neg": 0
     },
     "grossBps": {
      "n": 6,
-     "mean": -0.0853,
-     "lo": -0.1162,
-     "hi": -0.0595,
+     "mean": -0.0866,
+     "lo": -0.1179,
+     "hi": -0.0601,
      "pos": 0,
      "neg": 6
     },
     "grossUsd": {
      "n": 6,
-     "mean": -170.5231,
-     "lo": -230.6251,
-     "hi": -118.8058,
+     "mean": -173.1117,
+     "lo": -234.3841,
+     "hi": -120.292,
      "pos": 0,
      "neg": 6
     },
     "netBps": {
      "1": {
       "n": 6,
-      "mean": -0.1,
-      "lo": -0.1334,
-      "hi": -0.0735,
+      "mean": -0.1015,
+      "lo": -0.1357,
+      "hi": -0.0744,
       "pos": 0,
       "neg": 6
      },
      "2": {
       "n": 6,
-      "mean": -0.1147,
-      "lo": -0.1528,
-      "hi": -0.0836,
+      "mean": -0.1165,
+      "lo": -0.1556,
+      "hi": -0.0845,
       "pos": 0,
       "neg": 6
      },
      "0.5": {
       "n": 6,
-      "mean": -0.0926,
-      "lo": -0.1251,
-      "hi": -0.0666,
+      "mean": -0.094,
+      "lo": -0.128,
+      "hi": -0.0677,
       "pos": 0,
       "neg": 6
      }
     },
     "netUsd1gwei": {
      "n": 6,
-     "mean": -199.9286,
-     "lo": -266.7402,
-     "hi": -146.9198,
+     "mean": -203.045,
+     "lo": -271.3777,
+     "hi": -148.7367,
      "pos": 0,
      "neg": 6
     },
     "netBps110k": {
      "n": 6,
-     "mean": -0.1052,
-     "lo": -0.1414,
-     "hi": -0.0774,
+     "mean": -0.1068,
+     "lo": -0.1439,
+     "hi": -0.0782,
      "pos": 0,
      "neg": 6
     },
     "sharePct": {
      "n": 6,
-     "mean": 40.8201,
-     "lo": 39.0197,
-     "hi": 42.5834,
+     "mean": 40.6723,
+     "lo": 38.7541,
+     "hi": 42.5282,
      "pos": 6,
      "neg": 0
     },
@@ -4506,133 +4506,133 @@
     "n": 3,
     "postsPerStep": {
      "n": 3,
-     "mean": 0.0621,
-     "lo": 0.0597,
-     "hi": 0.0636,
+     "mean": 0.0632,
+     "lo": 0.0611,
+     "hi": 0.0647,
      "pos": 3,
      "neg": 0
     },
     "postsPerTurn": {
      "n": 3,
-     "mean": 0.7456,
-     "lo": 0.7167,
-     "hi": 0.7633,
+     "mean": 0.7589,
+     "lo": 0.7333,
+     "hi": 0.7767,
      "pos": 3,
      "neg": 0
     },
     "gasPerPost": {
      "n": 3,
-     "mean": 81053.9525,
-     "lo": 80840.9953,
-     "hi": 81174.1441,
+     "mean": 81346.6623,
+     "lo": 81132.9182,
+     "hi": 81456.0687,
      "pos": 3,
      "neg": 0
     },
     "mainnetPostsPerHour": {
      "n": 3,
-     "mean": 223.6667,
-     "lo": 215,
-     "hi": 229,
+     "mean": 227.6667,
+     "lo": 220,
+     "hi": 233,
      "pos": 3,
      "neg": 0
     },
     "mainnetUsdPerHour": {
      "1": {
       "n": 3,
-      "mean": 43.8733,
-      "lo": 39.0493,
-      "hi": 47.4595,
+      "mean": 44.8122,
+      "lo": 40.1017,
+      "hi": 48.4562,
       "pos": 3,
       "neg": 0
      },
      "2": {
       "n": 3,
-      "mean": 87.7465,
-      "lo": 78.0986,
-      "hi": 94.9191,
+      "mean": 89.6243,
+      "lo": 80.2035,
+      "hi": 96.9124,
       "pos": 3,
       "neg": 0
      },
      "0.5": {
       "n": 3,
-      "mean": 21.9366,
-      "lo": 19.5247,
-      "hi": 23.7298,
+      "mean": 22.4061,
+      "lo": 20.0509,
+      "hi": 24.2281,
       "pos": 3,
       "neg": 0
      }
     },
     "mainnetUsdPerHour110k": {
      "n": 3,
-     "mean": 59.5327,
-     "lo": 53.1342,
-     "hi": 64.3129,
+     "mean": 60.5885,
+     "lo": 54.3699,
+     "hi": 65.4363,
      "pos": 3,
      "neg": 0
     },
     "grossBps": {
      "n": 3,
-     "mean": -0.0965,
-     "lo": -0.149,
-     "hi": -0.0448,
+     "mean": -0.0985,
+     "lo": -0.1526,
+     "hi": -0.0457,
      "pos": 0,
      "neg": 3
     },
     "grossUsd": {
      "n": 3,
-     "mean": -192.9652,
-     "lo": -297.9435,
-     "hi": -89.5306,
+     "mean": -197.0142,
+     "lo": -305.2662,
+     "hi": -91.3749,
      "pos": 0,
      "neg": 3
     },
     "netBps": {
      "1": {
       "n": 3,
-      "mean": -0.1184,
-      "lo": -0.1715,
-      "hi": -0.0643,
+      "mean": -0.1209,
+      "lo": -0.1756,
+      "hi": -0.0657,
       "pos": 0,
       "neg": 3
      },
      "2": {
       "n": 3,
-      "mean": -0.1404,
-      "lo": -0.1941,
-      "hi": -0.0838,
+      "mean": -0.1433,
+      "lo": -0.1985,
+      "hi": -0.0858,
       "pos": 0,
       "neg": 3
      },
      "0.5": {
       "n": 3,
-      "mean": -0.1075,
-      "lo": -0.1602,
-      "hi": -0.0545,
+      "mean": -0.1097,
+      "lo": -0.1641,
+      "hi": -0.0557,
       "pos": 0,
       "neg": 3
      }
     },
     "netUsd1gwei": {
      "n": 3,
-     "mean": -236.8384,
-     "lo": -343.0545,
-     "hi": -128.5799,
+     "mean": -241.8264,
+     "lo": -351.1448,
+     "hi": -131.4766,
      "pos": 0,
      "neg": 3
     },
     "netBps110k": {
      "n": 3,
-     "mean": -0.1262,
-     "lo": -0.1795,
-     "hi": -0.0713,
+     "mean": -0.1288,
+     "lo": -0.1836,
+     "hi": -0.0729,
      "pos": 0,
      "neg": 3
     },
     "sharePct": {
      "n": 3,
-     "mean": 39.2537,
-     "lo": 37.8734,
-     "hi": 41.8985,
+     "mean": 39.0236,
+     "lo": 37.4502,
+     "hi": 41.7971,
      "pos": 3,
      "neg": 0
     },
@@ -4665,7 +4665,7 @@
     "n": 3,
     "postsPerStep": {
      "n": 3,
-     "mean": 0.0274,
+     "mean": 0.0275,
      "lo": 0.0267,
      "hi": 0.0281,
      "pos": 3,
@@ -4673,7 +4673,7 @@
     },
     "postsPerTurn": {
      "n": 3,
-     "mean": 0.3289,
+     "mean": 0.33,
      "lo": 0.32,
      "hi": 0.3367,
      "pos": 3,
@@ -4681,15 +4681,15 @@
     },
     "gasPerPost": {
      "n": 3,
-     "mean": 80969.9384,
-     "lo": 80828.8614,
-     "hi": 81086.4792,
+     "mean": 81327.5385,
+     "lo": 81185.9604,
+     "hi": 81442.375,
      "pos": 3,
      "neg": 0
     },
     "mainnetPostsPerHour": {
      "n": 3,
-     "mean": 98.6667,
+     "mean": 99,
      "lo": 96,
      "hi": 101,
      "pos": 3,
@@ -4698,32 +4698,32 @@
     "mainnetUsdPerHour": {
      "1": {
       "n": 3,
-      "mean": 14.9377,
-      "lo": 14.5487,
-      "hi": 15.2512,
+      "mean": 15.0545,
+      "lo": 14.6125,
+      "hi": 15.3186,
       "pos": 3,
       "neg": 0
      },
      "2": {
       "n": 3,
-      "mean": 29.8754,
-      "lo": 29.0973,
-      "hi": 30.5024,
+      "mean": 30.1089,
+      "lo": 29.225,
+      "hi": 30.6372,
       "pos": 3,
       "neg": 0
      },
      "0.5": {
       "n": 3,
-      "mean": 7.4689,
-      "lo": 7.2743,
-      "hi": 7.6256,
+      "mean": 7.5272,
+      "lo": 7.3063,
+      "hi": 7.6593,
       "pos": 3,
       "neg": 0
      }
     },
     "mainnetUsdPerHour110k": {
      "n": 3,
-     "mean": 20.2938,
+     "mean": 20.3625,
      "lo": 19.7364,
      "hi": 20.7554,
      "pos": 3,
@@ -4731,67 +4731,67 @@
     },
     "grossBps": {
      "n": 3,
-     "mean": -0.074,
-     "lo": -0.1013,
-     "hi": -0.06,
+     "mean": -0.0746,
+     "lo": -0.1017,
+     "hi": -0.061,
      "pos": 0,
      "neg": 3
     },
     "grossUsd": {
      "n": 3,
-     "mean": -148.0811,
-     "lo": -202.5104,
-     "hi": -120.0512,
+     "mean": -149.2091,
+     "lo": -203.4846,
+     "hi": -122.0636,
      "pos": 0,
      "neg": 3
     },
     "netBps": {
      "1": {
       "n": 3,
-      "mean": -0.0815,
-      "lo": -0.1088,
-      "hi": -0.0677,
+      "mean": -0.0821,
+      "lo": -0.1094,
+      "hi": -0.0683,
       "pos": 0,
       "neg": 3
      },
      "2": {
       "n": 3,
-      "mean": -0.089,
-      "lo": -0.1163,
-      "hi": -0.0753,
+      "mean": -0.0897,
+      "lo": -0.117,
+      "hi": -0.0756,
       "pos": 0,
       "neg": 3
      },
      "0.5": {
       "n": 3,
-      "mean": -0.0778,
-      "lo": -0.105,
-      "hi": -0.0638,
+      "mean": -0.0784,
+      "lo": -0.1056,
+      "hi": -0.0647,
       "pos": 0,
       "neg": 3
      }
     },
     "netUsd1gwei": {
      "n": 3,
-     "mean": -163.0188,
-     "lo": -217.5237,
-     "hi": -135.3024,
+     "mean": -164.2636,
+     "lo": -218.7169,
+     "hi": -136.6761,
      "pos": 0,
      "neg": 3
     },
     "netBps110k": {
      "n": 3,
-     "mean": -0.0842,
-     "lo": -0.1115,
-     "hi": -0.0704,
+     "mean": -0.0848,
+     "lo": -0.112,
+     "hi": -0.0709,
      "pos": 0,
      "neg": 3
     },
     "sharePct": {
      "n": 3,
-     "mean": 42.3865,
-     "lo": 40.6103,
-     "hi": 43.6978,
+     "mean": 42.321,
+     "lo": 40.5538,
+     "hi": 43.6758,
      "pos": 3,
      "neg": 0
     },

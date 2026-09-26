@@ -51,32 +51,32 @@ Source: `benchmark/results_v4/coop-builder/results.md` (`benchmark/src/v4/coop4.
 - Real Binance ETHUSDT 1 s klines, replayed as 12 s blocks.
 - Each hooked pool competes with a vanilla neighbour (same tier, same liquidity, $20M each) for the same routed retail and the same two arbitrageurs.
 - 6 one-hour windows: the 3 most volatile and 3 calm hours of Jul 28 – Sep 26 2026 (`benchmark/data/windows_v2.json`).
-- Results are per hour, net of keeper gas at 1 gwei, before any payment to the builder, with 95% Student-t intervals over the 6 windows (3 of them are calm hours at ≈ −0.01 bps/h by construction, so a bootstrap over 6 windows would be too narrow).
+- Results are per hour, net of keeper gas at 1 gwei, before any payment to the builder, with 95% Student-t intervals over the 6 windows (3 of them are calm hours at ≈ −0.01 to −0.02 bps/h, so a bootstrap over 6 windows would be too narrow).
 - The benchmark hours (Aug 1 – Sep 11) fall inside oniblock1's train and validation dates, so section 1, not this section, is the out-of-sample test of the model.
-- These runs predate PR #5, which removed the hook's sample-minimum probation. In them the model pool had no fee power (k = kDefault = 0, the base fee) until the settler had graded 10 blocks: the first 7–21 minutes of each window ("seasoned at" 432–1248 s in the source report). Under the current hook an allowlisted model is active from its first attestation, so a re-run will differ.
+- The hook has no probation: an allowlisted model sets k from its first attestation and is demoted to the base fee only while its posted Brier score is above 0.25. It was never demoted in these runs.
 
 | pool | conditions | 0.05% tier, net LP − HODL vs vanilla | 0.30% tier, net LP − HODL vs vanilla |
 |---|---|---|---|
 | No hook | the vanilla neighbour (baseline) | 0 | 0 |
 | Jev | — | not run in the mainnet-block benchmark | not run in the mainnet-block benchmark |
-| **oniblock1** | keeper posts first in the block, Binance price 2 s old, charge gate at the fixed 0.8224, post-on-change | **+0.246 bps/h [−0.077, 0.569] ≈ +$492/h**, positive in 3/3 volatile windows | **+0.145 bps/h [−0.126, 0.417] ≈ +$290/h**, positive in 2/3 volatile windows |
+| **oniblock1** | keeper posts first in the block, Binance price 2 s old, charge gate at the fixed 0.8224, post-on-change | **+0.507 bps/h [−0.213, 1.227] ≈ +$1,014/h**, positive in 3/3 volatile windows | **+0.289 bps/h [−0.142, 0.720] ≈ +$578/h**, positive in 3/3 volatile windows |
 
 **By regime.** All of the gain comes in the volatile hours.
 
 | tier | volatile net bps/h | calm net bps/h |
 |---|---|---|
-| 0.05% | +0.500 (windows +0.727, +0.314, +0.459) | −0.008 (−0.008, −0.008, −0.009) |
-| 0.30% | +0.300 (windows +0.311, −0.014, +0.603) | −0.010 (all three) |
+| 0.05% | +1.032 (windows +1.638, +1.003, +0.454) | −0.018 (−0.017, −0.019, −0.017) |
+| 0.30% | +0.588 (windows +0.978, +0.195, +0.590) | −0.010 (all three) |
 
-In calm hours the premium is almost never charged, so the pool behaves like the vanilla one and loses only the keeper's gas.
+In calm hours the premium is almost never charged. The pool loses the keeper's gas (about 0.007 bps/h), and at 0.05% about 0.01 bps/h more of gross LP result, with a lower retail share (36–41% instead of about 50%).
 
-**Keeper first vs no builder deal** (paired by window): +0.232 bps/h [−0.069, 0.533] at 0.05% and +0.115 [−0.029, 0.260] at 0.30%, positive in 3/3 volatile windows at both tiers. A heuristic scorer at the same timing earns about the same, so the LP gain comes from the fresh price and first position; oniblock1's contribution is precision (section 1). The break-even payment to the builder is about $1.6 per block at 0.05% ($0.97 at 0.30%).
+**Keeper first vs no builder deal** (paired by window): +0.465 bps/h [−0.166, 1.097] at 0.05% and +0.123 [−0.105, 0.352] at 0.30%, positive in 3/3 volatile windows at both tiers. A heuristic scorer at the same timing earns about the same (oniblock1 minus heuristic, paired by window: −0.025 [−0.061, 0.012] at 0.05%, positive in 0/3 volatile windows; +0.016 [−0.024, 0.055] at 0.30%, positive in 1/3 volatile windows), so the LP gain comes from the fresh price and first position; oniblock1's contribution is precision (section 1). The break-even payment to the builder, the most the LPs could pay for first position every block before the pool stops beating vanilla, is $3.38 [−1.42, 8.18] per block at 0.05% and $1.93 [−0.94, 4.80] at 0.30%.
 
 **Retail.**
-- 0.05% tier: retail pays 4.8 bps on the oniblock1 pool against 6.4 bps on the vanilla pool, with a 44.4% retail share.
-- 0.30% tier: retail pays 28.5 bps against 31.0 bps, with a 43.7% share.
+- 0.05% tier: retail pays 4.9 bps on the oniblock1 pool against 6.2 bps on the vanilla pool, with a 36.5% retail share.
+- 0.30% tier: retail pays 28.3 bps against 31.0 bps, with a 43.3% share.
 
-**On the sim's own graded blocks** (0.05% tier), oniblock1 passes 99.4% with 6.3% FPR, and 97.5% with 1.1% FPR on the 0.30% tier.
+**On the sim's own graded blocks** (0.05% tier), oniblock1 passes 99.4% with 5.3% FPR, and 98.6% with 0.5% FPR on the 0.30% tier.
 
 ## Reproduce
 

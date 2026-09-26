@@ -230,10 +230,10 @@ Reproduce: `pnpm -C benchmark bench` (about 8 minutes). `pnpm -C benchmark run:q
 **Full test.** On the full held-out test (12,837 blocks), oniblock1 has a 95.4% [94.2, 96.6] pass rate and 5.5% [4.2, 6.8] FPR, and catches 72.7% of toxic blocks. The brackets are 95% day-block bootstrap CIs. The rolling threshold is what the settler publishes live; with a fixed threshold the same model gives 94.4% pass and 7.4% FPR.
 
 **Mainnet-block benchmark.** The hooked pool competes against a vanilla neighbour ([`results_v4/coop-builder`](benchmark/results_v4/coop-builder/results.md): real Binance 1 s klines, 12 s blocks, $20M pools, 3 volatile and 3 calm hours, net of keeper gas, before any payment to the builder; 95% t-intervals over the 6 windows). With the keeper first in the block, oniblock1 earns LPs more than the vanilla pool in the volatile hours:
-- **0.05% tier:** +0.246 bps/h [−0.08, 0.57] ≈ +$492/h, positive in 3/3 volatile windows.
-- **0.30% tier:** +0.145 bps/h [−0.13, 0.42] ≈ +$290/h, positive in 2/3 volatile windows.
+- **0.05% tier:** +0.507 bps/h [−0.21, 1.23] ≈ +$1,014/h, positive in 3/3 volatile windows.
+- **0.30% tier:** +0.289 bps/h [−0.14, 0.72] ≈ +$578/h, positive in 3/3 volatile windows.
 
-All of the gain comes in the volatile hours. In calm hours the pool is about −0.01 bps/h, which is the keeper's gas. The gain comes from the fresh price and first position (a heuristic at the same timing earns about the same); oniblock1's edge is precision. Jev was not run in the mainnet-block benchmark. These runs predate PR #5 (probation removed): in them the model had no fee power for the first 7–21 minutes of each window, until 10 blocks were graded; under the current hook it is active from its first attestation, so a re-run will differ.
+All of the gain comes in the volatile hours. In calm hours the pool is about −0.01 bps/h at 0.30% and −0.02 bps/h at 0.05%, mostly the keeper's gas. The 95% intervals include zero at both tiers: 6 windows, 3 of them calm. The gain comes from the fresh price and first position (a heuristic at the same timing earns about the same); oniblock1's edge is precision. Jev was not run in the mainnet-block benchmark.
 
 **Full comparison.** [`docs/RESULTS_ONIBLOCK1.md`](docs/RESULTS_ONIBLOCK1.md) has the metric definitions, sources, the benchmark by regime and the reproduce commands.
 
@@ -313,7 +313,7 @@ By default the keeper sends `setAttestation` on every block, which costs about 1
 - the JIT window moves by at least `KEEPER_POST_JIT_BLOCKS` (5).
 - the mid drifts more than `KEEPER_POST_MID_BPS` (2) while k is non-zero.
 - the model's `pToxic` or `pJit` moves by at least `KEEPER_POST_P_BPS` (1000, i.e. 10 points). The settler grades the probabilities of the attestation in force, so they must stay current even while k is pinned (a demoted model, or p·c = 0); otherwise the model is graded on stale answers and a demoted model cannot earn its way back.
-- `KEEPER_HEARTBEAT_BLOCKS` blocks have passed since the last post. The default is `staleBlocks − 1`, so the pool never goes stale.
+- `KEEPER_HEARTBEAT_BLOCKS` blocks have passed since the last post. The default is `staleBlocks − 2`: one delayed post (late inclusion, a skipped tick) still keeps the pool fresh.
 
 The comparison is against on-chain `poolState`, so restarts and the backup quoter are handled. `KEEPER_HEARTBEAT_BLOCKS=0` turns the heartbeat off. That is only safe when `conservativeFee == baseFee`: otherwise a quiet keeper lets the pool go stale and charge the higher `conservativeFee` in both directions (the keeper warns once). The rule lives in `services/src/postPolicy.ts`.
 

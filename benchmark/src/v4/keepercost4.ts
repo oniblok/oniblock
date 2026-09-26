@@ -3,7 +3,7 @@
  * setAttestation gas is paid, and how much does "post only on change" (services/src/postPolicy.ts) save?
  *
  * Arms (heuristic scorer only, NO Jev calls; base fee 0.30%; ETH windows):
- *   a  post every,  lag 1  (= the v4 default: reproduces results_v4/heuristic-full)
+ *   a  post every,  lag 1  (= the v4 default config of results_v4/heuristic-full; that artifact predates PR #5, see repro4.ts)
  *   b  post change, lag 1
  *   c  post every,  lag 12 (attested mid 12 s old at every swap)
  *   d  post change, lag 12
@@ -158,7 +158,7 @@ const nC = armOut[0]!.calm.n;
 L.push('# Keeper cost and post-on-change (v4 benchmark, 0.30% tier)');
 L.push('');
 L.push(
-  `Generated ${new Date().toISOString()} by \`benchmark/src/v4/keepercost4.ts\`. ${armOut[0]!.all.n} ETHUSDT one-hour windows (${nV} volatile, ${nC} calm; data/windows_v2.json), ${raws[0]!.steps} 1 s steps each, heuristic scorer only (no Jev calls), base fee 0.30% on every pool, $${(tvl / 1e6).toFixed(0)}M full-range TVL per pool. Pool = market (d) \`aiheur\` (the heuristic decides the fee every block; identical to (c) in heuristic mode) vs its vanilla 0.30% neighbour, with routing competition. Everything else is the v4 default (results_v4/heuristic-full); arm a reproduces it exactly.`,
+  `Generated ${new Date().toISOString()} by \`benchmark/src/v4/keepercost4.ts\`. ${armOut[0]!.all.n} ETHUSDT one-hour windows (${nV} volatile, ${nC} calm; data/windows_v2.json), ${raws[0]!.steps} 1 s steps each, heuristic scorer only (no Jev calls), base fee 0.30% on every pool, $${(tvl / 1e6).toFixed(0)}M full-range TVL per pool. Pool = market (d) \`aiheur\` (the heuristic decides the fee every block; identical to (c) in heuristic mode) vs its vanilla 0.30% neighbour, with routing competition. Everything else is the v4 default config (results_v4/heuristic-full). results_v4/heuristic-full predates PR #5 (the hook's sample-minimum probation, removed since: its model pools sat at kDefault for the first 200–240 steps of every window), so arm a no longer reproduces it; \`src/v4/repro4.ts\` instead checks that arm a is deterministic (a re-run matches raw-a.json exactly).`,
 );
 L.push('');
 L.push('## What is measured');
