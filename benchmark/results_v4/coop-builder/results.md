@@ -1,11 +1,11 @@
 # Mainnet block timing, with and without a cooperating builder (v4 benchmark, LightGBM models)
 
-Generated 2026-09-26T22:16:36.357Z by `benchmark/src/v4/coop4.ts` (sim4.ts mainnet block mode). 6 ETHUSDT one-hour windows (3 volatile, 3 calm; data/windows_v2.json), 3600 s each = 300 blocks of 12 s, $20M full-range TVL per pool. Each Oniblock pool competes with its own vanilla neighbour (same fee tier, same liquidity) for the same routed retail and the same two arbitrageurs; **the vanilla neighbour is the "without this hook" baseline** and every LP number below is Oniblock minus that neighbour.
+Generated 2026-09-26T22:39:01.097Z by `benchmark/src/v4/coop4.ts` (sim4.ts mainnet block mode). 6 ETHUSDT one-hour windows (3 volatile, 3 calm; data/windows_v2.json), 3600 s each = 300 blocks of 12 s, $20M full-range TVL per pool. Each Oniblock pool competes with its own vanilla neighbour (same fee tier, same liquidity) for the same routed retail and the same two arbitrageurs; **the vanilla neighbour is the "without this hook" baseline** and every LP number below is Oniblock minus that neighbour.
 
 ## What the mainnet block mode simulates
 
 - Time advances in 12 s blocks. In block b (timestamp s) everything acts at s, in this order: settler, keeper (if its post lands in this block), the two arbitrageurs (vs the Binance mid at s), then retail. Nothing trades between blocks. Arbs and retail are in the same anvil block, so retail that follows an arb in the arb direction pays the hook's per-block high-water fee (the fee quote for retail is taken after the arbs on a throw-away copy of the chain, then the real block is mined).
-- **realistic** (no builder deal): the keeper reads Binance 13 s before the block it prices and the chain as it is then (pool state and swaps up to block b−1; block b is not built yet); its post lands last in block b and prices block b+1. Model `tabular-v2` (trained on ~11 s-old mids).
+- **realistic** (no builder deal): the keeper reads Binance 13 s before the block it prices and the chain as it is then (pool state and swaps up to block b−1; block b is not built yet); its post lands last in block b and prices block b+1. Model `oniblock1`, the production model deployed without a builder deal: it is trained on ~2 s-old mids, so this arm feeds it a mid 11 s older than it was trained on (part of what the arm measures).
 - **coop** (cooperating builder): the keeper reads Binance 2 s before block b and the chain after block b−1; the builder puts its post first in block b, so it prices block b. Model `oniblock1` (trained on ~2 s-old mids).
 - Keeper: in-process LightGBM (services/src/model/tabular.ts) on the features the live keeper computes (services/src/features.ts computeFeatures: a MidHistory with one CEX read per block, pre-filled from the 30 min before the window; realized vol over its last 120 reads; 20-block swap window; inputs canonicalised to the training orientation), then the keeper's charge gate at the model JSON's `chargeThreshold` (confidence = p ≥ t ? 1 : 0, so k = 0.8·p above the gate and 0 below; pToxic is posted unchanged and graded). Post policy `change` (services/src/postPolicy.ts), heartbeat 4 blocks, stale after 5 blocks, 5% of posts missed.
 - Settler: grades every block with arb-direction flow against the Binance mid at the block timestamp, label y = markout at the base fee > max($1, 1 bp of arb volume) (the live settler default and the label the models are trained on; blocks inside the dead band are not graded), posts calibration every 2 blocks once a model has 10 graded blocks. No probation (the hook since PR #5): an allowlisted model sets k from its first attestation, and is demoted to k = kDefault = 0 (a vanilla pool) only while its posted Brier > 0.25.
@@ -20,8 +20,8 @@ Mean over the 6 windows with a **two-sided 95% Student-t interval over windows**
 
 | arm | gross bps/h [95% t] | gross $/h | keeper $/h @1 gwei | net bps/h @1 gwei [95% t] | net bps/h: 95% bootstrap (too narrow at n = 6) | net $/h | net bps/h, 110k gas [95% t] | reading (net @1 gwei) | windows positive (net): volatile / calm | posts/h | retail share % | retail cost bps: Oniblock / vanilla | market retail cost vs control bps | mean arb fee: Oniblock / vanilla | arb trades vs vanilla |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| R: post lands last in the previous block (no builder deal), mid 13 s old; tabular-v2 + charge gate | 0.179 [-0.051, 0.408] | 358 | 26.9 | 0.165 [-0.056, 0.387] | [0.022, 0.315] | 331 | 0.161 [-0.058, 0.381] | positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero | 3/3 / 0/3 | 141 | 42.3 | 28.4 / 31.4 | -0.55 | 0.619% / 0.300% | 54% |
-| R0: as R, gate off (k = 0.8 p) | 0.201 [-0.094, 0.496] | 402 | 31.0 | 0.185 [-0.102, 0.472] | [0.002, 0.382] | 371 | 0.181 [-0.104, 0.465] | positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero | 3/3 / 0/3 | 163 | 37.7 | 28.6 / 31.3 | -0.32 | 0.746% / 0.300% | 48% |
+| R: post lands last in the previous block (no builder deal), mid 13 s old; oniblock1 + charge gate | 0.171 [-0.043, 0.386] | 343 | 23.1 | 0.160 [-0.049, 0.368] | [0.030, 0.316] | 320 | 0.156 [-0.050, 0.363] | positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero | 3/3 / 0/3 | 121 | 44.9 | 29.5 / 31.1 | -0.32 | 0.542% / 0.300% | 71% |
+| R0: as R, gate off (k = 0.8 p) | 0.170 [-0.082, 0.421] | 339 | 28.2 | 0.155 [-0.090, 0.401] | [-0.004, 0.323] | 311 | 0.151 [-0.092, 0.394] | positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero | 3/3 / 0/3 | 147 | 41.2 | 28.4 / 31.3 | -0.40 | 0.629% / 0.300% | 62% |
 | C: keeper posts first in the block (cooperating builder), mid 2 s old; oniblock1 + charge gate | 0.300 [-0.135, 0.736] | 601 | 23.1 | 0.289 [-0.142, 0.720] | [0.024, 0.618] | 578 | 0.285 [-0.144, 0.714] | positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero | 3/3 / 0/3 | 126 | 43.3 | 28.3 / 31.0 | -0.87 | 0.792% / 0.300% | 51% |
 | C0: as C, gate off (k = 0.8 p) | 0.303 [-0.163, 0.769] | 605 | 29.5 | 0.288 [-0.171, 0.746] | [0.011, 0.645] | 576 | 0.283 [-0.173, 0.739] | positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero | 3/3 / 0/3 | 160 | 39.4 | 28.4 / 30.9 | -0.78 | 0.896% / 0.300% | 45% |
 | Rh: realistic timing, heuristic scorer (reference) | 0.129 [-0.082, 0.339] | 257 | 29.9 | 0.114 [-0.089, 0.316] | [-0.007, 0.272] | 227 | 0.109 [-0.091, 0.309] | positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero | 3/3 / 0/3 | 156 | 40.4 | 28.9 / 31.4 | -0.23 | 0.586% / 0.300% | 67% |
@@ -31,8 +31,8 @@ Mean over the 6 windows with a **two-sided 95% Student-t interval over windows**
 
 | arm | volatile gross | volatile net @1 gwei | calm gross | calm net @1 gwei |
 |---|---|---|---|---|
-| R | 0.454, 0.185, 0.437 (mean 0.359) | 0.433, 0.164, 0.416 (mean 0.338) | 0.000, 0.000, -0.003 (mean -0.001) | -0.006, -0.006, -0.008 (mean -0.007) |
-| R0 | 0.595, 0.129, 0.516 (mean 0.413) | 0.571, 0.104, 0.492 (mean 0.389) | -0.014, -0.011, -0.011 (mean -0.012) | -0.021, -0.017, -0.018 (mean -0.018) |
+| R | 0.315, 0.235, 0.481 (mean 0.344) | 0.301, 0.217, 0.462 (mean 0.326) | 0.000, 0.000, -0.003 (mean -0.001) | -0.006, -0.006, -0.008 (mean -0.007) |
+| R0 | 0.439, 0.136, 0.498 (mean 0.358) | 0.422, 0.113, 0.474 (mean 0.336) | -0.029, -0.012, -0.015 (mean -0.019) | -0.036, -0.019, -0.022 (mean -0.025) |
 | C | 0.994, 0.212, 0.609 (mean 0.605) | 0.978, 0.195, 0.590 (mean 0.588) | -0.004, -0.004, -0.004 (mean -0.004) | -0.010, -0.010, -0.010 (mean -0.010) |
 | C0 | 1.070, 0.230, 0.580 (mean 0.627) | 1.048, 0.207, 0.556 (mean 0.604) | -0.030, -0.016, -0.017 (mean -0.021) | -0.036, -0.023, -0.024 (mean -0.028) |
 | Rh | 0.199, 0.204, 0.465 (mean 0.290) | 0.180, 0.180, 0.441 (mean 0.267) | -0.043, -0.034, -0.021 (mean -0.032) | -0.050, -0.041, -0.028 (mean -0.040) |
@@ -44,8 +44,8 @@ charged = the probability in force at the block ≥ the model's chargeThreshold 
 
 | arm | model (chargeThreshold) | graded blocks | toxic base rate | charged | pass rate | FPR | coverage | TPR | Brier | keeper decisions charged | volatile pass / FPR / TPR | calm pass / FPR / TPR |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| R | tabular-v2 (0.7951) | 276 | 30.8% | 65 | 93.8% | 2.1% | 23.6% | 71.8% | 0.064 | 22.3% | 93.8% / 6.6% / 71.8% | - / 0.0% / - |
-| R0 | tabular-v2 (0.7951) | 268 | 33.6% | 86 | 94.2% | 2.8% | 32.1% | 90.0% | 0.040 | 25.3% | 94.2% / 10.0% / 90.0% | - / 0.0% / - |
+| R | oniblock1 (0.8224) | 290 | 32.8% | 57 | 89.5% | 3.1% | 19.7% | 53.7% | 0.087 | 16.0% | 89.5% / 9.2% / 53.7% | - / 0.0% / - |
+| R0 | oniblock1 (0.8224) | 283 | 35.7% | 75 | 90.7% | 3.8% | 26.5% | 67.3% | 0.081 | 19.9% | 90.7% / 12.1% / 67.3% | - / 0.0% / - |
 | C | oniblock1 (0.8224) | 280 | 31.4% | 73 | 98.6% | 0.5% | 26.1% | 81.8% | 0.026 | 20.3% | 98.6% / 1.6% / 81.8% | - / 0.0% / - |
 | C0 | oniblock1 (0.8224) | 257 | 35.0% | 81 | 98.8% | 0.6% | 31.5% | 88.9% | 0.023 | 22.0% | 98.8% / 2.2% / 88.9% | - / 0.0% / - |
 
@@ -55,15 +55,15 @@ Mean over the 6 windows with a **two-sided 95% Student-t interval over windows**
 
 | difference | net bps/h @1 gwei [95% t] | 95% bootstrap (too narrow at n = 6) | net $/h | reading | windows positive: volatile / calm | retail share pp | volatile net bps/h, per window | calm net bps/h, per window |
 |---|---|---|---|---|---|---|---|---|
-| C − R: value of the builder deal (first position + 2 s mid + oniblock1 vs no deal) | 0.123 [-0.105, 0.352] | [0.002, 0.300] | 247 | positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero | 3/3 / 0/3 | 1.0 | 0.544, 0.031, 0.175 (mean 0.250) | -0.004, -0.004, -0.002 (mean -0.003) |
+| C − R: value of the builder deal for oniblock1 (first position + 2 s mid vs no deal, same model) | 0.129 [-0.158, 0.417] | [-0.009, 0.359] | 258 | positive in 2/3 volatile, 0/3 calm windows; t-interval includes zero | 2/3 / 0/3 | -1.6 | 0.677, -0.022, 0.129 (mean 0.261) | -0.004, -0.004, -0.002 (mean -0.003) |
 | C − C0: charge gate on vs off (coop) | 0.001 [-0.039, 0.041] | [-0.030, 0.024] | 2 | positive in 1/3 volatile, 3/3 calm windows; t-interval includes zero | 1/3 / 3/3 | 3.8 | -0.070, -0.012, 0.035 (mean -0.016) | 0.026, 0.013, 0.014 (mean 0.018) |
-| R − R0: charge gate on vs off (realistic) | -0.020 [-0.096, 0.056] | [-0.078, 0.028] | -40 | positive in 1/3 volatile, 3/3 calm windows; t-interval includes zero | 1/3 / 3/3 | 4.6 | -0.138, 0.060, -0.076 (mean -0.051) | 0.015, 0.011, 0.009 (mean 0.012) |
+| R − R0: charge gate on vs off (realistic) | 0.004 [-0.072, 0.081] | [-0.054, 0.054] | 9 | positive in 1/3 volatile, 3/3 calm windows; t-interval includes zero | 1/3 / 3/3 | 3.7 | -0.121, 0.104, -0.012 (mean -0.010) | 0.030, 0.013, 0.013 (mean 0.019) |
 | C − Ch: oniblock1 vs the heuristic, coop timing | 0.016 [-0.024, 0.055] | [-0.013, 0.040] | 31 | positive in 1/3 volatile, 3/3 calm windows; t-interval includes zero | 1/3 / 3/3 | 5.0 | -0.002, -0.050, 0.053 (mean 0.000) | 0.038, 0.035, 0.020 (mean 0.031) |
-| R − Rh: tabular-v2 vs the heuristic, realistic timing | 0.052 [-0.056, 0.160] | [-0.005, 0.137] | 104 | positive in 1/3 volatile, 3/3 calm windows; t-interval includes zero | 1/3 / 3/3 | 1.9 | 0.254, -0.016, -0.025 (mean 0.071) | 0.044, 0.035, 0.020 (mean 0.033) |
+| R − Rh: oniblock1 vs the heuristic, realistic timing | 0.046 [0.006, 0.086] | [0.025, 0.077] | 92 | positive in 3/3 volatile, 3/3 calm windows; t-interval excludes zero (> 0) | 3/3 / 3/3 | 4.5 | 0.121, 0.036, 0.021 (mean 0.060) | 0.044, 0.035, 0.020 (mean 0.033) |
 
 ### Break-even payment to the builder (arm C)
 
-**Every coop figure in this report (C, C0, Ch, C − R) is BEFORE any payment to the builder.** The most the LPs could pay the builder for first position before the hooked pool stops beating its vanilla neighbour = net LP gain vs vanilla (after keeper gas at 1 gwei); means with 95% t-intervals over windows. Per block if the slot is bought every block: **1.93 [-0.94, 4.80] $/block** (positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero; per window: volatile 6.52, 1.30, 3.94 (mean 3.92), calm -0.07, -0.07, -0.07 (mean -0.07)); per keeper post (post-on-change, 126 posts/h): 3.15 [-1.71, 8.01] $/post; with 110k gas/post: 1.90 [-0.96, 4.76] $/block. A negative value means the hook loses to vanilla even with first position for free. First position is only needed in blocks where the keeper posts. The part of that gain that first position itself buys (C − R, per window, over C's posts): 1.35 [-1.20, 3.90] $/post (positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero). Pool TVL $20M per pool; the gain scales roughly with liquidity.
+**Every coop figure in this report (C, C0, Ch, C − R) is BEFORE any payment to the builder.** The most the LPs could pay the builder for first position before the hooked pool stops beating its vanilla neighbour = net LP gain vs vanilla (after keeper gas at 1 gwei); means with 95% t-intervals over windows. Per block if the slot is bought every block: **1.93 [-0.94, 4.80] $/block** (positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero; per window: volatile 6.52, 1.30, 3.94 (mean 3.92), calm -0.07, -0.07, -0.07 (mean -0.07)); per keeper post (post-on-change, 126 posts/h): 3.15 [-1.71, 8.01] $/post; with 110k gas/post: 1.90 [-0.96, 4.76] $/block. A negative value means the hook loses to vanilla even with first position for free. First position is only needed in blocks where the keeper posts. The part of that gain that first position itself buys (C − R, per window, over C's posts): 1.41 [-1.80, 4.62] $/post (positive in 2/3 volatile, 0/3 calm windows; t-interval includes zero). Pool TVL $20M per pool; the gain scales roughly with liquidity.
 
 ### Model inputs seen by the keeper (means over decisions)
 
@@ -71,8 +71,8 @@ Mean over the 6 windows with a **two-sided 95% Student-t interval over windows**
 
 | arm | decisions/run | mean p | gap > base fee | gap pips | edgeSigma | abs ret12 bps | realizedVol bps | nSwaps (20 blocks) | heuristic fallbacks | active at s | demoted 1st / 2nd half |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| R | 283 | 0.317 | 22.4% | 2123 | -12.36 | 5.59 | 8.38 | 17.2 | 0 | 0, 0, 0, 0, 0, 0 | 0%/0%, 0%/0%, 0%/0%, 0%/0%, 0%/0%, 0%/0% |
-| R0 | 283 | 0.335 | 25.5% | 2384 | -12.09 | 5.59 | 8.38 | 14.7 | 0 | 0, 0, 0, 0, 0, 0 | 0%/0%, 0%/0%, 0%/0%, 0%/0%, 0%/0%, 0%/0% |
+| R | 283 | 0.236 | 18.7% | 1956 | -12.45 | 5.59 | 8.38 | 19.3 | 0 | 0, 0, 0, 0, 0, 0 | 59%/80%, 0%/0%, 0%/0%, 0%/0%, 0%/0%, 0%/0% |
+| R0 | 283 | 0.267 | 22.6% | 2204 | -12.20 | 5.59 | 8.38 | 17.0 | 0 | 0, 0, 0, 0, 0, 0 | 59%/80%, 0%/0%, 0%/0%, 0%/0%, 0%/0%, 0%/0% |
 | C | 283 | 0.265 | 22.7% | 2294 | -12.00 | 5.48 | 8.45 | 17.8 | 0 | 0, 0, 0, 0, 0, 0 | 0%/0%, 0%/0%, 0%/0%, 0%/0%, 0%/0%, 0%/0% |
 | C0 | 283 | 0.279 | 24.1% | 2419 | -11.88 | 5.48 | 8.45 | 15.2 | 0 | 0, 0, 0, 0, 0, 0 | 0%/0%, 0%/0%, 0%/0%, 0%/0%, 0%/0%, 0%/0% |
 
@@ -80,18 +80,18 @@ Mean over the 6 windows with a **two-sided 95% Student-t interval over windows**
 
 | arm | window | gross $/h [within-window CI] | net $/h @1 gwei | posts/h | reasons | k predict miss | share % | arb fee Oniblock / vanilla | graded | charged | stale blocks | reverts |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| R | ETH-vol1 | 908 [-619, 3010] | 866 | 220 | first 1, skip 63, heartbeat 6, p 83, k 74, mid 56 | 0 | 35.6 | 0.471% / 0.300% | 48 | 16 | 1 | 0 |
-| R | ETH-vol2 | 369 [-834, 2341] | 328 | 200 | first 1, skip 83, heartbeat 6, p 69, k 41, mid 83 | 0 | 32.8 | 0.632% / 0.300% | 47 | 22 | 0 | 0 |
-| R | ETH-vol3 | 874 [-289, 2372] | 831 | 201 | first 1, skip 82, heartbeat 11, p 45, k 50, mid 94 | 0 | 35.9 | 0.753% / 0.300% | 51 | 27 | 1 | 0 |
+| R | ETH-vol1 | 630 [-92, 2017] | 601 | 152 | first 1, skip 131, heartbeat 20, p 106, k 18, mid 7 | 0 | 46.9 | 0.316% / 0.300% | 66 | 20 | 0 | 0 |
+| R | ETH-vol2 | 469 [-841, 2524] | 434 | 173 | first 1, skip 110, heartbeat 25, k 38, mid 67, p 42 | 0 | 36.2 | 0.586% / 0.300% | 42 | 15 | 0 | 0 |
+| R | ETH-vol3 | 962 [-246, 2526] | 924 | 179 | first 1, skip 104, heartbeat 23, p 32, k 35, mid 88 | 0 | 36.6 | 0.723% / 0.300% | 52 | 22 | 0 | 0 |
 | R | ETH-calm1 | 0 [-3, 3] | -12 | 74 | first 1, skip 209, heartbeat 73 | 0 | 50.0 | -% / -% | 38 | 0 | 1 | 0 |
 | R | ETH-calm2 | 0 [-6, 6] | -12 | 74 | first 1, skip 209, heartbeat 73 | 0 | 50.0 | -% / -% | 47 | 0 | 1 | 0 |
 | R | ETH-calm3 | -5 [-15, 0] | -17 | 74 | first 1, skip 209, heartbeat 73 | 0 | 49.7 | -% / -% | 45 | 0 | 1 | 0 |
-| R0 | ETH-vol1 | 1189 [-531, 3317] | 1142 | 252 | first 1, mid 102, skip 31, k 148, heartbeat 1 | 0 | 24.8 | 0.613% / 0.300% | 42 | 23 | 0 | 0 |
-| R0 | ETH-vol2 | 257 [-967, 2286] | 209 | 237 | first 1, mid 117, k 119, skip 46 | 0 | 26.3 | 0.741% / 0.300% | 41 | 25 | 0 | 0 |
-| R0 | ETH-vol3 | 1033 [-210, 2675] | 983 | 229 | first 1, k 88, skip 54, mid 139, heartbeat 1 | 0 | 30.1 | 0.885% / 0.300% | 57 | 38 | 0 | 0 |
-| R0 | ETH-calm1 | -27 [-37, -18] | -41 | 85 | first 1, skip 198, mid 25, heartbeat 59 | 0 | 48.1 | -% / -% | 38 | 0 | 0 | 0 |
-| R0 | ETH-calm2 | -21 [-32, -11] | -35 | 84 | first 1, mid 26, skip 199, heartbeat 57 | 0 | 48.5 | -% / -% | 46 | 0 | 1 | 0 |
-| R0 | ETH-calm3 | -21 [-34, -10] | -35 | 88 | first 1, skip 195, mid 32, heartbeat 55 | 0 | 48.5 | -% / -% | 44 | 0 | 1 | 0 |
+| R0 | ETH-vol1 | 877 [-145, 2823] | 844 | 176 | first 1, mid 39, skip 107, k 36, heartbeat 12, p 88 | 0 | 44.6 | 0.332% / 0.300% | 67 | 20 | 0 | 0 |
+| R0 | ETH-vol2 | 271 [-1051, 2403] | 225 | 224 | first 1, mid 152, skip 59, heartbeat 2, k 69 | 0 | 28.1 | 0.717% / 0.300% | 40 | 26 | 0 | 0 |
+| R0 | ETH-vol3 | 997 [-243, 2630] | 948 | 226 | first 1, mid 162, skip 57, k 62, heartbeat 1 | 0 | 32.2 | 0.839% / 0.300% | 52 | 29 | 0 | 0 |
+| R0 | ETH-calm1 | -58 [-78, -41] | -72 | 85 | first 1, skip 198, mid 25, heartbeat 59 | 0 | 46.0 | -% / -% | 35 | 0 | 0 | 0 |
+| R0 | ETH-calm2 | -24 [-34, -15] | -37 | 84 | first 1, mid 26, skip 199, heartbeat 57 | 0 | 48.3 | -% / -% | 46 | 0 | 1 | 0 |
+| R0 | ETH-calm3 | -29 [-43, -18] | -44 | 88 | first 1, skip 195, mid 32, heartbeat 55 | 0 | 48.0 | -% / -% | 43 | 0 | 1 | 0 |
 | C | ETH-vol1 | 1988 [-374, 5234] | 1955 | 180 | first 1, skip 103, heartbeat 22, p 63, k 27, mid 67 | 0 | 38.6 | 0.736% / 0.300% | 60 | 23 | 0 | 0 |
 | C | ETH-vol2 | 425 [-1209, 2815] | 390 | 173 | first 1, skip 110, heartbeat 26, p 32, k 42, mid 72 | 0 | 36.7 | 0.792% / 0.300% | 36 | 17 | 0 | 0 |
 | C | ETH-vol3 | 1218 [-151, 3007] | 1181 | 179 | first 1, skip 104, heartbeat 22, p 27, k 17, mid 112 | 0 | 36.2 | 0.848% / 0.300% | 56 | 33 | 0 | 0 |
@@ -125,8 +125,8 @@ Mean over the 6 windows with a **two-sided 95% Student-t interval over windows**
 
 | arm | gross bps/h [95% t] | gross $/h | keeper $/h @1 gwei | net bps/h @1 gwei [95% t] | net bps/h: 95% bootstrap (too narrow at n = 6) | net $/h | net bps/h, 110k gas [95% t] | reading (net @1 gwei) | windows positive (net): volatile / calm | posts/h | retail share % | retail cost bps: Oniblock / vanilla | market retail cost vs control bps | mean arb fee: Oniblock / vanilla | arb trades vs vanilla |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| R: post lands last in the previous block (no builder deal), mid 13 s old; tabular-v2 + charge gate | 0.058 [-0.040, 0.155] | 115 | 31.7 | 0.042 [-0.050, 0.133] | [-0.010, 0.116] | 83 | 0.037 [-0.053, 0.127] | positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero | 3/3 / 0/3 | 167 | 37.3 | 5.5 / 6.3 | 0.04 | 0.086% / 0.050% | 39% |
-| R0: as R, gate off (k = 0.8 p) | 0.075 [-0.051, 0.201] | 150 | 34.5 | 0.058 [-0.061, 0.177] | [-0.010, 0.146] | 116 | 0.053 [-0.064, 0.170] | positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero | 3/3 / 0/3 | 182 | 33.4 | 5.2 / 6.5 | 0.14 | 0.103% / 0.050% | 35% |
+| R: post lands last in the previous block (no builder deal), mid 13 s old; oniblock1 + charge gate | 0.053 [-0.036, 0.142] | 105 | 31.6 | 0.037 [-0.045, 0.119] | [-0.010, 0.103] | 74 | 0.032 [-0.048, 0.113] | positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero | 3/3 / 0/3 | 165 | 37.8 | 5.5 / 6.2 | 0.02 | 0.083% / 0.050% | 39% |
+| R0: as R, gate off (k = 0.8 p) | 0.076 [-0.051, 0.203] | 152 | 33.7 | 0.059 [-0.060, 0.179] | [-0.008, 0.149] | 119 | 0.054 [-0.063, 0.171] | positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero | 3/3 / 0/3 | 177 | 33.6 | 5.2 / 6.4 | 0.11 | 0.104% / 0.050% | 35% |
 | C: keeper posts first in the block (cooperating builder), mid 2 s old; oniblock1 + charge gate | 0.522 [-0.205, 1.249] | 1044 | 30.0 | 0.507 [-0.213, 1.227] | [0.061, 1.045] | 1014 | 0.502 [-0.216, 1.220] | positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero | 3/3 / 0/3 | 164 | 36.5 | 4.9 / 6.2 | -0.19 | 0.357% / 0.050% | 25% |
 | C0: as C, gate off (k = 0.8 p) | 0.537 [-0.214, 1.289] | 1075 | 32.0 | 0.521 [-0.223, 1.266] | [0.063, 1.096] | 1043 | 0.516 [-0.226, 1.257] | positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero | 3/3 / 0/3 | 175 | 34.2 | 5.1 / 6.3 | -0.05 | 0.439% / 0.050% | 21% |
 | Rh: realistic timing, heuristic scorer (reference) | 0.086 [-0.053, 0.225] | 172 | 37.7 | 0.067 [-0.066, 0.200] | [-0.006, 0.172] | 134 | 0.061 [-0.070, 0.193] | positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero | 3/3 / 0/3 | 202 | 35.8 | 4.9 / 6.5 | 0.04 | 0.107% / 0.050% | 35% |
@@ -136,8 +136,8 @@ Mean over the 6 windows with a **two-sided 95% Student-t interval over windows**
 
 | arm | volatile gross | volatile net @1 gwei | calm gross | calm net @1 gwei |
 |---|---|---|---|---|
-| R | 0.227, 0.087, 0.063 (mean 0.126) | 0.205, 0.063, 0.039 (mean 0.102) | -0.009, -0.012, -0.010 (mean -0.010) | -0.018, -0.020, -0.019 (mean -0.019) |
-| R0 | 0.291, 0.121, 0.076 (mean 0.163) | 0.266, 0.097, 0.050 (mean 0.138) | -0.011, -0.014, -0.013 (mean -0.013) | -0.020, -0.023, -0.023 (mean -0.022) |
+| R | 0.205, 0.088, 0.053 (mean 0.115) | 0.182, 0.065, 0.029 (mean 0.092) | -0.009, -0.011, -0.011 (mean -0.010) | -0.016, -0.019, -0.019 (mean -0.018) |
+| R0 | 0.296, 0.118, 0.079 (mean 0.164) | 0.270, 0.094, 0.052 (mean 0.139) | -0.010, -0.013, -0.012 (mean -0.012) | -0.019, -0.021, -0.021 (mean -0.020) |
 | C | 1.660, 1.025, 0.477 (mean 1.054) | 1.638, 1.003, 0.454 (mean 1.032) | -0.010, -0.011, -0.010 (mean -0.010) | -0.017, -0.019, -0.017 (mean -0.018) |
 | C0 | 1.727, 1.030, 0.501 (mean 1.086) | 1.704, 1.007, 0.477 (mean 1.062) | -0.011, -0.012, -0.012 (mean -0.012) | -0.019, -0.020, -0.020 (mean -0.020) |
 | Rh | 0.329, 0.116, 0.099 (mean 0.182) | 0.304, 0.091, 0.072 (mean 0.156) | -0.010, -0.009, -0.010 (mean -0.010) | -0.021, -0.022, -0.021 (mean -0.021) |
@@ -149,8 +149,8 @@ charged = the probability in force at the block ≥ the model's chargeThreshold 
 
 | arm | model (chargeThreshold) | graded blocks | toxic base rate | charged | pass rate | FPR | coverage | TPR | Brier | keeper decisions charged | volatile pass / FPR / TPR | calm pass / FPR / TPR |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| R | tabular-v2 (0.7951) | 189 | 92.1% | 103 | 99.0% | 6.7% | 54.5% | 58.6% | 0.080 | 52.3% | 100.0% / 0.0% / 57.9% | 75.0% / 11.1% / 100.0% |
-| R0 | tabular-v2 (0.7951) | 179 | 92.2% | 118 | 98.3% | 14.3% | 65.9% | 70.3% | 0.066 | 54.9% | 99.1% / 14.3% / 69.8% | 75.0% / 14.3% / 100.0% |
+| R | oniblock1 (0.8224) | 189 | 89.4% | 89 | 98.9% | 5.0% | 47.1% | 52.1% | 0.150 | 48.4% | 100.0% / 0.0% / 51.5% | 66.7% / 10.0% / 100.0% |
+| R0 | oniblock1 (0.8224) | 178 | 91.6% | 114 | 98.2% | 13.3% | 64.0% | 68.7% | 0.115 | 50.6% | 99.1% / 14.3% / 68.3% | 66.7% / 12.5% / 100.0% |
 | C | oniblock1 (0.8224) | 217 | 91.2% | 158 | 99.4% | 5.3% | 72.8% | 79.3% | 0.053 | 54.6% | 100.0% / 0.0% / 79.1% | 66.7% / 10.0% / 100.0% |
 | C0 | oniblock1 (0.8224) | 197 | 92.9% | 165 | 99.4% | 7.1% | 83.8% | 89.6% | 0.036 | 56.5% | 100.0% / 0.0% / 89.5% | 66.7% / 11.1% / 100.0% |
 
@@ -160,15 +160,15 @@ Mean over the 6 windows with a **two-sided 95% Student-t interval over windows**
 
 | difference | net bps/h @1 gwei [95% t] | 95% bootstrap (too narrow at n = 6) | net $/h | reading | windows positive: volatile / calm | retail share pp | volatile net bps/h, per window | calm net bps/h, per window |
 |---|---|---|---|---|---|---|---|---|
-| C − R: value of the builder deal (first position + 2 s mid + oniblock1 vs no deal) | 0.465 [-0.166, 1.097] | [0.070, 0.943] | 931 | positive in 3/3 volatile, 3/3 calm windows; t-interval includes zero | 3/3 / 3/3 | -0.8 | 1.434, 0.940, 0.415 (mean 0.929) | 0.000, 0.001, 0.002 (mean 0.001) |
+| C − R: value of the builder deal for oniblock1 (first position + 2 s mid vs no deal, same model) | 0.470 [-0.170, 1.110] | [0.071, 0.955] | 940 | positive in 3/3 volatile, 1/3 calm windows; t-interval includes zero | 3/3 / 1/3 | -1.2 | 1.457, 0.938, 0.425 (mean 0.940) | -0.001, -0.000, 0.001 (mean 0.000) |
 | C − C0: charge gate on vs off (coop) | -0.014 [-0.043, 0.014] | [-0.036, 0.001] | -29 | positive in 0/3 volatile, 3/3 calm windows; t-interval includes zero | 0/3 / 3/3 | 2.3 | -0.065, -0.004, -0.023 (mean -0.031) | 0.002, 0.002, 0.003 (mean 0.002) |
-| R − R0: charge gate on vs off (realistic) | -0.016 [-0.044, 0.012] | [-0.037, 0.001] | -32 | positive in 0/3 volatile, 3/3 calm windows; t-interval includes zero | 0/3 / 3/3 | 3.9 | -0.062, -0.033, -0.011 (mean -0.035) | 0.002, 0.003, 0.004 (mean 0.003) |
+| R − R0: charge gate on vs off (realistic) | -0.022 [-0.059, 0.015] | [-0.052, -0.002] | -45 | positive in 0/3 volatile, 3/3 calm windows; t-interval includes zero | 0/3 / 3/3 | 4.2 | -0.088, -0.029, -0.024 (mean -0.047) | 0.002, 0.003, 0.002 (mean 0.002) |
 | C − Ch: oniblock1 vs the heuristic, coop timing | -0.025 [-0.061, 0.012] | [-0.052, -0.002] | -50 | positive in 0/3 volatile, 3/3 calm windows; t-interval includes zero | 0/3 / 3/3 | 1.4 | -0.079, -0.047, -0.036 (mean -0.054) | 0.004, 0.003, 0.005 (mean 0.004) |
-| R − Rh: tabular-v2 vs the heuristic, realistic timing | -0.025 [-0.067, 0.016] | [-0.059, -0.002] | -51 | positive in 0/3 volatile, 3/3 calm windows; t-interval includes zero | 0/3 / 3/3 | 1.6 | -0.099, -0.028, -0.033 (mean -0.053) | 0.004, 0.001, 0.002 (mean 0.002) |
+| R − Rh: oniblock1 vs the heuristic, realistic timing | -0.030 [-0.082, 0.021] | [-0.069, -0.001] | -60 | positive in 0/3 volatile, 3/3 calm windows; t-interval includes zero | 0/3 / 3/3 | 2.0 | -0.122, -0.027, -0.043 (mean -0.064) | 0.005, 0.003, 0.003 (mean 0.003) |
 
 ### Break-even payment to the builder (arm C)
 
-**Every coop figure in this report (C, C0, Ch, C − R) is BEFORE any payment to the builder.** The most the LPs could pay the builder for first position before the hooked pool stops beating its vanilla neighbour = net LP gain vs vanilla (after keeper gas at 1 gwei); means with 95% t-intervals over windows. Per block if the slot is bought every block: **3.38 [-1.42, 8.18] $/block** (positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero; per window: volatile 10.92, 6.69, 3.03 (mean 6.88), calm -0.11, -0.12, -0.12 (mean -0.12)); per keeper post (post-on-change, 164 posts/h): 4.32 [-1.96, 10.59] $/post; with 110k gas/post: 3.34 [-1.44, 8.13] $/block. A negative value means the hook loses to vanilla even with first position for free. First position is only needed in blocks where the keeper posts. The part of that gain that first position itself buys (C − R, per window, over C's posts): 4.06 [-1.36, 9.48] $/post (positive in 3/3 volatile, 3/3 calm windows; t-interval includes zero). Pool TVL $20M per pool; the gain scales roughly with liquidity.
+**Every coop figure in this report (C, C0, Ch, C − R) is BEFORE any payment to the builder.** The most the LPs could pay the builder for first position before the hooked pool stops beating its vanilla neighbour = net LP gain vs vanilla (after keeper gas at 1 gwei); means with 95% t-intervals over windows. Per block if the slot is bought every block: **3.38 [-1.42, 8.18] $/block** (positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero; per window: volatile 10.92, 6.69, 3.03 (mean 6.88), calm -0.11, -0.12, -0.12 (mean -0.12)); per keeper post (post-on-change, 164 posts/h): 4.32 [-1.96, 10.59] $/post; with 110k gas/post: 3.34 [-1.44, 8.13] $/block. A negative value means the hook loses to vanilla even with first position for free. First position is only needed in blocks where the keeper posts. The part of that gain that first position itself buys (C − R, per window, over C's posts): 4.10 [-1.39, 9.59] $/post (positive in 3/3 volatile, 1/3 calm windows; t-interval includes zero). Pool TVL $20M per pool; the gain scales roughly with liquidity.
 
 ### Model inputs seen by the keeper (means over decisions)
 
@@ -176,8 +176,8 @@ Mean over the 6 windows with a **two-sided 95% Student-t interval over windows**
 
 | arm | decisions/run | mean p | gap > base fee | gap pips | edgeSigma | abs ret12 bps | realizedVol bps | nSwaps (20 blocks) | heuristic fallbacks | active at s | demoted 1st / 2nd half |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| R | 283 | 0.660 | 64.5% | 1041 | 0.82 | 5.59 | 8.38 | 15.9 | 0 | 0, 0, 0, 0, 0, 0 | 0%/0%, 0%/0%, 0%/0%, 0%/0%, 0%/0%, 0%/0% |
-| R0 | 283 | 0.667 | 65.1% | 1079 | 0.87 | 5.59 | 8.38 | 13.1 | 0 | 0, 0, 0, 0, 0, 0 | 0%/0%, 0%/0%, 0%/0%, 0%/0%, 0%/0%, 0%/0% |
+| R | 283 | 0.601 | 63.6% | 1037 | 0.82 | 5.59 | 8.38 | 16.2 | 0 | 0, 0, 0, 0, 0, 0 | 0%/0%, 0%/0%, 0%/0%, 0%/0%, 0%/0%, 0%/0% |
+| R0 | 283 | 0.616 | 64.8% | 1081 | 0.87 | 5.59 | 8.38 | 13.5 | 0 | 0, 0, 0, 0, 0, 0 | 0%/0%, 0%/0%, 0%/0%, 0%/0%, 0%/0%, 0%/0% |
 | C | 283 | 0.638 | 66.4% | 1513 | 1.19 | 5.48 | 8.45 | 14.3 | 0 | 0, 0, 0, 0, 0, 0 | 0%/0%, 0%/0%, 0%/0%, 0%/0%, 0%/0%, 0%/0% |
 | C0 | 283 | 0.648 | 67.2% | 1541 | 1.23 | 5.48 | 8.45 | 12.6 | 0 | 0, 0, 0, 0, 0, 0 | 0%/0%, 0%/0%, 0%/0%, 0%/0%, 0%/0%, 0%/0% |
 
@@ -185,18 +185,18 @@ Mean over the 6 windows with a **two-sided 95% Student-t interval over windows**
 
 | arm | window | gross $/h [within-window CI] | net $/h @1 gwei | posts/h | reasons | k predict miss | share % | arb fee Oniblock / vanilla | graded | charged | stale blocks | reverts |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| R | ETH-vol1 | 453 [54, 1163] | 409 | 227 | first 1, p 54, skip 56, k 125, mid 46, heartbeat 1 | 0 | 38.4 | 0.080% / 0.050% | 70 | 32 | 1 | 0 |
-| R | ETH-vol2 | 174 [-10, 455] | 127 | 225 | first 1, p 38, k 95, skip 58, mid 89, heartbeat 2 | 0 | 36.4 | 0.089% / 0.050% | 57 | 37 | 0 | 0 |
-| R | ETH-vol3 | 127 [-1, 278] | 78 | 224 | first 1, p 33, skip 59, k 126, mid 63, heartbeat 1 | 0 | 34.5 | 0.091% / 0.050% | 50 | 30 | 0 | 0 |
-| R | ETH-calm1 | -19 [-36, -3] | -35 | 104 | first 1, skip 179, heartbeat 39, k 24, mid 8, p 32 | 0 | 39.8 | -% / 0.050% | 2 | 1 | 1 | 0 |
-| R | ETH-calm2 | -24 [-49, -2] | -40 | 106 | first 1, skip 177, p 30, k 27, heartbeat 36, mid 12 | 0 | 34.7 | -% / 0.050% | 5 | 2 | 0 | 0 |
-| R | ETH-calm3 | -20 [-35, -7] | -38 | 113 | first 1, skip 170, heartbeat 33, p 42, k 33, mid 4 | 0 | 40.2 | -% / 0.050% | 5 | 1 | 0 | 0 |
-| R0 | ETH-vol1 | 583 [91, 1243] | 533 | 262 | first 1, k 181, skip 21, mid 79, heartbeat 1 | 0 | 28.2 | 0.094% / 0.050% | 59 | 35 | 0 | 0 |
-| R0 | ETH-vol2 | 242 [30, 526] | 193 | 232 | first 1, k 114, skip 51, mid 115, heartbeat 2 | 0 | 31.6 | 0.114% / 0.050% | 63 | 49 | 0 | 0 |
-| R0 | ETH-vol3 | 152 [13, 329] | 100 | 241 | first 1, k 156, skip 42, mid 83, heartbeat 1 | 0 | 33.4 | 0.102% / 0.050% | 47 | 30 | 0 | 0 |
-| R0 | ETH-calm1 | -23 [-39, -8] | -40 | 108 | first 1, skip 175, mid 12, heartbeat 34, k 61 | 0 | 37.6 | -% / 0.050% | 2 | 1 | 0 | 0 |
-| R0 | ETH-calm2 | -27 [-51, -5] | -46 | 119 | first 1, mid 15, k 69, skip 164, heartbeat 34 | 0 | 32.7 | -% / 0.050% | 4 | 2 | 0 | 0 |
-| R0 | ETH-calm3 | -26 [-38, -14] | -47 | 131 | first 1, skip 152, mid 7, k 95, heartbeat 28 | 0 | 36.9 | -% / 0.050% | 4 | 1 | 0 | 0 |
+| R | ETH-vol1 | 409 [9, 1135] | 364 | 236 | first 1, skip 47, p 76, heartbeat 2, k 119, mid 38 | 0 | 38.7 | 0.077% / 0.050% | 63 | 24 | 0 | 0 |
+| R | ETH-vol2 | 176 [-29, 492] | 129 | 225 | first 1, p 45, k 85, skip 58, mid 91, heartbeat 3 | 0 | 35.4 | 0.086% / 0.050% | 62 | 34 | 0 | 0 |
+| R | ETH-vol3 | 107 [-6, 232] | 58 | 227 | first 1, skip 56, p 41, k 117, mid 65, heartbeat 3 | 0 | 36.0 | 0.086% / 0.050% | 52 | 28 | 0 | 0 |
+| R | ETH-calm1 | -17 [-34, -2] | -32 | 97 | first 1, skip 186, heartbeat 45, k 23, mid 8, p 20 | 0 | 40.7 | -% / 0.050% | 2 | 0 | 1 | 0 |
+| R | ETH-calm2 | -21 [-45, -0] | -37 | 100 | first 1, skip 183, p 19, k 23, heartbeat 44, mid 13 | 0 | 35.5 | -% / 0.050% | 5 | 2 | 0 | 0 |
+| R | ETH-calm3 | -21 [-36, -8] | -38 | 104 | first 1, skip 179, heartbeat 48, p 25, k 26, mid 4 | 0 | 40.1 | -% / 0.050% | 5 | 1 | 0 | 0 |
+| R0 | ETH-vol1 | 591 [91, 1270] | 540 | 266 | first 1, mid 58, k 207, skip 17 | 0 | 28.3 | 0.096% / 0.050% | 59 | 34 | 0 | 0 |
+| R0 | ETH-vol2 | 236 [14, 550] | 187 | 234 | first 1, k 112, skip 49, mid 119, heartbeat 2 | 0 | 30.9 | 0.111% / 0.050% | 63 | 47 | 0 | 0 |
+| R0 | ETH-vol3 | 157 [9, 341] | 105 | 242 | first 1, mid 78, skip 41, k 162, heartbeat 1 | 0 | 32.2 | 0.104% / 0.050% | 46 | 30 | 0 | 0 |
+| R0 | ETH-calm1 | -21 [-38, -6] | -37 | 103 | first 1, skip 180, mid 15, heartbeat 38, k 49 | 0 | 38.6 | -% / 0.050% | 1 | 0 | 1 | 0 |
+| R0 | ETH-calm2 | -25 [-50, -3] | -42 | 109 | first 1, mid 19, skip 174, k 53, heartbeat 36 | 0 | 33.5 | -% / 0.050% | 4 | 2 | 0 | 0 |
+| R0 | ETH-calm3 | -24 [-37, -11] | -41 | 109 | first 1, skip 174, mid 16, heartbeat 34, k 58 | 0 | 38.1 | -% / 0.050% | 5 | 1 | 0 | 0 |
 | C | ETH-vol1 | 3320 [225, 7584] | 3277 | 237 | first 1, skip 46, heartbeat 2, p 72, k 81, mid 81 | 0 | 35.2 | 0.280% / 0.050% | 73 | 43 | 0 | 0 |
 | C | ETH-vol2 | 2050 [-33, 5908] | 2006 | 221 | first 1, skip 62, k 51, mid 137, heartbeat 1, p 31 | 0 | 32.5 | 0.468% / 0.050% | 64 | 55 | 0 | 0 |
 | C | ETH-vol3 | 954 [84, 2246] | 908 | 224 | first 1, skip 59, p 33, k 72, mid 116, heartbeat 2 | 0 | 34.6 | 0.322% / 0.050% | 68 | 57 | 0 | 0 |

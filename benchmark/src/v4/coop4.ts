@@ -6,17 +6,18 @@
  *
  * Runs (one per keeper placement; ETH windows; post policy `change`):
  *   realistic : keeper post lands at the END of the previous block (no builder deal), Binance mid read 13 s before the
- *               block it prices; model tabular-v2 (trained on ~11 s-old mids)
+ *               block it prices; model oniblock1 (trained on ~2 s-old mids, so here it is fed an older mid than it
+ *               was trained on: the production model deployed without a builder deal)
  *   coop      : a cooperating builder puts the keeper post FIRST in the block, mid read 2 s before it; model
- *               oniblock1 (trained on ~2 s-old mids)
+ *               oniblock1
  * Arms (pools inside those runs; same order flow):
- *   R  = realistic, pool ai      : tabular-v2 + charge gate at its chargeThreshold
- *   R0 = realistic, pool aigated : tabular-v2, gate off (k = 0.8 p)
+ *   R  = realistic, pool ai      : oniblock1 + charge gate at its chargeThreshold
+ *   R0 = realistic, pool aigated : oniblock1, gate off (k = 0.8 p)
  *   C  = coop, pool ai           : oniblock1 + charge gate
  *   C0 = coop, pool aigated      : oniblock1, gate off (k = 0.8 p)
  *   Rh / Ch = pool aiheur        : the heuristic at the same timing (reference)
  *
- *   tsx src/v4/coop4.ts --run realistic|coop [--tier 3000|500] [--windows ...] [--steps 3600] [--port 8950]
+ *   tsx src/v4/coop4.ts --run realistic|coop [--tier 3000|500] [--windows ...] [--steps 3600] [--port 12000]
  *   tsx src/v4/coop4.ts --report-only
  * Each run writes raw-<run>-<tier>.json into the out dir (default results_v4/coop-builder).
  */
@@ -42,7 +43,7 @@ for (let i = 0; i < argv.length; i++) {
 const outDir = resolve(String(a.out ?? resolve(BENCH_DIR, 'results_v4/coop-builder')));
 const steps = Number(a.steps ?? 3600);
 const WARMUP_SEC = 1800; // keeper MidHistory before the window: ret900 needs 15 min, realizedVol 120 reads = 24 min
-const MODELS = { v2: resolve(ROOT, 'ml/models/tabular-v2.json'), oniblock1: resolve(ROOT, 'ml/models/oniblock1.json') };
+const MODELS = { oniblock1: resolve(ROOT, 'ml/models/oniblock1.json') };
 
 /** Block-mode config: BASE (results_v4/heuristic-full) with mainnet timing, post-on-change, the live settler's dead band. */
 const BLOCK: Partial<RunConfigV4> = {
@@ -50,15 +51,15 @@ const BLOCK: Partial<RunConfigV4> = {
   staleSteps: 5, // mainnet blocks (DeployBase STALE_BLOCKS 5) = 10 anvil blocks
   heartbeatBlocks: 8, // 4 mainnet blocks
   settleEvery: 2, // blocks (24 s; the 1 s benchmark settled every 20 s)
-  deadbandUsd: 1, // services default: y = markout > max($1, 1 bp of arb volume), the label tabular-v2 is trained on
+  deadbandUsd: 1, // services default: y = markout > max($1, 1 bp of arb volume), the label oniblock1 is trained on
   deadbandBps: 1,
 };
 const RUNS: Record<string, { label: string; over: Partial<RunConfigV4>; model: keyof typeof MODELS }> = {
-  realistic: { label: 'keeper post lands last in the previous block (no builder deal), mid 13 s old', over: { blockMode: { placement: 'realistic' } }, model: 'v2' },
+  realistic: { label: 'keeper post lands last in the previous block (no builder deal), mid 13 s old', over: { blockMode: { placement: 'realistic' } }, model: 'oniblock1' },
   coop: { label: 'keeper post first in the block (cooperating builder), mid 2 s old', over: { blockMode: { placement: 'coop' } }, model: 'oniblock1' },
 };
 const ARMS = [
-  { arm: 'R', run: 'realistic', pool: 'ai', label: 'R: post lands last in the previous block (no builder deal), mid 13 s old; tabular-v2 + charge gate' },
+  { arm: 'R', run: 'realistic', pool: 'ai', label: 'R: post lands last in the previous block (no builder deal), mid 13 s old; oniblock1 + charge gate' },
   { arm: 'R0', run: 'realistic', pool: 'aigated', label: 'R0: as R, gate off (k = 0.8 p)' },
   { arm: 'C', run: 'coop', pool: 'ai', label: 'C: keeper posts first in the block (cooperating builder), mid 2 s old; oniblock1 + charge gate' },
   { arm: 'C0', run: 'coop', pool: 'aigated', label: 'C0: as C, gate off (k = 0.8 p)' },
@@ -82,7 +83,7 @@ if (!a['report-only']) {
   const all = await selectWindowsV2();
   const wanted = String(a.windows ?? 'ETH-vol1,ETH-vol2,ETH-vol3,ETH-calm1,ETH-calm2,ETH-calm3').split(',');
   const windows = all.filter((w) => wanted.includes(w.id));
-  let port = Number(a.port ?? 8950);
+  let port = Number(a.port ?? 12000);
   const results: RunResultV4[] = [];
   const file = resolve(outDir, `raw-${runName}-${tier}.json`);
   for (const w of windows) {
@@ -250,7 +251,7 @@ L.push('');
 L.push('## What the mainnet block mode simulates');
 L.push('');
 L.push('- Time advances in 12 s blocks. In block b (timestamp s) everything acts at s, in this order: settler, keeper (if its post lands in this block), the two arbitrageurs (vs the Binance mid at s), then retail. Nothing trades between blocks. Arbs and retail are in the same anvil block, so retail that follows an arb in the arb direction pays the hook\'s per-block high-water fee (the fee quote for retail is taken after the arbs on a throw-away copy of the chain, then the real block is mined).');
-L.push('- **realistic** (no builder deal): the keeper reads Binance 13 s before the block it prices and the chain as it is then (pool state and swaps up to block b−1; block b is not built yet); its post lands last in block b and prices block b+1. Model `tabular-v2` (trained on ~11 s-old mids).');
+L.push('- **realistic** (no builder deal): the keeper reads Binance 13 s before the block it prices and the chain as it is then (pool state and swaps up to block b−1; block b is not built yet); its post lands last in block b and prices block b+1. Model `oniblock1`, the production model deployed without a builder deal: it is trained on ~2 s-old mids, so this arm feeds it a mid 11 s older than it was trained on (part of what the arm measures).');
 L.push('- **coop** (cooperating builder): the keeper reads Binance 2 s before block b and the chain after block b−1; the builder puts its post first in block b, so it prices block b. Model `oniblock1` (trained on ~2 s-old mids).');
 L.push('- Keeper: in-process LightGBM (services/src/model/tabular.ts) on the features the live keeper computes (services/src/features.ts computeFeatures: a MidHistory with one CEX read per block, pre-filled from the 30 min before the window; realized vol over its last 120 reads; 20-block swap window; inputs canonicalised to the training orientation), then the keeper\'s charge gate at the model JSON\'s `chargeThreshold` (confidence = p ≥ t ? 1 : 0, so k = 0.8·p above the gate and 0 below; pToxic is posted unchanged and graded). Post policy `change` (services/src/postPolicy.ts), heartbeat 4 blocks, stale after 5 blocks, 5% of posts missed.');
 L.push('- Settler: grades every block with arb-direction flow against the Binance mid at the block timestamp, label y = markout at the base fee > max($1, 1 bp of arb volume) (the live settler default and the label the models are trained on; blocks inside the dead band are not graded), posts calibration every 2 blocks once a model has 10 graded blocks. No probation (the hook since PR #5): an allowlisted model sets k from its first attestation, and is demoted to k = kDefault = 0 (a vanilla pool) only while its posted Brier > 0.25.');
@@ -338,11 +339,11 @@ for (const tier of tiers) {
   // paired per window (same price path, same seeded retail orders and arb draws in every run)
   const armBy = Object.fromEntries(armOut.map((x) => [x.arm, x]));
   const PAIRS = [
-    ['C', 'R', 'value of the builder deal (first position + 2 s mid + oniblock1 vs no deal)'],
+    ['C', 'R', 'value of the builder deal for oniblock1 (first position + 2 s mid vs no deal, same model)'],
     ['C', 'C0', 'charge gate on vs off (coop)'],
     ['R', 'R0', 'charge gate on vs off (realistic)'],
     ['C', 'Ch', 'oniblock1 vs the heuristic, coop timing'],
-    ['R', 'Rh', 'tabular-v2 vs the heuristic, realistic timing'],
+    ['R', 'Rh', 'oniblock1 vs the heuristic, realistic timing'],
   ] as const;
   const paired: Record<string, unknown> = {};
   L.push('### Paired differences (per window, then over windows)');
