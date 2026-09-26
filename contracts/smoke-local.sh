@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Local smoke test: fresh anvil -> DeployLocal -> signed attestation -> arb-direction swap -> check Receipt.
+# Local smoke test: fresh anvil -> DeployLocal -> signed attestation -> arb-direction swap -> check Receipt
+# (fee == v3 threshold law: min(base + max(0, gap - arbThresholdPips) * k / 1e4, feeMax)).
 # Usage: ./smoke-local.sh [port]   (default 8555; uses anvil's public test mnemonic keys only)
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -36,7 +37,8 @@ cast send -q --rpc-url "$RPC" --private-key "$PKQ" "$HOOK" \
 echo "quoteFee(zeroForOne): $(cast call --rpc-url "$RPC" "$HOOK" "quoteFee((address,address,uint24,int24,address),bool)(uint24,bool,uint32,bool)" "$KEY" true | tr '\n' ' ')"
 cast send --rpc-url "$RPC" --private-key "$PKT" --json "$ROUTER" \
   "swap((address,address,uint24,int24,address),bool,int256,uint160,address)" -- "$KEY" true -1000000000000000000 0 "$T" > "$TMP/swap.json"
-python3 - "$TMP/swap.json" "$HOOK" <<'PY'
+THR=$(j .pools.oniblock.config.arbThresholdPips); BASE=$(j .pools.oniblock.config.baseFee); FMAX=$(j .pools.oniblock.config.feeMax)
+python3 - "$TMP/swap.json" "$HOOK" "$THR" "$BASE" "$FMAX" <<'PY'
 import json, sys
 r = json.load(open(sys.argv[1])); hook = sys.argv[2].lower()
 RECEIPT = "0x6d7eccb3d49808c4b73c5ecf44bd2416bce762d8bdeb5285ac58e7a09c2a21ef"
@@ -47,6 +49,9 @@ s = lambda v: v - (1 << 256) if v >= 1 << 255 else v
 names = ["zeroForOne", "arbDir", "gapPips", "kBps", "feePips", "amount0", "amount1", "modelNode", "stale"]
 rec = {n: (hex(v) if n == "modelNode" else s(v)) for n, v in zip(names, w)}
 print("swap gasUsed", int(r["gasUsed"], 16)); print("Receipt", rec)
-assert rec["arbDir"] == 1 and rec["stale"] == 0 and rec["feePips"] > 3000
+thr, base, fmax = int(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5])
+law = min(base + max(0, rec["gapPips"] - thr) * rec["kBps"] // 10000, fmax)  # v3 threshold law
+print("arbThresholdPips", thr, "law fee", law)
+assert rec["arbDir"] == 1 and rec["stale"] == 0 and rec["feePips"] > base and rec["feePips"] == law
 print("SMOKE OK")
 PY

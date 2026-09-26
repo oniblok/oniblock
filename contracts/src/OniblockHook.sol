@@ -27,8 +27,9 @@ import {IRoleOracle} from "./interfaces/IRoleOracle.sol";
 import {AggregatorV3Interface} from "./interfaces/AggregatorV3Interface.sol";
 
 /// @title OniblockHook
-/// @notice Uniswap v4 hook that charges informed (arbitrage-direction) flow a fee proportional to the gap between
-/// the pool price and an attested CEX mid, scaled by an attested sensitivity `k`. Flow that moves the pool away from
+/// @notice Uniswap v4 hook that charges informed (arbitrage-direction) flow a fee proportional to the part of the
+/// gap between the pool price and an attested CEX mid that exceeds an arbitrage threshold (below it the pool is a
+/// plain baseFee pool), scaled by an attested sensitivity `k`. Flow that moves the pool away from
 /// the oracle pays the base fee. JIT liquidity is penalised (OpenZeppelin LiquidityPenaltyHook pattern).
 /// Every swap emits a `Receipt` that an off-chain settler scores; a model's calibration (Brier) gates its power.
 ///
@@ -43,7 +44,10 @@ import {AggregatorV3Interface} from "./interfaces/AggregatorV3Interface.sol";
 ///   live(dir) = the LIVE pool price is on the arbitrage side of the mid for `dir` by >= 1 pip (i.e. a swap in
 ///   `dir` moves the pool TOWARD the oracle). If the live price is at (within 1 pip of) or past the mid for `dir`,
 ///   the swap cannot be an arbitrage toward the oracle and pays baseFee, whatever the block's high-water mark:
-///   fee(dir) = live(dir) && gap[dir] > 0 ? min(baseFee + gap[dir] * kBps / 1e4, feeMax) : baseFee
+///   fee(dir) = live(dir) && gap[dir] > 0 ? min(baseFee + max(0, gap[dir] - arbThresholdPips) * kBps / 1e4, feeMax)
+///                                         : baseFee
+///   i.e. below the arbitrage threshold (a gap no arbitrageur can profitably close at baseFee) the pool charges
+///   exactly baseFee in both directions — identical to a vanilla pool with that fee (docs/DESIGN.md §13, v3).
 ///   (then floored at conservativeFee for the rest of a block whose first touch was stale, see N-07 below).
 ///   => a split arb (many sub-swaps in one block) pays the first sub-swap's fee on every part (every part starts
 ///      while the live gap is still > 0); a same-block backrun that re-aligns the pool after a displacement is
@@ -107,6 +111,8 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
         uint32 brierDemoteBps; // if model brier > this => k forced to kDefault (0 = Brier demotion disabled)
         uint32 minSamples; // calibration samples (n) a model needs before it can move k off kDefault (>= 1)
         uint32 chainlinkMaxAge; // seconds; Chainlink answers older than this are invalid (required if feed set)
+        uint24 arbThresholdPips; // gap (pips) below which no profitable arb exists: the premium only prices the
+        // excess gap above it (0 = premium from the first pip, the v2 law). Typically baseFee + ~300. <= feeMax.
     }
 
     /// @notice Signed by the attestor (EIP-712), posted by a quoter once per block.
@@ -237,8 +243,11 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
         bytes32 indexed modelNode,
         address quoter
     );
-    /// @notice One per swap. gapPips/kBps/feePips are exactly the inputs/outputs of the fee law for this swap
-    /// (arbDir && !stale => feePips == min(base + gapPips*kBps/1e4, feeMax); !arbDir && !stale => base).
+    /// @notice One per swap. gapPips/kBps/feePips are exactly the inputs/outputs of the fee law for this swap;
+    /// gapPips is the RAW (high-water) gap, the threshold comes from poolConfig(id).arbThresholdPips:
+    /// arbDir && !stale => feePips == min(base + max(0, gapPips - arbThresholdPips)*kBps/1e4, feeMax), then floored
+    /// at conservativeFee in a block un-staled by a same-block attestation; !arbDir && !stale => base.
+    /// arbDir only says the swap moved the pool toward the mid (it can pay exactly base below the threshold).
     /// feePips is the LP fee only (protocol fee excluded). sender = the router calling the PoolManager.
     /// amount0/amount1 use the v4 swapper convention (negative = paid by the swapper). modelNode is the model whose
     /// attestation is in force in this block's anchor (0 when stale: a stale receipt belongs to no model).
@@ -764,7 +773,8 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
         }
     }
 
-    /// @dev Fee law for a swap direction given the anchor and the live toward direction: (fee, arbDir, gap used).
+    /// @dev Fee law for a swap direction given the anchor and the live toward direction: (fee, arbDir, raw gap).
+    /// Only the part of the high-water gap above cfg.arbThresholdPips is priced.
     /// The high-water gap applies only while the live price is on the arbitrage side of the mid for this direction
     /// (N-01); otherwise baseFee. A block un-staled by a same-block attestation is floored at conservativeFee.
     function _fee(PoolConfig memory cfg, BlockAnchor memory anc, bool zeroForOne, uint8 toward)
@@ -776,7 +786,8 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
         fee = cfg.baseFee;
         if (toward == (zeroForOne ? 1 : 2)) {
             gap = zeroForOne ? anc.gapZeroForOne : anc.gapOneForZero; // >= live gap > 0
-            uint256 f = uint256(cfg.baseFee) + (uint256(gap) * anc.kBps) / BPS;
+            uint256 excess = gap > cfg.arbThresholdPips ? gap - cfg.arbThresholdPips : 0; // below threshold => base
+            uint256 f = uint256(cfg.baseFee) + (excess * anc.kBps) / BPS;
             fee = uint24(f > cfg.feeMax ? cfg.feeMax : f);
             arbDir = true;
         }
@@ -853,6 +864,7 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
                 || c.kMinBps > c.kMaxBps || c.kDefaultBps < c.kMinBps || c.kDefaultBps > c.kMaxBps
                 || c.sanityBandBps > BPS || c.brierDemoteBps > BPS || c.staleBlocks == 0
                 || (c.chainlinkFeed != address(0) && c.chainlinkMaxAge == 0) || c.minSamples == 0
+                || c.arbThresholdPips > c.feeMax
         ) revert InvalidConfig();
     }
 

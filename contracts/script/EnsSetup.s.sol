@@ -23,7 +23,8 @@ import {EnsV2RoleOracle} from "../src/roles/EnsV2RoleOracle.sol";
 ///      - VerifiableFactory proxies: PermissionedResolver, UserRegistry for <label>.eth, models.<label>.eth,
 ///        pools.<label>.eth (all owned by `owner` via root grants)
 ///      - ETH registry: setSubregistry / setResolver on <label>.eth
-///      - subnames: quoter, settler, models -> {jev-v1, heuristic-v1}, pools -> {weth-usdc}
+///      - subnames: quoter, settler, models -> {jev-v1, heuristic-v1, rule-v1 (v3 gate only)}, pools -> {weth-usdc}
+///      - v4 pool config (DeployBase): arbThresholdPips 0, kMin 0, kDefault 0, kMax 8000, maxKStep 8000 — Jev decides
 ///      - EAC roles: ROLE_QUOTER on quoter.<label>.eth -> quoter; ROLE_SETTLER on settler.<label>.eth -> settler
 ///      - resolver records (addr + text) and settler-only per-key text roles for calibration.*
 ///      - deploys EnsV2RoleOracle pointing at the subregistry
@@ -205,6 +206,7 @@ contract EnsSetup is Script {
         models.setParent(r.registry, "models");
         models.register("jev-v1", cfg.owner, address(0), r.resolver, std, forever);
         models.register("heuristic-v1", cfg.owner, address(0), r.resolver, std, forever);
+        models.register("rule-v1", cfg.owner, address(0), r.resolver, std, forever); // v3 below-threshold rule
 
         IEnsPermissionedRegistry pools = IEnsPermissionedRegistry(r.poolsRegistry);
         pools.setParent(r.registry, "pools");
@@ -275,6 +277,7 @@ contract EnsSetup is Script {
         bytes memory nJev = EnsV2Lib.dnsEncode(string.concat("jev-v1.models.", root));
         bytes memory nHeur = EnsV2Lib.dnsEncode(string.concat("heuristic-v1.models.", root));
         bytes memory nPool = EnsV2Lib.dnsEncode(string.concat("weth-usdc.pools.", root));
+        bytes memory nRule = EnsV2Lib.dnsEncode(string.concat("rule-v1.models.", root));
 
         // Per-key text grants. Resource = keccak256(key) (name-independent), so a key grant covers that key
         // on every name served by this resolver.
@@ -291,7 +294,7 @@ contract EnsSetup is Script {
             res.grantSetterRoles(abi.encodeCall(IEnsPermissionedResolver.setText, (nRoot, calKeys[i], "")), cfg.settler);
         }
 
-        bytes[] memory c = new bytes[](16);
+        bytes[] memory c = new bytes[](18);
         uint256 n;
         c[n++] = _addr(nRoot, cfg.owner);
         c[n++] = _text(nRoot, K_DESCRIPTION, "Oniblock: attested, directional LVR fee law for Uniswap v4");
@@ -303,13 +306,19 @@ contract EnsSetup is Script {
         c[n++] = _text(
             nJev,
             K_AGENT_CONTEXT,
-            "Jev decision model (typesafe-ai/jev via Vercel AI Gateway). Scores per-block order flow toxicity -> {pToxicBps, confidenceBps}; mapped to bounded k by the public fee law. Calibration written by settler."
+            "Jev decision model (typesafe-ai/jev via Vercel AI Gateway), asked every block: is there profitable arbitrage at the base fee? -> {pToxicBps, confidenceBps}; public fee law k = kMax * p * c (kMin 0, no gap threshold), so p near 0 = base fee. Calibration written by settler."
         );
         c[n++] = _text(nHeur, K_MODEL_HASH, cfg.modelHashHeuristic);
         c[n++] = _text(
             nHeur,
             K_AGENT_CONTEXT,
             "Deterministic heuristic baseline (gap, imbalance, size/depth, realized vol) -> {pToxicBps, confidenceBps}. Fallback when Jev is slow or demoted."
+        );
+        c[n++] = _text(nRule, K_MODEL_HASH, vm.toString(keccak256("oniblock/rule-v1")));
+        c[n++] = _text(
+            nRule,
+            K_AGENT_CONTEXT,
+            "Deterministic keeper rule (v3; only with KEEPER_GATE=1, not used by the v4 default keeper): posted when the pool-vs-CEX gap is below the pool's arbThresholdPips, where the fee law charges exactly baseFee and k is irrelevant. Fixed {pToxicBps 1000, confidenceBps 10000}; never graded by the settler (no calibration.* records)."
         );
         c[n++] = _text(nPool, K_HOOK, cfg.hook == address(0) ? "" : vm.toString(cfg.hook));
         c[n++] = _text(nPool, K_POOL_ID, cfg.poolId == bytes32(0) ? "" : vm.toString(cfg.poolId));
@@ -377,6 +386,9 @@ contract EnsSetup is Script {
             nh,
             string.concat("heuristic-v1.models.", root),
             EnsV2Lib.namehash(string.concat("heuristic-v1.models.", root))
+        );
+        vm.serializeBytes32(
+            nh, string.concat("rule-v1.models.", root), EnsV2Lib.namehash(string.concat("rule-v1.models.", root))
         );
         vm.serializeBytes32(nh, string.concat("pools.", root), EnsV2Lib.namehash(string.concat("pools.", root)));
         string memory nhJson = vm.serializeBytes32(

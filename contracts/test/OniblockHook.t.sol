@@ -117,7 +117,7 @@ contract OniblockHookTest is OniblockTestBase {
         (uint24 fee, bool arb, uint32 gap,) = hook.quoteFee(pkey, true);
         assertTrue(arb);
         assertApproxEqAbs(gap, 10101, 2); // |p - 0.99p| / 0.99p
-        assertEq(fee, 3000 + uint24(uint256(gap) * 5000 / 10000));
+        assertEq(fee, _lawFee(gap, 5000));
         (uint24 feeRev, bool arbRev,,) = hook.quoteFee(pkey, false);
         assertFalse(arbRev);
         assertEq(feeRev, 3000);
@@ -277,8 +277,7 @@ contract OniblockHookTest is OniblockTestBase {
         (uint24 rev, bool arbRev, uint32 g,) = hook.quoteFee(pkey, false);
         assertTrue(arbRev);
         assertApproxEqAbs(g, liveGap, 1);
-        uint256 expect = 3000 + uint256(g) * 5000 / 10000;
-        assertEq(rev, expect > 10000 ? 10000 : expect);
+        assertEq(rev, _lawFee(g, 5000));
         vm.roll(vm.getBlockNumber() + 1);
         (uint24 next,,,) = hook.quoteFee(pkey, true);
         assertLt(next, arbFee, "new block => fresh gap (zeroForOne now moves away from the oracle)");

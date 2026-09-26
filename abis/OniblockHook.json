@@ -1513,6 +1513,11 @@
             "name": "chainlinkMaxAge",
             "type": "uint32",
             "internalType": "uint32"
+          },
+          {
+            "name": "arbThresholdPips",
+            "type": "uint24",
+            "internalType": "uint24"
           }
         ]
       }
@@ -1850,6 +1855,11 @@
             "name": "chainlinkMaxAge",
             "type": "uint32",
             "internalType": "uint32"
+          },
+          {
+            "name": "arbThresholdPips",
+            "type": "uint24",
+            "internalType": "uint24"
           }
         ]
       }
@@ -2127,6 +2137,11 @@
             "name": "chainlinkMaxAge",
             "type": "uint32",
             "internalType": "uint32"
+          },
+          {
+            "name": "arbThresholdPips",
+            "type": "uint24",
+            "internalType": "uint24"
           }
         ]
       }
@@ -2475,6 +2490,11 @@
             "name": "chainlinkMaxAge",
             "type": "uint32",
             "internalType": "uint32"
+          },
+          {
+            "name": "arbThresholdPips",
+            "type": "uint24",
+            "internalType": "uint24"
           }
         ]
       }
@@ -2584,6 +2604,11 @@
             "name": "chainlinkMaxAge",
             "type": "uint32",
             "internalType": "uint32"
+          },
+          {
+            "name": "arbThresholdPips",
+            "type": "uint24",
+            "internalType": "uint24"
           }
         ]
       }

@@ -55,10 +55,10 @@ abstract contract DeployBase is Script {
         int256 liquidity;
         address stateView;
         uint256 configDelay; // hook timelock (seconds) for updatePoolConfig / setAttestor / setRoleOracle
-        bytes32[] modelNodes; // allowlisted for the Oniblock pool (default: jev-v1 + heuristic-v1 namehashes)
+        bytes32[] modelNodes; // allowlisted for the Oniblock pool (default: jev-v1 + heuristic-v1; + rule-v1 if KEEPER_GATE=1)
     }
 
-    /// ENS namehash helpers for the default model names (jev-v1 / heuristic-v1 .models.oniblock.eth).
+    /// ENS namehash helpers for the default model names (jev-v1 / heuristic-v1 / rule-v1 .models.oniblock.eth).
     function _subnode(bytes32 parent, string memory label) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked(parent, keccak256(bytes(label))));
     }
@@ -67,11 +67,15 @@ abstract contract DeployBase is Script {
         return _subnode(_subnode(_subnode(bytes32(0), "eth"), "oniblock"), "models");
     }
 
-    /// Model nodes to allowlist: env MODEL_NODES (comma-separated bytes32) or the two keeper defaults.
+    /// Model nodes to allowlist: env MODEL_NODES (comma-separated bytes32) or the keeper defaults: jev-v1 and the
+    /// heuristic-v1 fallback; rule-v1 (the v3 keeper's deterministic below-threshold rule) only when KEEPER_GATE=1 —
+    /// the v4 keeper asks the model every block and never posts under rule-v1.
     function _defaultModelNodes() internal view returns (bytes32[] memory nodes) {
-        nodes = new bytes32[](2);
+        bool gate = vm.envOr("KEEPER_GATE", uint256(0)) == 1;
+        nodes = new bytes32[](gate ? 3 : 2);
         nodes[0] = _subnode(_modelsNode(), "jev-v1");
         nodes[1] = _subnode(_modelsNode(), "heuristic-v1");
+        if (gate) nodes[2] = _subnode(_modelsNode(), "rule-v1");
         nodes = vm.envOr("MODEL_NODES", ",", nodes);
     }
 
@@ -99,10 +103,14 @@ abstract contract DeployBase is Script {
         c.baseFee = uint24(vm.envOr("BASE_FEE", uint256(3000)));
         c.feeMax = uint24(vm.envOr("FEE_MAX", uint256(10000)));
         c.conservativeFee = uint24(vm.envOr("CONSERVATIVE_FEE", uint256(5000)));
-        c.kMinBps = uint32(vm.envOr("K_MIN_BPS", uint256(2000)));
+        // v4 "the AI decides the fee" defaults (docs/review/V4_AI_DECIDES.md): k = kMax * p * c, no floor, so a model
+        // score of "no profitable arbitrage" (p near 0) gives k near 0 = the base fee; an untrusted (unseasoned or
+        // demoted) model gets kDefault = 0, i.e. no power to raise the fee; one attestation can move k over the whole
+        // [0, kMax] range (maxKStepBps = kMax), so the fee follows the model's per-block decision.
+        c.kMinBps = uint32(vm.envOr("K_MIN_BPS", uint256(0)));
         c.kMaxBps = uint32(vm.envOr("K_MAX_BPS", uint256(8000)));
-        c.kDefaultBps = uint32(vm.envOr("K_DEFAULT_BPS", uint256(5000)));
-        c.maxKStepBps = uint32(vm.envOr("MAX_K_STEP_BPS", uint256(1000)));
+        c.kDefaultBps = uint32(vm.envOr("K_DEFAULT_BPS", uint256(0)));
+        c.maxKStepBps = uint32(vm.envOr("MAX_K_STEP_BPS", uint256(8000)));
         c.staleBlocks = uint16(vm.envOr("STALE_BLOCKS", uint256(5)));
         c.sanityBandBps = feed == address(0) ? 0 : uint32(vm.envOr("SANITY_BAND_BPS", uint256(bandDefault)));
         c.chainlinkFeed = feed;
@@ -111,6 +119,8 @@ abstract contract DeployBase is Script {
         c.minSamples = uint32(vm.envOr("MIN_SAMPLES", uint256(10)));
         // Sepolia ETH/USD heartbeat ~1h => 2h max age. Ignored (but harmless) when the feed is disabled.
         c.chainlinkMaxAge = uint32(vm.envOr("CHAINLINK_MAX_AGE", uint256(2 hours)));
+        // v4 default 0: no hard-coded gap threshold, the model decides (v3 used baseFee + 300; still settable).
+        c.arbThresholdPips = uint24(vm.envOr("ARB_THRESHOLD_PIPS", uint256(0)));
     }
 
     function _deployTokens(Deployed memory d) internal {
@@ -200,6 +210,7 @@ abstract contract DeployBase is Script {
         vm.serializeUint(t, "sanityBandBps", c.sanityBandBps);
         vm.serializeUint(t, "minSamples", c.minSamples);
         vm.serializeUint(t, "chainlinkMaxAge", c.chainlinkMaxAge);
+        vm.serializeUint(t, "arbThresholdPips", c.arbThresholdPips);
         vm.serializeAddress(t, "chainlinkFeed", c.chainlinkFeed);
         vm.serializeBool(t, "chainlinkInverted", c.chainlinkInverted);
         return vm.serializeUint(t, "brierDemoteBps", c.brierDemoteBps);

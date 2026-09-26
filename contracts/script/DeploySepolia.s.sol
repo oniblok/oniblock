@@ -25,6 +25,8 @@ import {IRoleOracle} from "../src/interfaces/IRoleOracle.sol";
 /// Env (optional): QUOTER, SETTLER, ATTESTOR (recorded in the JSON; roles are granted via ENS, attestor is set on
 /// the hook), INIT_PRICE_USD, LIQUIDITY, JIT_OFFSET, SANITY_BAND_BPS (default 200), CHAINLINK_MAX_AGE (default 7200 s),
 /// CONFIG_DELAY (hook timelock, default 3600 s), MIN_SAMPLES (default 10), MODEL_NODES, STATE_VIEW, DEPLOYMENTS_OUT.
+/// Fee law (DeployBase, v4 "the AI decides the fee"): ARB_THRESHOLD_PIPS 0, K_MIN_BPS 0, K_DEFAULT_BPS 0, K_MAX_BPS 8000,
+/// MAX_K_STEP_BPS 8000 — the keeper asks Jev every block and k = kMax * p * c (docs/review/V4_AI_DECIDES.md).
 /// R-04: after deployment, transfer hook ownership (Ownable2Step) to a Safe.
 contract DeploySepolia is DeployBase {
     function run() external returns (Deployed memory d) {

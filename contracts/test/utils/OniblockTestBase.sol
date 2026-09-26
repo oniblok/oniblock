@@ -44,6 +44,7 @@ abstract contract OniblockTestBase is Test {
     int256 constant LP_LIQ = 5e16; // ~1000 WETH / 2.5M USDC full range at 2500
     bytes32 constant MODEL = keccak256("jev-v1.models.oniblock.eth");
     uint32 constant MIN_SAMPLES = 10;
+    uint24 constant ARB_THRESHOLD = 3300; // baseFee (3000) + 300 pips
 
     IPoolManager manager;
     PoolModifyLiquidityTest modifyLiquidityRouter;
@@ -118,6 +119,17 @@ abstract contract OniblockTestBase is Test {
         c.brierDemoteBps = 2500;
         c.minSamples = MIN_SAMPLES;
         c.chainlinkMaxAge = 2 hours;
+        c.arbThresholdPips = ARB_THRESHOLD;
+    }
+
+    /// Fee law mirror (default config, arb direction, not stale): min(base + max(0, gap - threshold) * k / 1e4, feeMax).
+    function _lawFee(uint256 gap, uint256 k) internal pure returns (uint24) {
+        return _lawFee(3000, 10000, ARB_THRESHOLD, gap, k);
+    }
+
+    function _lawFee(uint256 base, uint256 feeMax, uint256 thr, uint256 gap, uint256 k) internal pure returns (uint24) {
+        uint256 f = base + (gap > thr ? gap - thr : 0) * k / 10000;
+        return uint24(f > feeMax ? feeMax : f);
     }
 
     /// Settler writes a seasoned calibration record (n = MIN_SAMPLES) with the given Brier.

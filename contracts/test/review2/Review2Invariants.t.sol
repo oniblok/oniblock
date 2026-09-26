@@ -114,7 +114,7 @@ contract Handler is Test {
             if (stale) {
                 if (fee != c.conservativeFee) feeViolations++;
             } else {
-                uint256 f = uint256(c.baseFee) + uint256(gap) * k / 10000;
+                uint256 f = uint256(c.baseFee) + (gap > c.arbThresholdPips ? uint256(gap - c.arbThresholdPips) : 0) * k / 10000;
                 if (!arb) f = c.baseFee;
                 else if (f > c.feeMax) f = c.feeMax;
                 // N-07 floor: a block un-staled by a same-block attestation never charges below conservativeFee
@@ -230,3 +230,4 @@ contract Review2InvariantsTest is OniblockTestBase {
         emit log_named_uint("flushes", handler.flushes());
     }
 }
+

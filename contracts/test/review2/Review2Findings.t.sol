@@ -163,7 +163,7 @@ contract Review2FindingsTest is OniblockTestBase {
         (uint24 fT, bool aT,,) = hook.quoteFee(pkey, towardNow);
         (uint24 fA, bool aA,,) = hook.quoteFee(pkey, !towardNow);
         assertTrue(aT);
-        assertApproxEqAbs(fT, 8000, 1);
+        assertApproxEqAbs(fT, _lawFee(10000, 5000), 1); // +1% high-water gap: 3000 + (10000 - 3300) * 0.5
         assertFalse(aA, "past the mid for this direction => base");
         assertEq(fA, 3000);
         _pushTo(mid); // back to the mid

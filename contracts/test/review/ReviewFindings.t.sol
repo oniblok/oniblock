@@ -163,8 +163,7 @@ contract ReviewFindingsTest is OniblockTestBase {
         (uint24 feeNow, bool arbNow, uint32 gapNow,) = hook.quoteFee(pkey, false);
         assertTrue(arbNow, "backrun is classified as arb in the same block");
         assertApproxEqAbs(gapNow, liveGap, 1);
-        uint256 expect = 3000 + uint256(gapNow) * 5000 / 10000;
-        assertEq(feeNow, expect > 10000 ? 10000 : expect);
+        assertEq(feeNow, _lawFee(gapNow, 5000));
 
         // split backrun: every part pays the first part's fee (high-water), receipts carry the gap used
         vm.recordLogs();
@@ -538,6 +537,7 @@ contract ReviewFindingsTest is OniblockTestBase {
                 c.staleBlocks = uint16(bound(r >> 128, 1, 10));
                 c.maxKStepBps = uint32(bound(r >> 144, 0, 10000));
                 c.minSamples = uint32(bound(r >> 160, 1, 20)); // N-04: >= 1
+                c.arbThresholdPips = uint24(bound(r >> 176, 0, c.feeMax)); // v3: <= feeMax
                 hook.updatePoolConfig(pid, c);
                 (OniblockHook.PoolState memory st,,) = hook.poolState(pid);
                 assertGe(st.kBps, c.kMinBps);
@@ -575,7 +575,7 @@ contract ReviewFindingsTest is OniblockTestBase {
                 if (stale) {
                     assertEq(fee, c.conservativeFee);
                 } else {
-                    uint256 f = uint256(c.baseFee) + uint256(gap) * k / 10000;
+                    uint256 f = uint256(c.baseFee) + (gap > c.arbThresholdPips ? uint256(gap - c.arbThresholdPips) : 0) * k / 10000;
                     if (!arb) f = c.baseFee;
                     else if (f > c.feeMax) f = c.feeMax;
                     // N-07: conservativeFee floor in a block un-staled by a same-block attestation

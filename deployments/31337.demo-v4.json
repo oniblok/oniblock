@@ -1,0 +1,86 @@
+{
+  "allowedModelNodes": [
+    "0x32a8db0cb3a8a2e435ad7fdcd6b92d2e61ba5c4f8276bdcb6937dde855e0cdcf",
+    "0xd980c0ba3b62f0a888e318e1e91df7fc7cdaab2818956e12c7d2b573ee31f846"
+  ],
+  "attestor": "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
+  "blockNumberOffset": 10,
+  "chainId": 31337,
+  "configDelay": 0,
+  "currency0": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+  "currency1": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
+  "deployBlock": 1,
+  "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+  "eip712": {
+    "attestationType": "Attestation(bytes32 poolId,uint64 blockNumber,uint256 oracleMidX96,uint32 pToxicBps,uint32 confidenceBps,bytes32 modelNode)",
+    "chainId": 31337,
+    "name": "Oniblock",
+    "verifyingContract": "0x94e475a8B8Fea55651cE1c77Be2B50BE8cCe75C3",
+    "version": "1"
+  },
+  "hook": "0x94e475a8B8Fea55651cE1c77Be2B50BE8cCe75C3",
+  "hookSalt": "0x00000000000000000000000000000000000000000000000000000000000004d8",
+  "initPriceUsdE8": 266750000000,
+  "initialLiquidity": 50000000000000000,
+  "liquidityRouter": "0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82",
+  "modelNode": "0x32a8db0cb3a8a2e435ad7fdcd6b92d2e61ba5c4f8276bdcb6937dde855e0cdcf",
+  "poolManager": "0x5BD46E1FaA70f83F5d6A5d69F7e63429332101d2",
+  "pools": {
+    "oniblock": {
+      "config": {
+        "arbThresholdPips": 0,
+        "baseFee": 3000,
+        "brierDemoteBps": 2500,
+        "chainlinkFeed": "0x0000000000000000000000000000000000000000",
+        "chainlinkInverted": false,
+        "chainlinkMaxAge": 7200,
+        "conservativeFee": 5000,
+        "feeMax": 10000,
+        "kDefaultBps": 0,
+        "kMaxBps": 8000,
+        "kMinBps": 0,
+        "maxKStepBps": 8000,
+        "minSamples": 3,
+        "sanityBandBps": 0,
+        "staleBlocks": 5
+      },
+      "key": {
+        "currency0": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+        "currency1": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
+        "fee": 8388608,
+        "hooks": "0x94e475a8B8Fea55651cE1c77Be2B50BE8cCe75C3",
+        "tickSpacing": 60
+      },
+      "poolId": "0xbf0a5c9570786b4b75b8065af704e23dfcf979b07d6b0fdf7e3b0193bc47fcaf"
+    },
+    "vanilla": {
+      "key": {
+        "currency0": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+        "currency1": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
+        "fee": 3000,
+        "hooks": "0x0000000000000000000000000000000000000000",
+        "tickSpacing": 60
+      },
+      "poolId": "0x0dca2477afff6fe899ee14b08f5f2397e75f6f23e2e4c2e49db93fc1ee207d45"
+    }
+  },
+  "quoter": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+  "roleOracle": "0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9",
+  "roleOracleType": "mock",
+  "settler": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+  "splitSwapRouter": "0x9A676e781A523b5d0C0e43731313A708CB607508",
+  "stateView": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
+  "tokens": {
+    "mUSDC": {
+      "address": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
+      "decimals": 6,
+      "symbol": "mUSDC"
+    },
+    "mWETH": {
+      "address": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+      "decimals": 18,
+      "symbol": "mWETH"
+    }
+  },
+  "wethIsToken0": true
+}
