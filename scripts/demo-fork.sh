@@ -2,7 +2,7 @@
 # Oniblock on an Anvil fork of Sepolia: real ENSv2 + real v4 PoolManager + real Chainlink ETH/USD.
 # Nothing is broadcast to Sepolia; every tx goes to the local fork.
 #
-#   1. anvil --fork-url $SEPOLIA_RPC_HTTPS --fork-block-number <pinned> (automine during setup)
+#   1. anvil --fork-url $SEPOLIA_RPC_ALCHEMY (or SEPOLIA_RPC_HTTPS) --fork-block-number <pinned> (automine during setup)
 #   2. clear EIP-7702 delegation code on the anvil dev accounts (docs/ENS_INTEGRATION.md, Gotcha 1)
 #   3. EnsSetup: commit -> evm_increaseTime 61 + mine -> finish   (oniblock.eth, roles, resolver, EnsV2RoleOracle)
 #   4. DeploySepolia on the fork: hook on the REAL v4 PoolManager 0xE03A…3543, role oracle = EnsV2RoleOracle,
@@ -66,8 +66,8 @@ for bin in anvil forge cast pnpm curl python3; do command -v "$bin" >/dev/null |
 check_disk 500
 if rpc_up; then echo "[fork] something already serves $RPC — stop it first (or set FORK_PORT)."; exit 1; fi
 
-SEPOLIA_RPC="$(env_get SEPOLIA_RPC_HTTPS)"
-[ -n "$SEPOLIA_RPC" ] || { echo "[fork] SEPOLIA_RPC_HTTPS missing in .env"; exit 1; }
+SEPOLIA_RPC="$(env_get SEPOLIA_RPC_ALCHEMY)"; [ -n "$SEPOLIA_RPC" ] || SEPOLIA_RPC="$(env_get SEPOLIA_RPC_HTTPS)"
+[ -n "$SEPOLIA_RPC" ] || { echo "[fork] SEPOLIA_RPC_ALCHEMY / SEPOLIA_RPC_HTTPS missing in .env"; exit 1; }
 ENS_KEYS=(ENS_NAME ENS_ETH_REGISTRAR ENS_VERIFIABLE_FACTORY ENS_USER_REGISTRY_IMPL ENS_PERMISSIONED_RESOLVER_IMPL ENS_MOCK_USDC ENS_UNIVERSAL_RESOLVER)
 for k in "${ENS_KEYS[@]}" V4_POOL_MANAGER CHAINLINK_ETH_USD; do export "$k=$(env_get "$k")"; done
 ENS_NAME="${ENS_NAME:-oniblock.eth}"

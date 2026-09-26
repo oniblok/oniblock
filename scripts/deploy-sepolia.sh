@@ -23,7 +23,7 @@ LOGS="$ROOT/.runtime/logs/sepolia"; mkdir -p "$LOGS"
 if [ "$REHEARSE" = "1" ]; then
   PORT="${FORK_PORT:-8547}"; RPC="http://127.0.0.1:$PORT"
   ENS_OUT="$ROOT/deployments/11155111.rehearsal.ens.json"; DEP_OUT="$ROOT/deployments/11155111.rehearsal.json"
-  anvil --fork-url "$SEPOLIA_RPC_HTTPS" --port "$PORT" --chain-id 11155111 --no-storage-caching --prune-history 64 \
+  anvil --fork-url "${SEPOLIA_RPC_ALCHEMY:-$SEPOLIA_RPC_HTTPS}" --port "$PORT" --chain-id 11155111 --no-storage-caching --prune-history 64 \
     --retries 10 --timeout 60000 >"$LOGS/anvil-rehearsal.log" 2>&1 &
   ANVIL_PID=$!; trap 'kill $ANVIL_PID 2>/dev/null || true' EXIT
   for _ in $(seq 60); do cast block-number --rpc-url "$RPC" >/dev/null 2>&1 && break; sleep 1; done
@@ -38,7 +38,7 @@ if [ "$REHEARSE" = "1" ]; then
   [ -s "$ROOT/deployments/11155111.ens.json" ] && cp "$ROOT/deployments/11155111.ens.json" "$ENS_OUT"
   VERIFY=()
 else
-  RPC="$SEPOLIA_RPC_HTTPS"
+  RPC="${SEPOLIA_RPC_ALCHEMY:-$SEPOLIA_RPC_HTTPS}" # Alchemy when set (the public endpoint rate-limits)
   ENS_OUT="$ROOT/deployments/11155111.ens.json"; DEP_OUT="$ROOT/deployments/11155111.json"
   wait61() { echo "[sepolia] waiting 75 s for the ENS commitment to mature..."; sleep 75; }
   VERIFY=(); [ "${VERIFY_CONTRACTS:-0}" = 1 ] && VERIFY=(--verify)
