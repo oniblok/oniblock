@@ -50,7 +50,7 @@ export function modelKind(name: string | undefined): string | null {
   if (/jev/i.test(name)) return 'jev';
   if (/heuristic/i.test(name)) return 'heuristic';
   if (/^rule-/i.test(name)) return 'rule';
-  if (/^oniblock1\./i.test(name)) return 'oniblock1'; // the production LightGBM model
+  if (/^oniblock1\./i.test(name)) return 'oniblock1'; // the production model (Kev System One fine-tune)
   return name.split('.')[0] ?? name;
 }
 

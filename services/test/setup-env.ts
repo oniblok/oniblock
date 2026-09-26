@@ -3,7 +3,9 @@
 // from changing test behaviour. A variable exported for the test run itself is left alone. API keys still load.
 const KEEPER_BEHAVIOUR = [
   'MODEL_MODE',
-  'TABULAR_MODEL',
+  'KEV_URL',
+  'KEV_THRESHOLD_FILE',
+  'TABULAR_MODEL_PATH',
   'CHARGE_THRESHOLD',
   'CHARGE_THRESHOLD_FALLBACK',
   'KEEPER_POST',

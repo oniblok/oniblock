@@ -27,13 +27,14 @@ export interface ModelScore {
   /**
    * v5 JIT head: P(liquidity added in the next block is opportunistic just-in-time fee capture, removed again within
    * ~JIT_LABEL_BLOCKS) in bps (0..10000). The hook turns it into the JIT penalty window
-   * (jitWindowMin + (jitWindowMax - jitWindowMin) * p * c / 1e8). 0 = "no JIT signal" (kev/tabular have no JIT head).
+   * (jitWindowMin + (jitWindowMax - jitWindowMin) * p * c / 1e8). 0 = "no JIT signal" (kev = oniblock1, and the benchmark-only tabular teacher, have no JIT head).
    */
   pJitBps: number;
   cls: FlowClass;
   latencyMs: number;
   /** 'rule' = the keeper's deterministic below-threshold rule (v3 gate; no model was called). */
-  /** 'kev' = local fine-tuned Kev (MODEL_MODE=kev), 'tabular' = LightGBM trees (MODEL_MODE=tabular or oniblock1: the oniblock1 model); see ml/RESULTS.md. */
+  /** 'kev' = the local fine-tuned Kev System One model (MODEL_MODE=oniblock1 or kev: the oniblock1 model); 'tabular' =
+   *  the teacher LightGBM (model/tabular.ts), benchmark only: the keeper never produces it. */
   model: 'jev' | 'heuristic' | 'rule' | 'kev' | 'tabular';
   /** true if the degraded (deliberately wrong) transform was applied — calibration-gate demo. */
   degraded?: boolean;

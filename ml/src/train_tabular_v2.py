@@ -1,4 +1,5 @@
-"""oniblock1 (the production model): LightGBM on the v1 tabular inputs + edgeSigma, vol5mBps, ret12Bps, ret36Bps, ret900Bps, sgap.
+"""teacher-lightgbm (NOT a production model: the teacher whose p are Kev v2's soft targets, and a benchmark reference;
+no ENS node; production is oniblock1 = the Kev System One LLM, ml/models/kev08b-v1): LightGBM on the v1 tabular inputs + edgeSigma, vol5mBps, ret12Bps, ret36Bps, ret900Bps, sgap.
 
 Reads <data>/tabular_features.parquet (build_v2.py; default ml/train_kev4b/data/v2-fresh = build_v2.py --query-lag 3, the
 Binance read ~2 s before the block). Never reads test.
@@ -13,8 +14,8 @@ Compares with a v1-inputs LightGBM retrained in this pipeline (and with tabular-
 keeper uses, only if export_tabular.py's v1 JSON is at hand in ml/runs/tabular-v1/, after train_tabular.py; the repo
 no longer ships it). Writes ml/models/<name>.json (format of services/src/model/tabular.ts) and ml/models/<name>_results.json.
 
-usage: python train_tabular_v2.py      (= --data ml/train_kev4b/data/v2-fresh --name oniblock1: rewrites ml/models/oniblock1.json)
-       python train_tabular_v2.py --data ml/train_kev4b/data/v2 --name <other>   (the 11 s-old-mid data; never name it oniblock1)
+usage: python train_tabular_v2.py      (= --data ml/train_kev4b/data/v2-fresh --name teacher-lightgbm: rewrites ml/models/teacher-lightgbm.json)
+       python train_tabular_v2.py --data ml/train_kev4b/data/v2 --name <other>   (the 11 s-old-mid data)
 """
 import argparse, json, math, hashlib
 from pathlib import Path
@@ -116,11 +117,11 @@ def fit(tr, feats, variant, hp):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", type=Path, default=DATA_FRESH, help="build_v2.py output directory (tabular_features.parquet)")
-    ap.add_argument("--name", default="oniblock1", help="model name; writes ml/models/<name>.json, node <name>.models.oniblock.eth")
+    ap.add_argument("--name", default="teacher-lightgbm", help="model name; writes ml/models/<name>.json (no ENS node: not a production model)")
     ap.add_argument("--results", type=Path, default=None, help="results JSON (default ml/models/<name>_results.json)")
     a = ap.parse_args()
     name = a.name
-    node = f"{name}.models.oniblock.eth"
+    node = None  # not a production model: never attested, no ENS node
     results = a.results or MODELS / f"{name}_results.json"
     data = a.data.resolve()
     man = json.load(open(data / "manifest.json")) if (data / "manifest.json").exists() else {}
@@ -167,7 +168,8 @@ def main():
         "node": node,
         "chargeThreshold": opv["threshold"],
         "notes": {
-            "summary": summary(name, len(out["trees"]), len(out["features"]), lag),
+            "summary": (f"{name} (not a production model; no ENS node): the teacher that produced the soft targets for Kev v2, kept as a benchmark reference. "
+                        + summary(name, len(out["trees"]), len(out["features"]), lag).split(": ", 1)[1]),
             "inputs": "tabular.ts tabularInputs order: v1 11 inputs, then edgeSigma, vol5mBps, ret12Bps, ret36Bps, ret900Bps "
                       "(the keeper Features fields as given), sgap = gapSign * gapPips",
             "orientation": "canonical training orientation (baseIsToken0 = false): gapSign +1 = ETH cheaper in the pool than on Binance; "

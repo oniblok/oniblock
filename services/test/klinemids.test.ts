@@ -1,6 +1,3 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Kline } from '../src/cex.js';
 import { computeFeatures, computeKlineMidFeatures, type MidObs } from '../src/features.js';
@@ -129,23 +126,16 @@ describe('fetchKlineMids (offline, mocked Binance)', () => {
 });
 
 describe('klineMidFeaturesNeeded', () => {
-  it('only the v2 models with a live mid', () => {
-    delete process.env.TABULAR_MODEL_PATH;
-    delete process.env.TABULAR_MODEL;
-    expect(klineMidFeaturesNeeded('oniblock1', true)).toBe(true);
-    expect(klineMidFeaturesNeeded('oniblock1', false)).toBe(false); // replay / injected mids
-    expect(klineMidFeaturesNeeded('tabular', true)).toBe(true); // tabular = oniblock1 too
-    // keyed on the model file's inputs, not the mode: a tree file without v2 mid inputs keeps the per-tick path
-    const p = join(mkdtempSync(join(tmpdir(), 'kmn-')), 'pool-only.json');
-    writeFileSync(p, JSON.stringify({ version: 2, name: 'pool-only', features: ['gapPips', 'edgePips', 'sgap'], trees: [{ v: 0 }] }));
-    process.env.TABULAR_MODEL_PATH = p;
-    expect(klineMidFeaturesNeeded('tabular', true)).toBe(false);
+  it('only a Kev v2 state (KEV_STATE_FORMAT=kev2) with a live mid', () => {
+    delete process.env.KEV_STATE_FORMAT; // default auto = the v1 adapter (today's oniblock1 weights): per-tick path
     expect(klineMidFeaturesNeeded('oniblock1', true)).toBe(false);
-    delete process.env.TABULAR_MODEL_PATH;
-    process.env.KEV_STATE_FORMAT = 'kev2';
-    expect(klineMidFeaturesNeeded('kev', true)).toBe(true);
-    delete process.env.KEV_STATE_FORMAT;
     expect(klineMidFeaturesNeeded('kev', true)).toBe(false);
+    process.env.KEV_STATE_FORMAT = 'kev2';
+    expect(klineMidFeaturesNeeded('oniblock1', true)).toBe(true);
+    expect(klineMidFeaturesNeeded('kev', true)).toBe(true); // alias
+    expect(klineMidFeaturesNeeded('oniblock1', false)).toBe(false); // replay / injected mids
+    expect(klineMidFeaturesNeeded('auto', true)).toBe(false); // Jev never reads the kev2 lines
+    delete process.env.KEV_STATE_FORMAT;
     expect(klineMidFeaturesNeeded('auto', true)).toBe(false);
     expect(klineMidFeaturesNeeded('jev', true)).toBe(false);
     expect(klineMidFeaturesNeeded('heuristic', true)).toBe(false);

@@ -1,30 +1,66 @@
 /**
- * Kev (jaredpalmer/kev: open, Jev-compatible decision model), fine-tuned on Oniblock's mainnet dataset
- * (ml/hf_release). It runs locally behind Kev's own TypeSafe System One server:
+ * oniblock1, the production model: Kev (jaredpalmer/kev, an open TypeSafe System One decision model) fine-tuned on
+ * Oniblock's mainnet dataset (ml/hf_release). Today's weights are the Kev-0.8B LoRA adapter ml/models/kev08b-v1/adapter
+ * (v1 data: base-fee state wording, Binance read ~11 s old); Kev v2 replaces them later. It runs locally behind Kev's own
+ * System One server:
  *
- *   KEV_MODEL=0.8b|4b ml/serve/start-kev.sh        # wraps `python -m kev.serve --run <adapter dir> --port 8008`
+ *   ml/serve/start-kev.sh        # wraps `python -m kev.serve --run ml/models/kev08b-v1/adapter --port 8008`
  *
  *   POST http://127.0.0.1:8008/v1/systemone
  *   body   { model: "kev-latest", state: string, questions: { informed: { type: "noul", instructions, criteria } } }
  *   answer { answers: { informed: { type: "noul", noul: <P(true)> } }, latency_ms }
  *
- * The state is the plain featuresToState text (format 'auto') rendered from k-free features (index.ts kevState drops
- * kBps / arbFeePips / arbThresholdPips), so it always uses the base-fee wording, exactly what the model was fine-tuned
- * on (ml/src/states.py is a byte-identical port), independent of the on-chain k.
+ * The state is the featuresToState text rendered from k-free features (index.ts kevState drops kBps / arbFeePips /
+ * arbThresholdPips), so it always uses the base-fee wording, exactly what the model was fine-tuned on (ml/src/states.py
+ * is a byte-identical port), independent of the on-chain k. KEV_STATE_FORMAT picks the text: auto (default, the v1
+ * adapter's 8 lines) or kev2 (+ the 3 v2 lines; only for a Kev v2 adapter, and the keeper then fetches the kline mids).
  * Kev has a single calibrated probability head and no separate confidence, so parseKev reports confidence 1
  * (10000 bps) and the hook's k = kMin + (kMax - kMin) * p is monotonic in p. The question text must stay identical to ml/src/states.py KEV_QUESTION.
- * Env: KEV_URL (default http://127.0.0.1:8008/v1/systemone), KEV_MODEL (0.8b|4b -> model node kev-v1 | kev4b-v1),
- * KEV_TIMEOUT_MS (default 1500), KEV_API_KEY (optional bearer, if the server was started with one).
+ * Env: KEV_URL (default http://127.0.0.1:8008/v1/systemone), KEV_TIMEOUT_MS (default 1500), KEV_API_KEY (optional
+ * bearer, if the server was started with one), KEV_THRESHOLD_FILE (the adapter's validation-chosen charge threshold, the
+ * keeper's last CHARGE_THRESHOLD=auto fallback; default ml/models/kev08b-v1/charge_threshold.json).
  * `scoreWithKev` never throws: any failure returns null so the caller falls back to the heuristic.
  */
-import { env } from '../config.js';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { env, ROOT } from '../config.js';
 import { clampBps, type ModelScore } from './types.js';
 
 export const KEV_URL = () => env('KEV_URL', 'http://127.0.0.1:8008/v1/systemone')!;
-export type KevSize = '0.8b' | '4b';
-export const kevSize = (): KevSize => (env('KEV_MODEL', '0.8b') === '4b' ? '4b' : '0.8b');
-/** ENS model node names: kev-v1 = fine-tuned Kev-0.8B, kev4b-v1 = fine-tuned Kev-4B. */
-export const kevModelName = (size: KevSize = kevSize()) => (size === '4b' ? 'kev4b-v1.models.oniblock.eth' : 'kev-v1.models.oniblock.eth');
+/** ENS model node the Kev answers are posted under (MODEL_MODE=oniblock1, and its alias MODEL_MODE=kev). */
+export const KEV_MODEL_NAME = 'oniblock1.models.oniblock.eth';
+
+export function kevThresholdPath(): string {
+  return env('KEV_THRESHOLD_FILE', resolve(ROOT, 'ml', 'models', 'kev08b-v1', 'charge_threshold.json'))!;
+}
+
+export interface KevThresholdFile {
+  chargeThreshold: number;
+  chosenOn?: string;
+  /** KEV_STATE_FORMAT the threshold was chosen with (auto | kev2). */
+  stateFormat?: string;
+}
+
+const thrCache = new Map<string, { mtimeMs: number; t: KevThresholdFile | null }>();
+/**
+ * The adapter's validation-chosen charge threshold (KEV_THRESHOLD_FILE; re-read when the mtime changes). Null if the
+ * file is missing / unparseable / has no chargeThreshold in [0,1] (the keeper then charges nothing). Never throws.
+ */
+export function loadKevThreshold(path = kevThresholdPath()): KevThresholdFile | null {
+  try {
+    if (!existsSync(path)) return null;
+    const m = statSync(path).mtimeMs;
+    const c = thrCache.get(path);
+    if (c?.mtimeMs === m) return c.t;
+    const j = JSON.parse(readFileSync(path, 'utf8')) as Partial<KevThresholdFile> | null;
+    const v = j?.chargeThreshold;
+    const t = typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1 ? ({ ...j, chargeThreshold: v } as KevThresholdFile) : null;
+    thrCache.set(path, { mtimeMs: m, t });
+    return t;
+  } catch {
+    return null;
+  }
+}
 
 /** Must match ml/src/states.py KEV_QUESTION (training text). */
 export const KEV_QUESTIONS = {

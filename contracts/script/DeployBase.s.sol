@@ -68,7 +68,7 @@ abstract contract DeployBase is Script {
     }
 
     /// Model nodes to allowlist: env MODEL_NODES (comma-separated bytes32) or the keeper defaults: jev-v1, the
-    /// heuristic-v1 fallback and oniblock1 (the production model: LightGBM trees, ml/models/oniblock1.json); rule-v1
+    /// heuristic-v1 fallback and oniblock1 (the production model: the Kev-0.8B System One fine-tune, ml/models/kev08b-v1); rule-v1
     /// (the v3 keeper's deterministic below-threshold rule) only when KEEPER_GATE=1 — the v4 keeper asks the model
     /// every block and never posts under rule-v1. An allowlisted node has fee power from its first attestation (there
     /// is no probation); only Brier demotion (brierDemoteBps, once the settler has posted a record) sends it back to

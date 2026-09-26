@@ -1,8 +1,8 @@
 """Export the val-selected LightGBM model to a compact JSON evaluated by services/src/model/tabular.ts (no native deps).
 Also writes parity fixtures (features -> p) so the TS evaluator can be tested against LightGBM's own predictions.
 v1 pipeline, kept for reproducibility: reads and writes ml/runs/tabular-v1/ (train_tabular.py's output, gitignored) only.
-The repo no longer ships tabular-v1; the production model is oniblock1 (ml/src/train_tabular_v2.py), whose TS parity
-fixture is written by ml/src/oniblock1_parity_fixture.py.
+The repo no longer ships tabular-v1; the only tree model left is teacher-lightgbm (ml/src/train_tabular_v2.py; benchmark/teacher
+only, not a production model), whose TS parity fixture is written by ml/src/teacher_lightgbm_parity_fixture.py.
 
 JSON: {version, name, features: [...], base: 0, trees: [node...]}; node = {f, t, l, r} (go left iff x[f] <= t)
 or {v} (leaf value, raw margin). p = sigmoid(sum of leaves).

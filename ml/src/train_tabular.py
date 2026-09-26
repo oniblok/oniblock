@@ -2,8 +2,8 @@
 Model selection / early stopping on val only. Latency = single-row predict wall time (median over 200 rows).
 This is the v1 pipeline, kept for reproducibility: a re-run writes the test (and val) predictions preds_<name>_<split>.parquet,
 the fitted models <name>.pkl and tabular_results.json to ml/runs/tabular-v1/ (gitignored), never over the stored results
-in ml/models/ (which ml/src/evaluate.py reads). The repo ships no v1 weights; the production model is oniblock1
-(ml/src/train_tabular_v2.py).
+in ml/models/ (which ml/src/evaluate.py reads). The repo ships no v1 weights; the only tree model left is
+teacher-lightgbm (ml/src/train_tabular_v2.py; not a production model: oniblock1 is the Kev System One LLM).
 
 usage: python train_tabular.py [--no-tabpfn] [--train-extra o23]
 """
