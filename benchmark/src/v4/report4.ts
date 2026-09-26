@@ -6,7 +6,7 @@ import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { blockBootstrapSum } from '../util.js';
 import { aggWindows, type Agg } from '../v2/report2.js';
-import { MARKETS, type Pool } from './chain4.js';
+import { MARKETS, type Hooked, type Pool } from './chain4.js';
 import type { RunConfigV4, RunResultV4 } from './sim4.js';
 
 type MarketName = (typeof MARKETS)[number]['name'];
@@ -58,6 +58,58 @@ export function marketMetrics(r: RunResultV4) {
   }
   MARKETS.forEach((m, i) => (out[m.name] = one(m, i)));
   return out;
+}
+
+/** Ethereum mainnet: one 12 s block = one keeper post opportunity per pool. */
+export const MAINNET_BLOCK_SEC = 12;
+
+/**
+ * Keeper cost of one hooked pool's setAttestation posts in a run (gasUsed from the receipts; txs were sent at gas
+ * price 0, which does not change gasUsed). Two views:
+ *   sim     : the posts actually sent in the run (one keeper turn per keeperEvery 1 s steps), at `gwei`.
+ *   mainnet : posts per keeper turn x (3600 / 12) turns per hour, i.e. the run's post rate re-expressed on 12 s
+ *             blocks. Exact for 'every'; for 'change' at keeperEvery 1 it is a LOWER bound (a 12 s block sees more
+ *             drift than a 1 s step), so runs with keeperEvery 12 measure it directly.
+ * Gross LP-HODL vs vanilla is the run's (per hour of replayed data); net = gross - mainnet keeper cost, i.e. it
+ * assumes the LPs (or the pool) fund the keeper.
+ */
+export function keeperCost(r: RunResultV4, comp: Hooked, vanilla: Pool, opts: { gwei?: number; gasPerPost?: number } = {}) {
+  const k = r.keeper;
+  if (!k) return null;
+  const p = k.pools[comp];
+  const gwei = opts.gwei ?? k.gasGwei;
+  const T = r.config.steps;
+  const hours = T / 3600;
+  const sent = p.posts + p.reverted;
+  const gasPerPost = opts.gasPerPost ?? (sent ? p.gas / sent : 0);
+  const usdPerGas = gwei * 1e-9 * k.ethUsd;
+  const bps = (usd: number) => (usd / r.initialTvlUsd) * 1e4;
+  const simUsd = (opts.gasPerPost !== undefined ? sent * gasPerPost : p.gas) * usdPerGas;
+  const postsPerTurn = k.turns ? sent / k.turns : 0;
+  const mainnetPostsPerHour = postsPerTurn * (3600 / MAINNET_BLOCK_SEC);
+  const mainnetUsdPerHour = mainnetPostsPerHour * gasPerPost * usdPerGas;
+  const grossUsdPerHour = (r.totals[comp].lpMinusHodl - r.totals[vanilla].lpMinusHodl) / hours;
+  return {
+    posts: p.posts,
+    reverted: p.reverted,
+    postsPerStep: p.posts / T,
+    postsPerTurn,
+    gas: p.gas,
+    gasPerPost,
+    reasons: p.reasons,
+    kPredictMiss: p.kPredictMiss,
+    gwei,
+    ethUsd: k.ethUsd,
+    simUsd,
+    simBps: bps(simUsd),
+    mainnetPostsPerHour,
+    mainnetUsdPerHour,
+    mainnetBpsPerHour: bps(mainnetUsdPerHour),
+    grossUsdPerHour,
+    grossBpsPerHour: bps(grossUsdPerHour),
+    netUsdPerHour: grossUsdPerHour - mainnetUsdPerHour,
+    netBpsPerHour: bps(grossUsdPerHour - mainnetUsdPerHour),
+  };
 }
 
 function modelMetrics(r: RunResultV4) {
@@ -323,6 +375,26 @@ export function writeReportV4(results: RunResultV4[], outDir: string, meta: Meta
   for (const r of results)
     T.push(`| ${r.label} | ${r.config.steps} | ${r.runtimeSec} | ${r.txCount} | ${r.reverts.length} | ${r.missedPosts} | ${r.arbWins.join('/')} | ${r.retailOrders} / ${fmt(r.retailUsd, 0)} | ${JSON.stringify(r.jev.counts)} |`);
   T.push('');
+  const withKeeper = results.filter((r) => r.keeper);
+  if (withKeeper.length) {
+    const k0 = withKeeper[0]!.keeper!;
+    T.push('## Keeper cost (setAttestation gas from the receipts)');
+    T.push('');
+    T.push(
+      `Post policy ${k0.policy.mode}${k0.policy.mode === 'change' ? ` (mid ${k0.policy.midBps} bps, k step ${k0.policy.kStepBps} bps, JIT ${k0.policy.jitStepBlocks} blocks, p step ${k0.policy.pStepBps} bps, heartbeat ${k0.policy.heartbeatBlocks} blocks)` : ''}, keeper turn every ${k0.keeperEvery} step(s), ${k0.gasGwei} gwei, ETH at the window's mean mid (ETH windows) or $2500. "sim" = the posts sent in the run; "mainnet /h" = posts per keeper turn x 300 blocks/h (12 s blocks). Net = gross LP-HODL vs vanilla minus the mainnet keeper cost: **this assumes the LPs (or the pool) fund the keeper.**`,
+    );
+    T.push('');
+    T.push('| run | pool | posts | posts/step | gas/post | keeper gas | sim USD | sim bps | mainnet posts/h | mainnet USD/h | mainnet bps/h | gross vs vanilla bps/h | net bps/h |');
+    T.push('|---|---|---|---|---|---|---|---|---|---|---|---|---|');
+    for (const r of withKeeper)
+      for (const m of COMP_MARKETS.filter((x) => x.name === 'ai' || x.name === 'aiheur')) {
+        const c = keeperCost(r, m.comp as Hooked, m.vanilla as Pool)!;
+        T.push(
+          `| ${r.label} | ${m.comp} | ${c.posts} | ${fmt(c.postsPerStep, 3)} | ${fmt(c.gasPerPost, 0)} | ${fmt(c.gas, 0)} | ${fmt(c.simUsd, 2)} | ${fmt(c.simBps, 4)} | ${fmt(c.mainnetPostsPerHour, 0)} | ${fmt(c.mainnetUsdPerHour, 2)} | ${fmt(c.mainnetBpsPerHour, 4)} | ${fmt(c.grossBpsPerHour, 3)} | ${fmt(c.netBpsPerHour, 3)} |`,
+        );
+      }
+    T.push('');
+  }
   T.push('Charts: `chart-lp.svg` / `chart-lp-b500.svg` (LP difference vs vanilla per window and market), `chart-share.svg` (competitor retail share, base tier).');
   writeFileSync(resolve(outDir, 'results.md'), T.join('\n') + '\n');
 
@@ -368,6 +440,7 @@ export function writeReportV4(results: RunResultV4[], outDir: string, meta: Meta
       calibrations: r.calibrations,
       labelDiag: r.labelDiag,
       jev: r.jev,
+      keeper: r.keeper ? Object.fromEntries(COMP_MARKETS.map((m) => [m.name, keeperCost(r, m.comp as Hooked, m.vanilla as Pool)])) : undefined,
       reverts: r.reverts,
       txCount: r.txCount,
       runtimeSec: r.runtimeSec,
