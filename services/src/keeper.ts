@@ -38,7 +38,12 @@
  *      JIT_LABEL_BLOCKS (default 100: "removed within N blocks" for the churn feature; keep = SETTLER_JIT_LABEL_BLOCKS),
  *      JIT_CHURN_WEIGHT (default 0.5: weight of the observed churn in the posted pJit, 0 = raw model answer, 1 = churn only),
  *      STALE_BLOCKS (fallback when poolConfig.staleBlocks is unreadable; decides whether the attested JIT window or the default is in force),
- *      KEEPER_STATS_EVERY (ticks between `jev_rate` summary lines, default 50),
+ *      KEEPER_STATS_EVERY (ticks between `jev_rate` summary lines, default 50; carries posts by reason + skipped),
+ *      KEEPER_POST (default `every` = setAttestation on every tick; `change` = only when it would price swaps
+ *        differently, see `postDecision` in postPolicy.ts and "Posting policy" below),
+ *      KEEPER_POST_MID_BPS (default 2), KEEPER_POST_K_BPS (default 500), KEEPER_POST_JIT_BLOCKS (default 5), KEEPER_POST_P_BPS (default 1000),
+ *      KEEPER_HEARTBEAT_BLOCKS (default on-chain staleBlocks - 1, clamped to that; 0 = no heartbeat, only safe when
+ *        conservativeFee == baseFee — warned once otherwise), all four `change` mode only,
  *      DEGRADED_FILE (touch file to toggle degraded mode live),
  *      KEEPER_FLAGS_FILE (default <root>/.runtime/keeper-flags.json), BACKUP_QUOTER_PK,
  *      CHARGE_THRESHOLD (model v2, 0..1; unset = off): after score()/degrade() the posted pToxic is unchanged and
@@ -70,6 +75,16 @@
  * rule-v1 stays unseasoned => the hook sets k = kDefault for the next block; the next model attestation steps k
  * from kDefault (maxKStepBps). Above the threshold the model is called as before (Jev, heuristic fallback under
  * heuristic-v1). Jev call rate (model ticks / attested ticks) is logged on every line and summarised periodically.
+ *
+ * Posting policy (KEEPER_POST=change): the features and the model call are unchanged every tick; before signing, the
+ * keeper predicts what the hook WOULD store from this score and posts only if that differs from what is stored now.
+ * `last` is read from chain (poolState: kBps, jitWindow, oracleMidX96, lastAttestBlock; kDefault / jitWindowDefault
+ * while stale), never keeper memory, so restarts and the backup quoter are covered. `now.kBps` replicates
+ * setAttestation: isDemoted => kDefault at once, else step-limited (maxKStepBps) from the stored k toward
+ * kFromScore(); `now.jitWindow` = jitWindowFromScore(); both from the hook's views (one extra parallel round trip of
+ * 3 eth_calls per tick, change mode only). A demotion therefore changes the predicted k => reason 'k' => post. Every
+ * tick's log line carries `post` (every|first|k|jit|mid|heartbeat|unverified|skip); skipped ticks log
+ * `attest_skipped`. If the prediction cannot be read the keeper posts (reason 'unverified').
  *
  * Live flags (demo controls; the app's dev panel writes this file, the keeper re-reads it each tick):
  *   { "degraded": boolean,        // deliberately wrong model (calibration-gate demo)
@@ -111,6 +126,7 @@ import { getAttestations, getJitPenalties, getModifyLiquidity, getReceipts, keyT
 import { computeFeatures, JIT_LABEL_BLOCKS_DEFAULT, type JitPenaltyObs, type LiquidityObs, type SwapObs } from './features.js';
 import { defaultJevPrompt, kevStateFormat, score, tabularVersion, type AttackHead, type AttackType, type ModelMode, type ModelScore } from './model/index.js';
 import { midToPriceX96, sqrtPriceX96ToPriceX96 } from './price.js';
+import { postDecision, type PostedState, type PostPolicy, type PostReason } from './postPolicy.js';
 import { createWalletClient, type Chain, type Transport, type Account, type WalletClient } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
@@ -232,6 +248,98 @@ export interface KeeperStats {
   jevAnswers: number; // model ticks answered by Jev (not the heuristic fallback)
   /** modelTicks / ticks */
   jevCallRate: number;
+  /** setAttestation sends by posting reason (KEEPER_POST: 'every' in every mode) */
+  posts: Partial<Record<KeeperPostReason, number>>;
+  /** ticks the posting policy skipped (KEEPER_POST=change) */
+  skipped: number;
+}
+
+// ---------------------------------------------------------------------------------------------- posting policy
+
+/** postDecision's reasons, plus 'unverified': change mode could not read the prediction views, so it posts. */
+export type KeeperPostReason = PostReason | 'unverified';
+
+export const KEEPER_POST_DEFAULTS = { midBps: 2, kStepBps: 500, jitStepBlocks: 5, pStepBps: 1000 } as const;
+
+export interface KeeperPostWarning {
+  code: 'keeper_post_invalid' | 'keeper_heartbeat_clamped' | 'keeper_heartbeat_off';
+  [k: string]: unknown;
+}
+
+/**
+ * KEEPER_POST* env -> PostPolicy for a pool with `staleBlocks` (warnings returned, not logged). `every` (default, or
+ * an unknown value) ignores every other knob. In `change` mode: unset/invalid numbers => defaults; the heartbeat
+ * defaults to staleBlocks - 1 (at least 1) and is clamped to that when >= staleBlocks; heartbeat 0 with
+ * conservativeFee != baseFee is warned (a silent keeper pushes the pool stale at a HIGHER fee).
+ */
+export function keeperPostPolicy(
+  staleBlocks: number,
+  fees: { baseFee: number; conservativeFee?: number } | undefined,
+  get: (name: string) => string | undefined = (n) => env(n),
+): { policy: PostPolicy; warnings: KeeperPostWarning[] } {
+  const warnings: KeeperPostWarning[] = [];
+  const raw = get('KEEPER_POST');
+  const mode = raw === undefined || raw === 'every' ? 'every' : raw === 'change' ? 'change' : undefined;
+  if (mode === undefined) warnings.push({ code: 'keeper_post_invalid', name: 'KEEPER_POST', value: raw, using: 'every' });
+  const maxHb = Math.max(1, Math.floor(staleBlocks) - 1);
+  if (mode !== 'change') return { policy: { mode: 'every', ...KEEPER_POST_DEFAULTS, heartbeatBlocks: maxHb }, warnings };
+  const num = (name: string, dflt: number): number => {
+    const v = get(name);
+    if (v === undefined) return dflt;
+    const n = Number(v);
+    if (Number.isFinite(n) && n >= 0) return n;
+    warnings.push({ code: 'keeper_post_invalid', name, value: v, using: dflt });
+    return dflt;
+  };
+  let heartbeatBlocks = Math.floor(num('KEEPER_HEARTBEAT_BLOCKS', maxHb));
+  if (heartbeatBlocks >= staleBlocks) {
+    warnings.push({ code: 'keeper_heartbeat_clamped', requested: heartbeatBlocks, staleBlocks, using: maxHb });
+    heartbeatBlocks = maxHb;
+  }
+  if (heartbeatBlocks === 0 && fees?.conservativeFee !== undefined && fees.conservativeFee !== fees.baseFee)
+    warnings.push({ code: 'keeper_heartbeat_off', conservativeFee: fees.conservativeFee, baseFee: fees.baseFee, note: 'a silent keeper lets the pool go stale and charge conservativeFee in both directions' });
+  return {
+    policy: {
+      mode: 'change',
+      midBps: num('KEEPER_POST_MID_BPS', KEEPER_POST_DEFAULTS.midBps),
+      kStepBps: num('KEEPER_POST_K_BPS', KEEPER_POST_DEFAULTS.kStepBps),
+      jitStepBlocks: num('KEEPER_POST_JIT_BLOCKS', KEEPER_POST_DEFAULTS.jitStepBlocks),
+      pStepBps: num('KEEPER_POST_P_BPS', KEEPER_POST_DEFAULTS.pStepBps),
+      heartbeatBlocks,
+    },
+    warnings,
+  };
+}
+
+/** The k setAttestation would store (OniblockHook.setAttestation): demoted => kDefault at once, else at most
+ *  maxKStepBps from the stored k toward kFromScore(). */
+export function predictedK(o: { demoted: boolean; targetBps: number; curBps: number; kDefaultBps: number; maxKStepBps: number }): number {
+  if (o.demoted) return o.kDefaultBps;
+  const { targetBps: t, curBps: c, maxKStepBps: m } = o;
+  if (t > c) return t - c > m ? c + m : t;
+  return c - t > m ? c - m : t;
+}
+
+/**
+ * What is in force on-chain, as the posting policy's `last` (hook.poolState): undefined before the first accepted
+ * attestation. `block` = lastAttestBlock (the staleness clock). While stale the pool prices with kDefault and
+ * jitWindowDefault whatever is stored, so those are compared.
+ */
+export function postedFromPoolState(
+  st: { kBps: number | bigint; jitWindow: number | bigint; oracleMidX96: bigint; lastAttestBlock: number | bigint; pToxicBps: number | bigint; pJitBps: number | bigint },
+  staleNow: boolean,
+  cfg: { kDefaultBps?: number; jitWindowDefault?: number },
+): PostedState | undefined {
+  const block = Number(st.lastAttestBlock);
+  if (!(block > 0)) return undefined;
+  return {
+    block,
+    kBps: staleNow && cfg.kDefaultBps !== undefined ? cfg.kDefaultBps : Number(st.kBps),
+    jitWindow: staleNow && cfg.jitWindowDefault !== undefined ? cfg.jitWindowDefault : Number(st.jitWindow),
+    midX96: st.oracleMidX96,
+    pToxicBps: Number(st.pToxicBps),
+    pJitBps: Number(st.pJitBps),
+  };
 }
 
 export interface KeeperOpts {
@@ -263,6 +371,8 @@ export interface KeeperTickResult {
   pJitBps?: number;
   /** v6: the model's attack-type head (choice + full distribution + confidence), if the model has one. */
   attack?: AttackHead;
+  /** posting policy decision (KEEPER_POST); reason 'skip' + posted false = deliberately not sent. */
+  post?: KeeperPostReason;
 }
 
 // ---------------------------------------------------------------------------------------------- v6 verdicts file
@@ -359,6 +469,10 @@ export interface PoolCfg {
   jitWindowDefault?: number;
   /** poolConfig.staleBlocks (attestation older than this => stale => jitWindowDefault in force). */
   staleBlocks?: number;
+  /** fee charged in both directions while stale (heartbeat-0 warning). */
+  conservativeFee?: number;
+  /** max |dk| per accepted attestation (posting policy's predicted k). */
+  maxKStepBps?: number;
 }
 
 export function modelNodes(d?: Deployment) {
@@ -402,7 +516,8 @@ export class Keeper {
   private cfgReadAt = -1;
   /** v6: per-block verdicts for the app (verdictsPath(chainId)). */
   readonly verdicts: VerdictLog;
-  readonly stats: KeeperStats = { ticks: 0, ruleTicks: 0, modelTicks: 0, jevAnswers: 0, jevCallRate: 0 };
+  readonly stats: KeeperStats = { ticks: 0, ruleTicks: 0, modelTicks: 0, jevAnswers: 0, jevCallRate: 0, posts: {}, skipped: 0 };
+  private readonly warned = new Set<string>();
 
   constructor(private readonly o: KeeperOpts) {
     const sel = selectChain(o.chain);
@@ -442,7 +557,7 @@ export class Keeper {
 
   /** Pool fee config from the deployment JSON (fallback when hook.poolConfig is unreadable). */
   private get fileCfg(): PoolCfg {
-    const c = (this.d.raw.pools as Record<string, { config?: { baseFee?: number; feeMax?: number; arbThresholdPips?: number; kDefaultBps?: number; jitWindowDefault?: number; staleBlocks?: number } }> | undefined)?.[this.pool.name]?.config;
+    const c = (this.d.raw.pools as Record<string, { config?: { baseFee?: number; feeMax?: number; arbThresholdPips?: number; kDefaultBps?: number; jitWindowDefault?: number; staleBlocks?: number; conservativeFee?: number; maxKStepBps?: number } }> | undefined)?.[this.pool.name]?.config;
     return {
       baseFee: Number(c?.baseFee ?? envInt('BASE_FEE_PIPS', 3000)),
       feeMax: Number(c?.feeMax ?? 10_000),
@@ -450,6 +565,8 @@ export class Keeper {
       kDefaultBps: c?.kDefaultBps === undefined ? undefined : Number(c.kDefaultBps),
       jitWindowDefault: c?.jitWindowDefault === undefined ? undefined : Number(c.jitWindowDefault),
       staleBlocks: c?.staleBlocks === undefined ? undefined : Number(c.staleBlocks),
+      conservativeFee: c?.conservativeFee === undefined ? undefined : Number(c.conservativeFee),
+      maxKStepBps: c?.maxKStepBps === undefined ? undefined : Number(c.maxKStepBps),
     };
   }
 
@@ -458,7 +575,7 @@ export class Keeper {
     if (this.chainCfg && block - this.cfgReadAt < 100) return this.chainCfg;
     try {
       const c = await this.pc.readContract({ address: this.d.hook, abi: oniblockHookAbi, functionName: 'poolConfig', args: [this.pool.poolId] });
-      this.chainCfg = { baseFee: Number(c.baseFee), feeMax: Number(c.feeMax), arbThresholdPips: Number(c.arbThresholdPips), kDefaultBps: Number(c.kDefaultBps), jitWindowDefault: Number(c.jitWindowDefault), staleBlocks: Number(c.staleBlocks) };
+      this.chainCfg = { baseFee: Number(c.baseFee), feeMax: Number(c.feeMax), arbThresholdPips: Number(c.arbThresholdPips), kDefaultBps: Number(c.kDefaultBps), jitWindowDefault: Number(c.jitWindowDefault), staleBlocks: Number(c.staleBlocks), conservativeFee: Number(c.conservativeFee), maxKStepBps: Number(c.maxKStepBps) };
       this.cfgReadAt = block;
       return this.chainCfg;
     } catch {
@@ -466,11 +583,12 @@ export class Keeper {
     }
   }
 
-  /** Stored pool state: k (what an arbitrageur faces this block) and the v5 JIT window/pJit. undefined if unreadable -> base-fee wording. */
-  private async currentState(): Promise<{ kBps: number; jitWindow: number; pJitBps: number } | undefined> {
+  /** Stored pool state: k (what an arbitrageur faces this block), the v5 JIT window/pJit, and (posting policy) the
+   *  stored mid, lastAttestBlock and staleNow. undefined if unreadable -> base-fee wording. */
+  private async currentState(): Promise<{ kBps: number; jitWindow: number; pToxicBps: number; pJitBps: number; oracleMidX96: bigint; lastAttestBlock: number; staleNow: boolean } | undefined> {
     try {
-      const [st] = await this.pc.readContract({ address: this.d.hook, abi: poolStateAbi, functionName: 'poolState', args: [this.pool.poolId] });
-      return { kBps: Number(st.kBps), jitWindow: Number(st.jitWindow), pJitBps: Number(st.pJitBps) };
+      const [st, , staleNow] = await this.pc.readContract({ address: this.d.hook, abi: poolStateAbi, functionName: 'poolState', args: [this.pool.poolId] });
+      return { kBps: Number(st.kBps), jitWindow: Number(st.jitWindow), pToxicBps: Number(st.pToxicBps), pJitBps: Number(st.pJitBps), oracleMidX96: st.oracleMidX96, lastAttestBlock: Number(st.lastAttestBlock), staleNow };
     } catch {
       return undefined;
     }
@@ -516,6 +634,56 @@ export class Keeper {
     this.scannedTo = block;
   }
 
+  /** KEEPER_POST policy for this pool (warnings logged once each). */
+  private postPolicy(cfg: PoolCfg): PostPolicy {
+    const { policy, warnings } = keeperPostPolicy(cfg.staleBlocks ?? envInt('STALE_BLOCKS', 5), { baseFee: cfg.baseFee, conservativeFee: cfg.conservativeFee });
+    for (const w of warnings) {
+      const key = JSON.stringify(w);
+      if (this.warned.has(key)) continue;
+      this.warned.add(key);
+      log('keeper', w.code, { ...w, code: undefined });
+    }
+    return policy;
+  }
+
+  /**
+   * KEEPER_POST=change: predict what setAttestation would store from this score (hook views, one parallel round trip)
+   * and compare it with what is in force (poolState, read at the top of the tick). Unreadable => post ('unverified').
+   */
+  private async changeDecision(
+    policy: PostPolicy,
+    block: number,
+    state: Awaited<ReturnType<Keeper['currentState']>>,
+    cfg: PoolCfg,
+    a: { pToxicBps: number; confidenceBps: number; pJitBps: number; modelNode: Hex; midX96: bigint },
+  ): Promise<{ post: boolean; reason: KeeperPostReason; kPred?: number; jitPred?: number; last?: PostedState }> {
+    if (!state || cfg.kDefaultBps === undefined || cfg.maxKStepBps === undefined) return { post: true, reason: 'unverified' };
+    const id = this.pool.poolId;
+    const h = { address: this.d.hook, abi: oniblockHookAbi } as const;
+    let views: [boolean, number, number];
+    try {
+      views = await Promise.all([
+        this.pc.readContract({ ...h, functionName: 'isDemoted', args: [id, a.modelNode] }),
+        this.pc.readContract({ ...h, functionName: 'kFromScore', args: [id, a.pToxicBps, a.confidenceBps, a.modelNode] }),
+        this.pc.readContract({ ...h, functionName: 'jitWindowFromScore', args: [id, a.pJitBps, a.confidenceBps, a.modelNode] }),
+      ]);
+    } catch (e) {
+      log('keeper', 'post_predict_error', { block, error: (e as Error).message.split('\n')[0] });
+      return { post: true, reason: 'unverified' };
+    }
+    const [demoted, target, jitPred] = views;
+    const kPred = predictedK({ demoted, targetBps: Number(target), curBps: state.kBps, kDefaultBps: cfg.kDefaultBps, maxKStepBps: cfg.maxKStepBps });
+    const last = postedFromPoolState(state, state.staleNow, cfg);
+    const d = postDecision(last, { block, kBps: kPred, jitWindow: Number(jitPred), midX96: a.midX96, pToxicBps: a.pToxicBps, pJitBps: a.pJitBps }, policy);
+    return { ...d, kPred, jitPred: Number(jitPred), last };
+  }
+
+  private logStats() {
+    const st = this.stats;
+    const statsEvery = envInt('KEEPER_STATS_EVERY', 50);
+    if (statsEvery > 0 && st.ticks % statsEvery === 0) log('keeper', 'jev_rate', { ...st, jevCallRate: +st.jevCallRate.toFixed(3) });
+  }
+
   /** KEEPER_EVERY filter (shared by tick and the slot scheduler, so a skipped block never cancels a pending tick). */
   private skipsBlock(block: number): boolean {
     const every = this.o.every ?? envInt('KEEPER_EVERY', 1);
@@ -552,6 +720,9 @@ export class Keeper {
         this.refreshSwaps(block).then(() => this.poolCfg(block)), // a PoolConfigUpdated in range invalidates the cache first
       ]);
       const kBps = state?.kBps;
+      const policy = this.postPolicy(cfg);
+      // change mode: the staleness clock is on-chain (the backup quoter / a previous keeper may have posted).
+      if (policy.mode === 'change' && state && state.lastAttestBlock > this.lastAttestBlock) this.lastAttestBlock = state.lastAttestBlock;
       // Window in force for adds now: the attested one unless stale (then the pool's default), else unknown.
       const stale = this.lastAttestBlock > 0 && block - this.lastAttestBlock > (cfg.staleBlocks ?? envInt('STALE_BLOCKS', 5));
       const jitWindowNow = state && !stale ? state.jitWindow : (cfg.jitWindowDefault ?? state?.jitWindow);
@@ -608,6 +779,38 @@ export class Keeper {
       const pJitChurn = adds200 > 0 ? (f.liqChurn200 ?? 0) : undefined;
       const churnWeight = jitChurnWeight();
       const pJitPosted = rule ? s.pJitBps : blendPJit(s.pJitBps, pJitChurn, churnWeight);
+      // Posting policy (KEEPER_POST): `every` sends unconditionally (no extra RPC); `change` only when the hook would
+      // store a different k / JIT window / mid, or the heartbeat is due.
+      const dec =
+        policy.mode === 'every'
+          ? ({ post: true, reason: 'every' } as const)
+          : await this.changeDecision(policy, block, state, cfg, { pToxicBps: s.pToxicBps, confidenceBps: s.confidenceBps, pJitBps: pJitPosted, modelNode: node, midX96: oracleX96 });
+      if (dec.post) st.posts[dec.reason] = (st.posts[dec.reason] ?? 0) + 1;
+      else st.skipped++;
+      const predicted = 'kPred' in dec ? { kPred: dec.kPred, jitPred: dec.jitPred, kOnchain: dec.last?.kBps ?? null, jitOnchain: dec.last?.jitWindow ?? null, sinceAttest: dec.last ? block - dec.last.block : null } : {};
+      if (!dec.post) {
+        log('keeper', 'attest_skipped', {
+          block,
+          post: dec.reason,
+          ...predicted,
+          mid,
+          gapPips: f.gapPips,
+          model: s.model,
+          rule,
+          degraded: !!s.degraded,
+          pToxicBps: s.pToxicBps,
+          confidenceBps: s.confidenceBps,
+          pJitBps: pJitPosted,
+          pMalicious: s.pMaliciousBps === undefined ? null : Math.round(s.pMaliciousBps) / 10_000,
+          attack: s.attack?.choice ?? null,
+          modelLatencyMs: s.latencyMs,
+          tickMs: Math.round(performance.now() - t0),
+          posts: st.posts,
+          skipped: st.skipped,
+        });
+        this.logStats();
+        return { block, posted: false, reason: 'skip', post: dec.reason, score: s, mid, gapPips: f.gapPips, rule, arbThresholdPips: cfg.arbThresholdPips, pJitBps: pJitPosted, attack: s.attack };
+      }
       this.domain ??= await resolveAttestDomain(this.pc, this.d.hook, (this.d.raw.eip712 ?? {}) as DomainOpts);
       const att = await signAttestation(this.attestor, this.d.chainId, this.d.hook, {
         poolId: this.pool.poolId,
@@ -656,6 +859,8 @@ export class Keeper {
       log('keeper', ok ? 'attested' : 'attest_failed', {
         block,
         target,
+        post: dec.reason,
+        ...predicted,
         mined: rc?.blockNumber,
         mid,
         gapPips: f.gapPips,
@@ -703,8 +908,7 @@ export class Keeper {
         quoter: sender.address,
         tx: rc?.hash,
       });
-      const statsEvery = envInt('KEEPER_STATS_EVERY', 50);
-      if (statsEvery > 0 && st.ticks % statsEvery === 0) log('keeper', 'jev_rate', { ...st, jevCallRate: +st.jevCallRate.toFixed(3) });
+      this.logStats();
       if (ok && rc?.hash) {
         this.verdicts.append({
           block,
@@ -720,7 +924,7 @@ export class Keeper {
           txHash: rc.hash,
         });
       }
-      return { block, posted: ok, hash: rc?.hash, score: s, mid, gapPips: f.gapPips, reason: ok ? undefined : 'tx', rule, arbThresholdPips: cfg.arbThresholdPips, jitWindow, pJitBps: pJitPosted, attack: s.attack };
+      return { block, posted: ok, hash: rc?.hash, score: s, mid, gapPips: f.gapPips, reason: ok ? undefined : 'tx', rule, arbThresholdPips: cfg.arbThresholdPips, jitWindow, pJitBps: pJitPosted, attack: s.attack, post: dec.reason };
     } catch (e) {
       log('keeper', 'tick_error', { block, error: (e as Error).message.split('\n')[0] });
       return { block, posted: false, reason: (e as Error).message };
@@ -790,6 +994,7 @@ export class Keeper {
       readLeadMs: readLeadMs() ?? null,
       kevStateFormat: kevStateFormat(),
       tabularModel: tabularVersion(),
+      post: env('KEEPER_POST', 'every'),
       jevPrompt: defaultJevPrompt(),
       jitLabelBlocks: envInt('JIT_LABEL_BLOCKS', JIT_LABEL_BLOCKS_DEFAULT),
       priceSource: env('PRICE_SOURCE', 'live'),
@@ -846,7 +1051,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   if (a.once) {
     const bn = Number(await k.pc.getBlockNumber());
     const r = await k.tick(bn);
-    process.exit(r.posted ? 0 : 1);
+    process.exit(r.posted || r.reason === 'skip' ? 0 : 1); // change mode: a deliberate skip is not a failure
   } else {
     k.run();
   }

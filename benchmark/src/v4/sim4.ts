@@ -13,6 +13,12 @@
  *   A_t keeper: settler calibration every M steps, then setAttestation on the 5 hooked pools. The attested oracle mid
  *       is what the keeper could know BEFORE the block: mid[t - keeperLag] (default lag 1 step). With probability
  *       missProb the keeper misses the step (no attestation on any pool; the previous one stays in force and ages).
+ *       The keeper only has a turn on steps t % keeperEvery == 0 (default 1 = every step). On a turn, each pool's
+ *       post goes through services/src/postPolicy.ts postDecision (the live keeper's rule): `last` = the state in
+ *       force on-chain (last AttestationPosted), `now` = the k / JIT window setAttestation would store (the hook's
+ *       demotion + kFromScore + maxKStep replicated from poolConfig; every posted k is checked against the event).
+ *       postMode 'every' (default) posts on every turn = the original benchmark. Every setAttestation's gasUsed is
+ *       read from its receipt (txs go at gasPrice 0; gasUsed does not depend on it) for the keeper-cost accounting.
  *   B_t arbitrage vs the TRUE mid[t]: two competing arbitrageurs with their own CEX taker fee and gas cost; per step
  *       a random priority order and an independent "late" draw per arb (shared by all pools = common random numbers).
  *       On each pool the first on-time arb whose profit (net of CEX fee and gas) exceeds minProfit trades to ITS
@@ -37,6 +43,7 @@ import { loadAbi, lognormal, log, poisson, rng, type Rpc } from '../util.js';
 import { HOOKED, MARKETS, MODEL_POOLS, NODES, POOLS, deployV4, type DeploymentV4, type Hooked, type ModelPool, type Pool } from './chain4.js';
 import type { PathV2 } from '../v2/windows.js';
 import { ScorerV4, heuristicV4, type SourceV4 } from './scorer4.js';
+import { postDecision, type PostMode, type PostReason, type PostedState } from '../../../services/src/postPolicy.js';
 
 export interface ArbSpec {
   cexBps: number;
@@ -89,6 +96,27 @@ export interface RunConfigV4 {
   /** settler dead band (services default $1 / 1 bp; the frozen results_v4 runs used 0 / 0 = sign-only labels) */
   deadbandUsd: number;
   deadbandBps: number;
+  /**
+   * Keeper post policy (services/src/postPolicy.ts, the live keeper's rule). Optional so older configs / raw JSON
+   * still load; unset = 'every' (post on every keeper turn: the original benchmark).
+   */
+  postMode?: PostMode;
+  postMidBps?: number;
+  postKBps?: number;
+  postJitBlocks?: number;
+  postPBps?: number;
+  /** heartbeat in chain blocks; unset = the pool's staleBlocks - 1 (3 sim blocks per step) */
+  heartbeatBlocks?: number;
+  /**
+   * Keeper cadence in steps (default 1): the keeper only gets a turn on steps t % keeperEvery == 0 (e.g. 12 = one
+   * post opportunity per 12 s mainnet block); the attestation then stays in force for the steps in between. Arbs and
+   * retail still act every 1 s step. Needs staleSteps > keeperEvery or the pool goes stale between turns.
+   */
+  keeperEvery?: number;
+  /** keeper cost accounting only (txs are still sent at gasPrice 0; gasUsed is read from the receipts) */
+  keeperGasGwei?: number;
+  /** USD per ETH for keeper gas; unset = the window's mean mid for ETH windows, 2500 otherwise */
+  ethUsd?: number;
 }
 
 export interface PoolTotals {
@@ -156,6 +184,18 @@ export interface RunResultV4 {
   reverts: { label: string; pool?: string; step: number }[];
   txCount: number;
   runtimeSec: number;
+  /** keeper posts per hooked pool: setAttestation receipts (gasUsed is independent of the 0 gas price) */
+  keeper?: {
+    policy: { mode: PostMode; midBps: number; kStepBps: number; jitStepBlocks: number; pStepBps: number; heartbeatBlocks: number };
+    keeperEvery: number;
+    gasGwei: number;
+    ethUsd: number;
+    /** keeper turns that were not missed (decisions taken), per pool = the same for every pool */
+    decisions: number;
+    /** keeper turns including missed ones (= ceil(T / keeperEvery)) */
+    turns: number;
+    pools: Record<Hooked, { posts: number; gas: number; reverted: number; reasons: Partial<Record<PostReason, number>>; kPredictMiss: number }>;
+  };
 }
 
 type TxMeta = { label: 'attest' | 'calib' | 'arb' | 'retail' | 'approve'; pool?: Pool };
@@ -178,6 +218,8 @@ interface PoolRt {
   receipts: ReceiptLog[];
   lastAttestBlock: number;
   kBps: number;
+  /** what is in force on-chain (from the last AttestationPosted event) */
+  posted: PostedState | undefined;
   pInForce: number | undefined;
   pAtBlock: Map<number, number>;
   prevLmh: number;
@@ -294,6 +336,7 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
         receipts: [],
         lastAttestBlock: 0,
         kBps: pj.kDefaultBps !== undefined ? Number(pj.kDefaultBps) : 5000,
+        posted: undefined,
         pInForce: undefined,
         pAtBlock: new Map(),
         prevLmh: 0,
@@ -306,6 +349,41 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
         kN: 0,
       };
     }
+
+    // ---- keeper post policy: replicate the hook's setAttestation k / JIT window from the on-chain pool config, so
+    // `now` in postDecision is exactly what a post would put in force (checked against every AttestationPosted k).
+    const hcfg = {} as Record<Hooked, { kMin: number; kMax: number; kDefault: number; maxKStep: number; staleBlocks: number; minSamples: number; brierDemote: number; jitMin: number; jitDefault: number }>;
+    for (const n of HOOKED) {
+      const c = (await pc.readContract({ address: d.hook, abi: hookAbi, functionName: 'poolConfig', args: [pools[n].id] })) as Record<string, number | bigint>;
+      hcfg[n] = {
+        kMin: Number(c.kMinBps),
+        kMax: Number(c.kMaxBps),
+        kDefault: Number(c.kDefaultBps),
+        maxKStep: Number(c.maxKStepBps),
+        staleBlocks: Number(c.staleBlocks),
+        minSamples: Number(c.minSamples),
+        brierDemote: Number(c.brierDemoteBps),
+        jitMin: Number(c.jitWindowMin),
+        jitDefault: Number(c.jitWindowDefault),
+      };
+      pools[n].kBps = hcfg[n].kDefault; // _afterInitialize: st.kBps = kDefault
+    }
+    const keeperEvery = Math.max(1, Math.round(cfg.keeperEvery ?? 1));
+    const policy = {
+      mode: cfg.postMode ?? ('every' as PostMode),
+      midBps: cfg.postMidBps ?? 2,
+      kStepBps: cfg.postKBps ?? 500,
+      jitStepBlocks: cfg.postJitBlocks ?? 5,
+      pStepBps: cfg.postPBps ?? 1000,
+      heartbeatBlocks: cfg.heartbeatBlocks ?? hcfg.ai.staleBlocks - 1,
+    };
+    const ethUsd = cfg.ethUsd ?? (assetTag === 'ETH' ? mids.reduce((a, b) => a + b, 0) / T : 2500);
+    const kp = Object.fromEntries(HOOKED.map((n) => [n, { posts: 0, gas: 0, reverted: 0, reasons: {} as Partial<Record<PostReason, number>>, kPredictMiss: 0 }])) as NonNullable<
+      RunResultV4['keeper']
+    >['pools'];
+    let keeperTurns = 0;
+    let keeperDecisions = 0;
+    const predictedK = new Map<Hooked, number>();
 
     // ---- tx plumbing
     let nonce = Number(await rpc.call<string>('eth_getTransactionCount', [ACTOR, 'pending']));
@@ -418,6 +496,23 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
       const c = nodeCalib[nodeOf(n)];
       return !c || c.n < cfg.minSamples || (demoteBps > 0 && c.brier > demoteBps);
     };
+    /** OniblockHook._demoted(id, node, node) with the calibration the settler has posted (all models allowlisted). */
+    const hookDemoted = (n: Hooked) => {
+      const c = nodeCalib[nodeOf(n)];
+      const nn = c?.n ?? 0;
+      if (nn < hcfg[n].minSamples) return true;
+      return hcfg[n].brierDemote !== 0 && nn !== 0 && c!.brier > hcfg[n].brierDemote;
+    };
+    /** The k setAttestation would store for score (p, c): kDefault if demoted, else step-limited toward kFromScore. */
+    const hookK = (n: Hooked, pBps: number, cBps: number) => {
+      const h = hcfg[n];
+      if (hookDemoted(n)) return h.kDefault;
+      const target = h.kMin + Math.floor(((h.kMax - h.kMin) * Math.min(pBps, 10_000) * Math.min(cBps, 10_000)) / 1e8);
+      const cur = pools[n].kBps;
+      return target > cur ? Math.min(target, cur + h.maxKStep) : Math.max(target, cur - h.maxKStep);
+    };
+    /** jitWindowFromScore with pJit = 0 (no JIT head in the benchmark; the JIT calibration key is never written). */
+    const hookJit = (n: Hooked) => (0 < hcfg[n].minSamples ? hcfg[n].jitDefault : hcfg[n].jitMin);
     const demCount = Object.fromEntries(MODEL_POOLS.map((n) => [n, { a: 0, b: 0, seasoned: null as number | null }])) as Record<(typeof MODEL_POOLS)[number], { a: number; b: number; seasoned: number | null }>;
     const kBk = Object.fromEntries(HOOKED.map((n) => [n, new Array(nB).fill(0)])) as Record<Hooked, number[]>;
     let missedPosts = 0;
@@ -531,8 +626,11 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
         }
       }
       const scores: Partial<Record<Hooked, { p: number; c: number; pRaw: number; source: SourceV4 | ''; node: Hex }>> = {};
-      if (missed) missedPosts++;
-      else {
+      const turn = t % keeperEvery === 0; // keeperEvery 1 (default): a keeper turn every step, as before
+      if (turn) keeperTurns++;
+      if (turn && missed) missedPosts++;
+      else if (turn) {
+        keeperDecisions++;
         for (const n of HOOKED) {
           const p = pools[n];
           if (!isModel(n)) {
@@ -565,8 +663,15 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
             scores[n] = { p: pDz, c: 10_000, pRaw: s.pToxicBps, source, node: nodeOf(n) };
           } else scores[n] = { p: s.pToxicBps, c: s.confidenceBps, pRaw: s.pToxicBps, source, node: nodeOf(n) };
         }
+        predictedK.clear();
         for (const n of HOOKED) {
           const sc = scores[n]!;
+          // post policy: `last` = what is in force on-chain, `now` = what this post would put in force
+          const now: PostedState = { block: A, kBps: hookK(n, sc.p, sc.c), jitWindow: hookJit(n), midX96: Mk, pToxicBps: sc.p, pJitBps: 0 };
+          const dec = postDecision(pools[n].posted, now, policy);
+          kp[n].reasons[dec.reason] = (kp[n].reasons[dec.reason] ?? 0) + 1;
+          if (!dec.post) continue;
+          predictedK.set(n, now.kBps);
           const att = await signAttestation(
             attestor,
             31337,
@@ -585,6 +690,15 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
       const ra = await sendAndMine(txA, t);
       for (const c of calibrations) if (c.step === t && reverts.some((x) => x.step === t && x.label === 'calib' && x.pool === c.pool)) c.ok = false;
       for (const rc of ra.rcs) {
+        const m = ra.byHash.get(String(rc.transactionHash).toLowerCase());
+        if (m?.label === 'attest' && m.pool) {
+          const k = kp[m.pool as Hooked];
+          k.gas += Number(BigInt(rc.gasUsed));
+          if (rc.status === '0x1') k.posts++;
+          else k.reverted++;
+        }
+      }
+      for (const rc of ra.rcs) {
         for (const lg of rc.logs as { address: string; topics: Hex[]; data: Hex }[]) {
           if (lg.address.toLowerCase() !== d.hook.toLowerCase()) continue;
           try {
@@ -593,9 +707,11 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
             const n = byId.get(String(ev.args.id).toLowerCase()) as Hooked | undefined;
             if (!n) continue;
             pools[n].kBps = Number(ev.args.kBps);
+            if (predictedK.has(n) && predictedK.get(n) !== pools[n].kBps) kp[n].kPredictMiss++;
+            pools[n].posted = { block: Number(ev.args.blockNumber), kBps: Number(ev.args.kBps), jitWindow: Number(ev.args.jitWindow), midX96: BigInt(ev.args.oracleMidX96), pToxicBps: Number(ev.args.pToxicBps), pJitBps: Number(ev.args.pJitBps) };
             pools[n].lastAttestBlock = A;
             pools[n].pInForce = scores[n]!.pRaw / 10_000;
-            attMidInForce = Mk;
+            attMidInForce = Mk; // shared across pools: only exact for labelMid 'attested' when every pool posts together
           } catch {
             /* other events */
           }
@@ -875,6 +991,7 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
       reverts,
       txCount,
       runtimeSec: Math.round((Date.now() - t0) / 1000),
+      keeper: { policy, keeperEvery, gasGwei: cfg.keeperGasGwei ?? 1, ethUsd, decisions: keeperDecisions, turns: keeperTurns, pools: kp },
     };
   } finally {
     anvil.stop();
