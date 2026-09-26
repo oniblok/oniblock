@@ -83,6 +83,30 @@ Why the small eval files: scoring a 4B model on the full 12.8k-row test split ta
 
 If the downloads alone take more than ~40 minutes, stop and tell us — the connection is too slow for this session.
 
+## ⚡ Fast path: Kev-0.8B in about 1 hour
+
+If you don't have 3–4 hours, train **Kev-0.8B** instead. Everything in this guide stays the same except the two model flags, the output folder name, and a smaller training budget. It runs on any Apple Silicon Mac (16 GB is enough).
+
+| Clock | Do |
+|---|---|
+| 0:00–0:10 | Step 1 (install). Base model is only 1.8 GB. |
+| 0:10–0:15 | Smoke test (Step 2) with the flags below. Note the seconds per optimizer step. |
+| 0:15–0:55 | Training on `train_20k.jsonl` with `--epochs 1 --max_steps N`, **N = floor(2400 ÷ seconds-per-step)** (~40 min). |
+| 0:55–1:05 | Step 4 on `val_1k.jsonl` → calibrate → `test_3k.jsonl` once; zero-shot `jaredpalmer/kev-0.8b` on `test_3k.jsonl`. |
+| 1:05–1:15 | `score_kev.py`, latency (Step 5), hash + zip (Step 6). |
+
+Flag substitutions everywhere in Steps 2–6:
+
+| 4B (default in this guide) | 0.8B |
+|---|---|
+| `--base Qwen/Qwen3.5-4B-Base` | `--base Qwen/Qwen3.5-0.8B-Base` |
+| `--init_from jaredpalmer/kev-4b` | `--init_from jaredpalmer/kev-0.8b` |
+| `--out runs/oniblock-kev4b` | `--out runs/oniblock-kev08b` |
+| zero-shot `--run jaredpalmer/kev-4b` | `--run jaredpalmer/kev-0.8b` |
+| result zip `oniblock-kev4b-result.zip` | `oniblock-kev08b-result.zip` |
+
+`--weights_dtype bf16` and `--checkpointing 1` are harmless on 0.8B but not needed. The ENS model node for this adapter is `kev-v1` (4B is `kev4b-v1`). Expect a weaker starting point than 4B; the point is a real, open, hash-verifiable model — report the numbers as they are.
+
 ## Requirements
 
 - macOS on Apple Silicon with **≥32 GB** unified memory (Kev-4B in bf16), or Linux with an NVIDIA GPU (≥24 GB; an L40S/H100 is comfortable).
