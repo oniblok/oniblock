@@ -1,0 +1,23 @@
+{
+  "name": "@oniblock/benchmark",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Five-pool replay benchmark on a fresh anvil: fixed fee vs Detox-style vs Oniblock (const k / model k / gated)",
+  "scripts": {
+    "run": "tsx src/run.ts --full",
+    "bench": "tsx src/run.ts --full",
+    "start": "tsx src/run.ts --full",
+    "run:quick": "tsx src/run.ts --quick",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "dotenv": "^18.0.4",
+    "viem": "^2.56.9"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
