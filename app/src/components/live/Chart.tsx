@@ -4,8 +4,9 @@ import type { FeedBucket } from '@/lib/types';
 import { signed } from '@/lib/format';
 
 /**
- * Bars = Oniblock's edge per interval (LP P&L with Oniblock − without); lines = cumulative LP P&L vs Binance
- * with Oniblock (solid) and without (the plain pool next to it, dashed).
+ * One line: what Oniblock saved LPs so far = cumulative LP P&L vs Binance with Oniblock minus the plain pool next to
+ * it on the same trades. Flat on ordinary trades (both pools earn the same), a step up when arbitrage pays more on
+ * Oniblock, a step down if Oniblock did worse. Bars = the step per interval.
  */
 export function Chart({ buckets, quote }: { buckets: FeedBucket[]; quote: string }) {
   const wrap = useRef<HTMLDivElement>(null);
@@ -24,11 +25,12 @@ export function Chart({ buckets, quote }: { buckets: FeedBucket[]; quote: string
     return () => ro.disconnect();
   }, []);
 
-  const pad = { l: 8, r: 64, t: 12, b: 22 };
+  const pad = { l: 8, r: 76, t: 12, b: 22 };
   const g = useMemo(() => {
     const n = buckets.length;
     const edges = buckets.map((b) => b.oni - b.van);
-    const vals = [0, ...buckets.flatMap((b) => [b.oniCum, b.vanCum])];
+    const cum = buckets.map((b) => b.oniCum - b.vanCum);
+    const vals = [0, ...cum];
     let lo = Math.min(...vals);
     let hi = Math.max(...vals);
     if (hi - lo < 1) {
@@ -48,10 +50,11 @@ export function Chart({ buckets, quote }: { buckets: FeedBucket[]; quote: string
     const band = ih * 0.12;
     const barBase = pad.t + ih * 0.88;
     const barW = Math.max(2, Math.min(18, (iw / Math.max(1, n)) * 0.56));
-    const path = (k: 'oniCum' | 'vanCum') => buckets.map((b, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(b[k]).toFixed(1)}`).join('');
-    const area = buckets.length ? `${path('oniCum')}L${x(n - 1).toFixed(1)},${y(0).toFixed(1)}L${x(0).toFixed(1)},${y(0).toFixed(1)}Z` : '';
+    // step line: the saving changes at a trade and holds until the next one
+    const line = cum.map((v, i) => (i ? `H${x(i).toFixed(1)}V${y(v).toFixed(1)}` : `M${x(0).toFixed(1)},${y(v).toFixed(1)}`)).join('');
+    const area = n ? `${line}L${x(n - 1).toFixed(1)},${y(0).toFixed(1)}L${x(0).toFixed(1)},${y(0).toFixed(1)}Z` : '';
     const ticks = niceTicks(lo, hi, 4);
-    return { n, edges, eMax, band, barBase, barW, x, y, path, area, ticks, iw, ih };
+    return { n, edges, cum, eMax, band, barBase, barW, x, y, line, area, ticks, iw, ih };
   }, [buckets, w, h, pad.l, pad.r, pad.t, pad.b]);
 
   const zeroY = g.y(0);
@@ -78,7 +81,7 @@ export function Chart({ buckets, quote }: { buckets: FeedBucket[]; quote: string
         {/* edge bars (own strip) */}
         <line x1={pad.l} x2={w - pad.r} y1={g.barBase} y2={g.barBase} stroke="var(--grid)" strokeWidth={1} />
         <text x={w - pad.r + 10} y={g.barBase + 4} fontSize={10.5} fill="var(--muted)">
-          edge
+          per trade
         </text>
         {g.edges.map((e, i) => {
           const hgt = (Math.abs(e) / g.eMax) * g.band;
@@ -100,15 +103,13 @@ export function Chart({ buckets, quote }: { buckets: FeedBucket[]; quote: string
         {g.n > 1 && (
           <>
             <path d={g.area} fill="url(#oniFill)" />
-            <path d={g.path('vanCum')} fill="none" stroke="var(--vanilla)" strokeWidth={1.75} strokeDasharray="5 4" strokeLinejoin="round" />
-            <path d={g.path('oniCum')} fill="none" stroke="var(--oni)" strokeWidth={2.25} strokeLinejoin="round" />
+            <path d={g.line} fill="none" stroke="var(--oni)" strokeWidth={2.25} strokeLinejoin="round" />
           </>
         )}
         {hb && hover !== null && (
           <g>
             <line x1={g.x(hover)} x2={g.x(hover)} y1={pad.t} y2={h - pad.b} stroke="var(--axis)" strokeDasharray="2 3" />
-            <circle cx={g.x(hover)} cy={g.y(hb.oniCum)} r={4} fill="var(--oni)" />
-            <circle cx={g.x(hover)} cy={g.y(hb.vanCum)} r={3.5} fill="var(--vanilla)" />
+            <circle cx={g.x(hover)} cy={g.y(g.cum[hover]!)} r={4} fill="var(--oni)" />
           </g>
         )}
         {/* hover capture */}
@@ -143,10 +144,11 @@ export function Chart({ buckets, quote }: { buckets: FeedBucket[]; quote: string
           <div className="mb-1.5 text-muted mono">
             blocks {hb.fromBlock.toLocaleString()}–{hb.toBlock.toLocaleString()}
           </div>
-          <Row c="var(--oni)" k="With Oniblock" v={`${signed(hb.oniCum)} ${quote}`} />
-          <Row c="var(--vanilla)" k="Without" v={`${signed(hb.vanCum)} ${quote}`} />
-          <div className="mt-1.5 border-t border-line pt-1.5">
-            <Row c={hb.oni - hb.van >= 0 ? 'var(--oni)' : 'var(--bad)'} k="Edge this interval" v={`${signed(hb.oni - hb.van)} ${quote}`} />
+          <Row c="var(--oni)" k="Saved so far" v={`${signed(hb.oniCum - hb.vanCum)} ${quote}`} />
+          <Row c={hb.oni - hb.van >= 0 ? 'var(--oni)' : 'var(--bad)'} k="This interval" v={`${signed(hb.oni - hb.van)} ${quote}`} />
+          <div className="mt-1.5 border-t border-line pt-1.5 text-muted">
+            <Row c="var(--oni)" k="Oniblock LPs" v={`${signed(hb.oniCum)} ${quote}`} />
+            <Row c="var(--vanilla)" k="Plain pool LPs" v={`${signed(hb.vanCum)} ${quote}`} />
           </div>
         </div>
       )}
