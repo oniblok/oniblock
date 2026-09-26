@@ -1,0 +1,30 @@
+{
+  "name": "@oniblock/services",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Oniblock off-chain services: CEX mid, Jev/heuristic scorer, keeper, settler, bots",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "keeper": "tsx src/keeper.ts",
+    "settler": "tsx src/settler.ts",
+    "arb": "tsx src/bots/arb.ts",
+    "retail": "tsx src/bots/retail.ts",
+    "e2e": "tsx src/e2e/run-local.ts",
+    "jev:probe": "tsx src/model/jev-probe.ts",
+    "story": "tsx src/e2e/story.ts",
+    "pricesource": "tsx src/pricesource.ts",
+    "calib:experiment": "tsx src/e2e/calib-experiment.ts"
+  },
+  "dependencies": {
+    "dotenv": "^18.0.4",
+    "viem": "^2.56.9"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.2"
+  }
+}
