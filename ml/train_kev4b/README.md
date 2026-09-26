@@ -103,7 +103,7 @@ Flag substitutions everywhere in Steps 2–6:
 | `--init_from jaredpalmer/kev-4b` | `--init_from jaredpalmer/kev-0.8b` |
 | `--out runs/oniblock-kev4b` | `--out runs/oniblock-kev08b` |
 | zero-shot `--run jaredpalmer/kev-4b` | `--run jaredpalmer/kev-0.8b` |
-| result zip `oniblock-kev4b-result.zip` | `oniblock-kev08b-result.zip` |
+| results folder `ml/models/kev4b-v1` | `ml/models/kev08b-v1` |
 
 `--weights_dtype bf16` and `--checkpointing 1` are harmless on 0.8B but not needed. The ENS model node for this adapter is `kev-v1` (4B is `kev4b-v1`). Expect a weaker starting point than 4B; the point is a real, open, hash-verifiable model — report the numbers as they are.
 
@@ -253,23 +253,41 @@ shasum -a 256 ../oniblock-kev4b.SHA256          # ← this single hash is the "m
 cd ../..
 ```
 
-Then zip and send back:
+## Step 7 — Push the results to the repo (preferred over sending files)
+
+Put everything under `ml/models/<node>/` in the Oniblock repo, on a branch, and open a pull request. `<node>` is `kev08b-v1` for the 0.8B run or `kev4b-v1` for 4B. Adjust `KEV=` to where you cloned Kev and `RUN=` to your run name.
 
 ```bash
-zip -r oniblock-kev4b-result.zip \
-  runs/oniblock-kev4b runs/oniblock-kev4b-val runs/oniblock-kev4b-test runs/kev4b-zeroshot-test \
-  runs/oniblock-kev4b.SHA256 runs/oniblock-kev4b.log
+cd <path-to>/oniblock                      # the repo you cloned in "What you received"
+KEV=~/kev; RUN=oniblock-kev08b; NODE=kev08b-v1; ZS=kev08b-zeroshot-test
+D=ml/models/$NODE; mkdir -p $D/eval
+
+cp -r $KEV/runs/$RUN               $D/adapter          # LoRA adapter + pointer head + training_config.json
+cp -r $KEV/runs/$RUN-val           $D/eval/val
+cp -r $KEV/runs/$RUN-test          $D/eval/test
+cp -r $KEV/runs/$ZS                $D/eval/zeroshot-test
+cp    $KEV/runs/$RUN.SHA256        $D/SHA256           # from Step 6
+cp    $KEV/runs/$RUN.log           $D/train.log 2>/dev/null || true
+
+# size guard: GitHub rejects files > 100 MB (a 4B adapter may need `git lfs`; 0.8B is fine)
+find $D -type f -size +95M && echo "^^ too large for a normal push — use git lfs or ask us" 
+
+git checkout -b $NODE-results
+git add $D && git commit -m "ml: $NODE fine-tune results (adapter, eval, model hash)"
+git push -u origin $NODE-results
+gh pr create --fill --title "ml: $NODE fine-tune results" || echo "no push access? fork the repo, push the branch there, and open a PR from the fork"
 ```
+
+Also add `$D/NOTE.md` (commit it with the rest) containing:
+- machine (chip, memory), total training time, peak memory if known;
+- val and **test** metrics for the fine-tuned model and for the zero-shot checkpoint (accuracy, Brier, ECE);
+- serving latency per request;
+- the single model hash line from Step 6 (this is what goes into ENS as `model-hash`);
+- anything you changed from the commands above (flags, subset used, epochs, `--max_steps`).
 
 ## What to send back
 
-1. `oniblock-kev4b-result.zip` (adapter weights + eval outputs incl. each `oniblock_metrics.json` + hash + log).
-2. A short note with:
-   - machine (chip, memory), total training time, peak memory if known;
-   - val and **test** metrics for the fine-tuned model and for zero-shot `jaredpalmer/kev-4b` (accuracy, Brier, ECE);
-   - serving latency per request;
-   - the single model hash line;
-   - anything you changed from the commands above (flags, subset used, epochs).
+Just the pull-request link. If pushing is impossible (no network, no access), fall back to zipping `$D` and sending that.
 
 ## Troubleshooting
 
