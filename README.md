@@ -90,7 +90,8 @@ oniblock.eth                    our own UserRegistry (VerifiableFactory proxy) +
 ├─ settler.oniblock.eth         settler holds ROLE_SETTLER (custom EAC bit 1<<68); addr = settler
 ├─ models.oniblock.eth          own subregistry
 │  ├─ jev-v1                    model-hash, agent-context (ENSIP-26), calibration.* (settler-only)
-│  └─ heuristic-v1              model-hash, agent-context, calibration.* (settler-only)
+│  ├─ heuristic-v1              model-hash, agent-context, calibration.* (settler-only)
+│  └─ kev-v1                    Kev-0.8B fine-tune (open weights); model-hash = SHA-256 of the adapter, agent-context, calibration.* (settler-only)
 └─ pools.oniblock.eth           own subregistry
    └─ weth-usdc                 hook, pool-id, fee-min, fee-max, policy-uri
 ```
@@ -323,7 +324,7 @@ Round 1 found one High (a calibration-gate bypass by rotating model names), whic
 
 **Known limitations** (full list in DESIGN §12):
 - **High-water residual (N-02).** A dominant LP can round-trip the price and leave it at mid + ε, so the toward direction pays the inflated fee for the rest of that block. This is bounded by `feeMax`, lasts one block, and is profitable only for an LP. Integral pricing would remove it.
-- **Freshness.** The gap is only as fresh as the last keeper post. An arb can land before the keeper in a block; the worst case is the conservative fee, never less.
+- **Freshness (arb before keeper).** The gap is measured against the last *posted* mid. An arb that lands in a block before the keeper's post is priced against the old, still-fresh mid; if the pool was aligned with that mid it sees ~0 gap and pays **baseFee** (0.30%), not the conservative fee; had the post landed first it would pay up to `feeMax`. Whoever controls ordering (builders, searchers) can put the arb first, and withheld posts keep the old mid fresh for up to `staleBlocks` (5) before the pool goes stale and charges `conservativeFee`. The worst case is a vanilla pool (baseFee), never below baseFee. Pinned by `contracts/test/review4/AuditFindings.t.sol::test_audit_arbBeforeKeeper_paysBaseFee`.
 - **Same-block attestations** can raise the other direction's fee (N-06) and can apply two k steps in one block (N-10).
 - **Calibration is global per model node,** while the allowlist, `minSamples` and threshold are set per pool (N-13). Small calibration windows are noisy, and a noisy demotion falls back to `kDefault` — with the v4 default `kDefault = 0` that is the base fee (a vanilla pool), never a fee below base.
 - **JIT parking caveat (R-08).** A parked JIT penalty goes to whoever is in range at the next swap. Use a large `blockNumberOffset` in thin pools.
@@ -351,7 +352,7 @@ The keeper's probability comes from a model. `ml/` holds everything to build the
 - **Dataset** — 174,135 real (pool, block) rows from mainnet Uniswap v3 USDC/WETH 0.05% and 0.30% pools (Jul 31 – Sep 25 2026), joined with Binance 1-second mids; label = the block's arbitrage-direction swaps were profitable against Binance after the fee (informed / toxic flow). Time-ordered splits; labels cross-checked against Heimbach et al.'s CEX-DEX searcher addresses. Dataset card: `ml/hf_release/README.md`.
 - **Dead-band labels** — 59% of blocks have |markout| < $1 (price noise). Training and the on-chain calibration gate use only decisive blocks (|markout| > max($1, 1 bp of arb volume)): 26,925 / 11,842 / 12,837 rows.
 - **Baselines** (dead-band test set): base rate Brier 0.238 · heuristic 0.227 · logistic 0.207 · LightGBM 0.201 (AUC 0.72, ECE 0.018).
-- **Kev-4B fine-tuning** — `ml/train_kev4b/README.md` is a self-contained, time-boxed guide (Kev = open-weight, Apache-2.0, Jev-compatible decision model). Data ships as `ml/train_kev4b.zip`; the resulting adapter's SHA-256 is published in ENS as `model-hash` so anyone can verify which model set each fee.
+- **Kev-4B fine-tuning** — `ml/train_kev4b/README.md` is a self-contained, time-boxed guide (Kev = open-weight, Apache-2.0, Jev-compatible decision model). Data ships as `ml/train_kev4b.zip`. The shipped Kev-0.8B adapter (`ml/models/kev08b-v1/`) has its SHA-256 published as `model-hash` on `kev-v1.models.oniblock.eth`, so anyone can verify which model set each fee.
 
 See `ml/README.md` for the rebuild pipeline.
 

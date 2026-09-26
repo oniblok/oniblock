@@ -75,7 +75,7 @@ It is built for the hook allowlist:
 - no reverts in the swap path;
 - `quoteFee` equals what `beforeSwap` charges, so quoters stay honest.
 
-The honest limit is freshness. The gap is only as fresh as the last keeper post, and an arb can land before the keeper in a block. The worst case is the conservative fee, never less. Trading API routing needs Uniswap's manual allowlisting, which a testnet hackathon hook doesn't have, so the demo uses a test router.
+The honest limit is freshness. The gap is measured against the last posted mid, so an arb that lands before the keeper in a block sees the old mid and pays the base fee, like a vanilla pool. It never pays less than the base fee, and if posts stop for more than `staleBlocks` the pool goes stale and charges the conservative fee. Trading API routing needs Uniswap's manual allowlisting, which a testnet hackathon hook doesn't have, so the demo uses a test router.
 
 ## Lines to avoid on stage
 

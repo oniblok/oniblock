@@ -37,7 +37,7 @@ We built a v4 dynamic-fee hook. It combines a directional oracle-gap fee, a per-
 
 4. **The routing allowlist shapes the oracle design, and that is under-documented.**
    - The Uniswap router sends no `hookData`, and hooks that need custom calldata will not be routed. So the hook cannot receive a signed price with the swap.
-   - We push the oracle mid in a keeper transaction once per block and read it from storage. That creates a freshness gap: an arb can land before the keeper in a block, and we fall back to a conservative fee.
+   - We push the oracle mid in a keeper transaction once per block and read it from storage. That creates a freshness gap: an arb that lands before the keeper in a block is priced against the previous mid and pays only the base fee. We fall back to a conservative fee only once posts stop for `staleBlocks` blocks.
    - Knowing the allowlist criteria up front changes the whole architecture: no hookData, no proxy, verified source, dynamic fees reviewed manually, and "never revert in the swap path" (reverts break V4Quoter and aggregator quotes).
    - Suggestion: a single "designing a routable hook" page with these criteria and the recommended oracle patterns (push-and-read versus pull).
 

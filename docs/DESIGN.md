@@ -44,7 +44,7 @@ fee      = arbDir ? min(base + k · max(0, gap − arbThreshold), feeMax) : base
 - The keeper posts `oracleMid` (CEX mid) together with the attestation, once per block. The hook reads the stored value; **no hookData** (Uniswap's router sends none; the allowlist rejects hooks that need custom calldata).
 - **Sanity band:** reject/clamp a posted mid outside a band around Chainlink ETH/USD Sepolia (`0x694AA1769357215DE4FAC081bf1f309aDC325306`). Chainlink Sepolia updates ~hourly, so it is a bound, not the price.
 - **Age:** if the stored mid is older than N blocks → conservative fee. Never revert.
-- **Honest limit (README):** the gap is only as fresh as the last keeper post; an arb can land before the keeper in a block. Worst case is the conservative fee, never less.
+- **Honest limit (README):** the gap is measured against the last *posted* mid. An arb that lands before the keeper's post in a block is priced against the old, still-fresh mid; if the pool was aligned with that mid it sees ~0 gap and pays **baseFee**, not the conservative fee (post first → up to `feeMax`). Ordering is controlled by builders/searchers, and withheld posts keep the old mid fresh for up to `staleBlocks`; only then does the pool go stale and charge `conservativeFee`. Worst case is baseFee (a vanilla pool), never less. Pinned by `contracts/test/review4/AuditFindings.t.sol::test_audit_arbBeforeKeeper_paysBaseFee`.
 
 ### Attested `k`
 
