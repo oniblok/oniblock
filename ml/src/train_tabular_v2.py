@@ -13,8 +13,11 @@ LightGBM retrained in this pipeline. Writes ml/models/tabular-v2.json (format of
 ml/models/tabular_v2_results.json.
 
 usage: python train_tabular_v2.py
+       python train_tabular_v2.py --data ml/train_kev4b/data/v2-fresh --name tabular-v2-fresh \
+           --results /tmp/ml-research/data-fresh/tabular_v2_fresh_results.json      (fresh-CEX variant, build_v2.py --query-lag 3)
 """
-import json, math, hashlib
+import argparse, json, math, hashlib
+from pathlib import Path
 import numpy as np, pandas as pd
 import lightgbm as lgb
 from sklearn.metrics import roc_auc_score
@@ -98,7 +101,18 @@ def fit(tr, feats, variant, hp):
 
 
 def main():
-    F = pd.read_parquet(OUT / "tabular_features.parquet")
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--data", type=Path, default=OUT, help="build_v2.py output directory (tabular_features.parquet)")
+    ap.add_argument("--name", default="tabular-v2", help="model name; writes ml/models/<name>.json, node <name>.models.oniblock.eth")
+    ap.add_argument("--results", type=Path, default=None, help="results JSON (default ml/models/tabular_v2_results.json)")
+    a = ap.parse_args()
+    name = a.name
+    node = NODE if name == "tabular-v2" else f"{name}.models.oniblock.eth"
+    results = a.results or MODELS / "tabular_v2_results.json"
+    data = a.data.resolve()
+    man = json.load(open(data / "manifest.json")) if (data / "manifest.json").exists() else {}
+    lag = man.get("cex_query_lag_s")
+    F = pd.read_parquet(data / "tabular_features.parquet")
     tr = F[(F.split == "train") & ~F.curated_out].sort_values(["ts", "pool"])
     va = F[(F.split == "val") & F.in_deadband].sort_values(["ts", "pool"])
     assert len(va) == 11842
@@ -128,14 +142,14 @@ def main():
     res["best_per_inputs_variant"] = (runs.sort_values(["tpr", "auc"], ascending=False).groupby(["inputs", "variant"]).head(1)
                                       .to_dict("records"))
     res["selected"] = r
-    out = export(m.booster_, "tabular-v2")
+    out = export(m.booster_, name)
     assert out["features"] == V2_INPUTS, out["features"]
     pj = predict_json(out, va[cols(V2_INPUTS)].to_numpy())
     res["json_parity_max_abs_diff_val"] = float(np.max(np.abs(pj - p)))
     assert res["json_parity_max_abs_diff_val"] < 1e-7
     opv = op_point(pj, yv)
     out.update({
-        "node": NODE,
+        "node": node,
         "chargeThreshold": opv["threshold"],
         "notes": {
             "inputs": "tabular.ts tabularInputs order: v1 11 inputs, then edgeSigma, vol5mBps, ret12Bps, ret36Bps, ret900Bps "
@@ -150,15 +164,19 @@ def main():
             "hyperparameters": {**BASE, "num_leaves": r["num_leaves"], "min_child_samples": r["min_child_samples"], "n_estimators": r["n_trees"]},
         },
     })
+    if lag is not None:
+        out["notes"]["cexSnapshot"] = (f"trained on CEX features read at block ts - {lag} s (Binance snapshot age {lag - 1} s at the block: "
+                                       f"gapPips, gapSign, realizedVolBps, edgePips, edgeSigma, vol5mBps, retHBps); pool-side features "
+                                       f"unchanged. Only valid when the keeper's Binance read is that fresh.")
     txt = json.dumps(out, separators=(",", ":"))
-    (MODELS / "tabular-v2.json").write_text(txt)
-    res["tabular-v2.json"] = {"trees": len(out["trees"]), "bytes": len(txt), "sha256": hashlib.sha256(txt.encode()).hexdigest(),
+    (MODELS / f"{name}.json").write_text(txt)
+    res[f"{name}.json"] = {"trees": len(out["trees"]), "bytes": len(txt), "sha256": hashlib.sha256(txt.encode()).hexdigest(),
                               "chargeThreshold": opv["threshold"]}
     imp = pd.Series(m.booster_.feature_importance("gain"), index=V2_INPUTS)
     res["importance_gain_pct"] = (100 * imp / imp.sum()).round(2).sort_values(ascending=False).to_dict()
-    json.dump(res, open(MODELS / "tabular_v2_results.json", "w"), indent=1)
+    json.dump(res, open(results, "w"), indent=1)
     print("SELECTED", json.dumps(r)); print("v1", json.dumps(res["tabular-v1 (shipped json)"]))
-    print(json.dumps(res["best_per_inputs_variant"], indent=0)); print(res["tabular-v2.json"]); print(res["importance_gain_pct"])
+    print(json.dumps(res["best_per_inputs_variant"], indent=0)); print(res[f"{name}.json"]); print(res["importance_gain_pct"])
 
 
 if __name__ == "__main__":

@@ -21,9 +21,17 @@ Train curation: drop (a) rows whose previous slot was missed (ts(t) - ts(t-1) >=
 Soft target: q = clip(0.5 y + 0.5 oof, 0.02, 0.98); oof = out-of-fold LightGBM p on curated train from 5 contiguous
   time-blocked folds, tabular-v2 inputs, dead-band rows (inner early stopping on the last 10% of each fold's train).
 
-usage: python build_v2.py
+Fresh-CEX variant (--query-lag S, default 12 = the dataset's cex_mid_obs convention): the keeper reads Binance at
+  t_obs = ts - S (Mids.mid(t) = close of the 1 s kline opening at t, known at t + 1, so the snapshot age at the block is S - 1 s;
+  S = 0 would leak the label's mid). For S != 12 every CEX-dependent feature is recomputed at t_obs from pool_price_obs and
+  Mids: gapPips = floor(|M - P| / P * 1e6), gapSign = sign(M - P), realizedVolBps = Mids.vol_bps(t_obs) (n = 120, 12 s), then
+  edgePips / edgeSigma / vol5mBps / retHBps as above. Pool-side features, labels, dead band, curation rule, val / test rows and
+  subset rows are unchanged (verified against v1 / the v2 key files). The parity fixture is only written for S = 12.
+
+usage: python build_v2.py [--query-lag 12] [--out DIR] [--no-fixture]
+       python build_v2.py --query-lag 3 --out ml/train_kev4b/data/v2-fresh      (age 2 s: keeper posts first in the block)
 """
-import json, hashlib
+import argparse, json, hashlib, os
 from pathlib import Path
 import numpy as np, pandas as pd
 from common import ML, REPO, Mids
@@ -54,16 +62,27 @@ def jround(x, d):
     return np.floor(np.asarray(x, float) * f + 0.5) / f
 
 
-def keeper_features(df, mids):
+def cex_snapshot(df, mids, lag):
+    """gapPips, gapSign, realizedVolBps with the CEX read at ts - lag (build_blocks.py formulas; lag 12 = the dataset columns)."""
+    obs = df.ts.to_numpy(np.int64) - lag
+    P = df.pool_price_obs.to_numpy(float)
+    M = mids.mid(obs)
+    return pd.DataFrame({"gapPips": np.floor(np.abs(M - P) / P * 1e6), "gapSign": np.sign(M - P), "realizedVolBps": mids.vol_bps(obs)},
+                        index=df.index)
+
+
+def keeper_features(df, mids, lag=12):
     """Keeper Features (features.ts names + rounding) for every row; canonical orientation (baseIsToken0 = false)."""
-    obs = df.ts.to_numpy(np.int64) - 12
-    gs = df.gapSign.to_numpy(float)
+    obs = df.ts.to_numpy(np.int64) - lag
+    cex = df if lag == 12 else cex_snapshot(df, mids, lag)
+    assert np.isfinite(cex[["gapPips", "gapSign", "realizedVolBps"]].to_numpy(float)).all(), "missing CEX data at t_obs"
+    gs = cex.gapSign.to_numpy(float)
     F = pd.DataFrame(index=df.index)
-    F["gapPips"] = df.gapPips.astype(int)
-    F["gapSign"] = df.gapSign.astype(int)
+    F["gapPips"] = cex.gapPips.astype(int)
+    F["gapSign"] = cex.gapSign.astype(int)
     F["imbalance"] = jround(df.imbalance, 4)
     F["sizeToDepth"] = jround(df.sizeToDepth, 6)
-    F["realizedVolBps"] = jround(df.realizedVolBps, 3)
+    F["realizedVolBps"] = jround(cex.realizedVolBps, 3)
     F["attestationAge"] = df.attestationAge.astype(int)
     F["nSwaps"] = df.nSwaps.astype(int)
     F["arbShare"] = jround(df.arbShare, 3)
@@ -118,9 +137,12 @@ def kev_record(state, y, q=None):
 
 
 def write_jsonl(df, path, soft=False):
-    with open(path, "w") as f:
+    """Atomic: write <path>.tmp, then rename (a watcher may start on the file as soon as it exists)."""
+    tmp = Path(str(path) + ".tmp")
+    with open(tmp, "w") as f:
         for s, y, q in zip(df.state_v2, df.y, df.q if soft else [None] * len(df)):
             f.write(json.dumps(kev_record(s, y, q)) + "\n")
+    os.replace(tmp, path)
 
 
 def read_v1(path):
@@ -221,20 +243,47 @@ def sha(p):
 
 
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--query-lag", type=int, default=12, help="keeper CEX read at ts - S (snapshot age S - 1 s); 12 = dataset v2")
+    ap.add_argument("--out", type=Path, default=OUT, help="output directory (default ml/train_kev4b/data/v2)")
+    ap.add_argument("--no-fixture", action="store_true", help="do not write the kev2 parity fixture")
+    a = ap.parse_args()
+    lag, out = a.query_lag, a.out.resolve()
+    assert lag >= 1, "query lag 0 reads the kline that closes at the block timestamp (label leak)"
+    build(lag, out, fixture=(lag == 12 and not a.no_fixture))
+
+
+def build(lag, OUT, fixture=True):
     OUT.mkdir(parents=True, exist_ok=True)
     raw = {name: pd.read_parquet(SRC / f"{split}.parquet") for split, name in SPLITS}
     allr = pd.concat(raw.values(), ignore_index=True)
     tg = tags_for(int(allr.ts.min()) - 1000, int(allr.ts.max()))
     mids = Mids(tg, tg)
     man = {"spec": "/tmp/ml-research/SPEC_v2.md (state format kev2, features, dead band)", "splits": {}, "verify_v1": {}}
+    if lag != 12:
+        man["cex_query_lag_s"] = lag
+        man["cex_snapshot_age_s"] = lag - 1
+        # method check: the recomputation at lag 12 must reproduce the dataset's CEX columns exactly
+        chk = {}
+        for name in raw:
+            c = cex_snapshot(raw[name], mids, 12)
+            chk[name] = {k: bool(np.array_equal(c[k].to_numpy(float), raw[name][k].to_numpy(float))) for k in c.columns}
+            assert all(chk[name].values()), (name, chk[name])
+        man["recompute_at_lag12_equals_dataset"] = chk
     frames, tab = {}, []
     for split, name in SPLITS:
         df = raw[name]
-        F, miss = keeper_features(df, mids)
+        F, miss = keeper_features(df, mids, lag)
         T = np.maximum(1.0, 1e-4 * df.arb_vol_usd_t.to_numpy())
         recs = [feat_dict(r) for r in F.to_dict("records")]
         v1s = [features_to_state(r) for r in recs]
-        assert v1s == df.state.tolist(), f"{name}: v1 state re-render mismatch"
+        if lag == 12:
+            assert v1s == df.state.tolist(), f"{name}: v1 state re-render mismatch"
+        else:
+            man.setdefault("fresh_vs_lag12", {})[name] = {
+                "v1_state_lines_changed_rows": int(sum(a != b for a, b in zip(v1s, df.state))),
+                "gapSign_changed": int((F.gapSign.to_numpy() != df.gapSign.to_numpy()).sum()),
+                "gapPips_changed": int((F.gapPips.to_numpy() != df.gapPips.to_numpy()).sum())}
         st = [features_to_state_kev2(r) for r in recs]
         X = tabular_inputs(F)
         fr = pd.concat([df[["pool", "block", "ts", "markout_usd", "arb_vol_usd_t"]], F.add_prefix("f_"), X.add_prefix("x_")], axis=1)
@@ -266,9 +315,19 @@ def main():
             same_n = len(v1) == len(part)
             lab = same_n and all(bool(a[1]) == bool(b) for a, b in zip(v1, part.y))
             txt = same_n and all(a[0] == b for a, b in zip(v1, part.state_v1))
-            first8 = same_n and all(a[0] == "\n".join(b.split("\n")[:8]) for a, b in zip(v1, part.state_v2))
-            ver[fname] = {"v1_lines": len(v1), "v2_rows": len(part), "labels_equal": bool(lab), "v1_state_equal": bool(txt),
-                          "kev2_first8_lines_equal_v1": bool(first8)}
+            if lag == 12:
+                first8 = same_n and all(a[0] == "\n".join(b.split("\n")[:8]) for a, b in zip(v1, part.state_v2))
+            else:  # fresh CEX lines differ from v1; instead the rows must be the v2 rows (same (pool, block) keys, same order)
+                first8 = True
+                if fname != f"{name}.jsonl":
+                    k2 = pd.read_parquet(V1 / "v2" / f"{sub_name}_keys.parquet")
+                    keys_eq = bool((k2.to_numpy() == part[["pool", "block", "ts"]].to_numpy()).all()) if len(k2) == len(part) else False
+                    assert keys_eq, f"{sub_name}: subset keys differ from v2"
+            ver[fname] = {"v1_lines": len(v1), "v2_rows": len(part), "labels_equal": bool(lab), "v1_state_equal": bool(txt)}
+            if lag == 12:
+                ver[fname]["kev2_first8_lines_equal_v1"] = bool(first8)
+            elif fname != f"{name}.jsonl":
+                ver[fname]["keys_equal_v2_subset_keys"] = True
             assert same_n and lab and txt and first8, (fname, ver[fname])
         man["verify_v1"].update(ver)
         write_jsonl(subs, OUT / f"{sub_name}.jsonl")
@@ -328,7 +387,8 @@ def main():
     tabf.drop(columns=["state_v1"]).to_parquet(OUT / "tabular_features.parquet", index=False)
     tabf.drop(columns=["state_v1", "state_v2"]).to_csv(OUT / "tabular_features.csv.gz", index=False)
 
-    man["parity_fixture"] = write_parity_fixture(tabf)
+    if fixture:
+        man["parity_fixture"] = write_parity_fixture(tabf)
     man["files"] = {p.name: {"lines": sum(1 for _ in open(p)), "sha256": sha(p)} for p in sorted(OUT.glob("*.jsonl"))}
     (OUT / "manifest.json").write_text(json.dumps(man, indent=1))
     print(json.dumps({k: v for k, v in man.items() if k != "files"}, indent=1))
