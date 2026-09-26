@@ -26,7 +26,7 @@ stale mid (older than staleBlocks) → conservativeFee in both directions. The h
 1. **Directional fee law, in the contract.** Only swaps that move the pool *toward* the oracle mid (the arbitrage direction) pay `k · gap`. Swaps in the other direction pay `baseFee`. The law is public and readable on-chain through `quoteFee`. The hook returns `fee | OVERRIDE_FEE_FLAG` on a dynamic-fee pool.
 2. **Per-block anchor with a high-water gap.** The first touch in a block anchors one attestation's `(k, model, mid)`. Each direction keeps the largest toward-oracle gap seen in that block. A split arb (many sub-swaps in one transaction) therefore pays the full fee on every part. Once the live price is back at or past the mid, the direction pays base again, so retail that trades after an arb is not overcharged.
 3. **Stale fallback, never revert.** If no fresh attestation exists, both directions pay `conservativeFee` (not `feeMax`). Every data check happens in the keeper's `setAttestation` transaction, never in the swap path, so the hook never breaks V4Quoter or aggregator quotes.
-4. **Attested `k`, from a model behind the hook: the AI decides (v4).** Every block, the keeper builds a k-free feature state (gap, base fee, the arbitrage edge at the base fee, flow, volatility) and asks **Jev** (`typesafe-ai/jev`, an evaluation model on the Vercel AI Gateway) one typed question: should this pool charge an extra arbitrage fee on the next block, given that the extra fee is proportional to the probability and that no profitable arbitrage at the base fee means a probability near 0? A deterministic heuristic is the fallback. The attestor, a TEE stand-in, signs the result with EIP-712. The contract maps the score to `k = kMin + (kMax−kMin)·p·c`; with the v4 defaults (`kMin = 0`, `kDefault = 0`, `kMax = 0.8`, `maxKStep = kMax`, no gap threshold) that is `k = 0.8·p·c`, so "calm" is exactly the base fee and "toxic" is a high k, applied from the next block. **The model never outputs a fee, and there is no hard-coded threshold.** The oracle mid is posted in the same transaction and checked against a Chainlink ETH/USD band.
+4. **Attested `k`, from a model behind the hook: the AI decides (v4).** Every block, the keeper builds a k-free feature state (gap, base fee, the arbitrage edge at the base fee, flow, volatility) and asks **Jev** (`typesafe-ai/jev`, an evaluation model on the Vercel AI Gateway) one typed question: should this pool charge an extra arbitrage fee on the next block, given that the extra fee is proportional to the probability and that no profitable arbitrage at the base fee means a probability near 0? A deterministic heuristic is the fallback. The attestor, a TEE stand-in, signs the result with EIP-712. The contract maps the score to `k = kMin + (kMax−kMin)·p·c`; with the v4 defaults (`kMin = 0`, `kDefault = 0`, `kMax = 0.8`, `maxKStep = kMax`, no gap threshold) that is `k = 0.8·p·c`, so "calm" is exactly the base fee and "toxic" is a high k, applied from the next block. **The model never outputs a fee, and there is no hard-coded threshold.** The oracle mid is posted in the same transaction and checked against a Chainlink ETH/USD band. Jev is the keeper's default. The production model option is **oniblock1** (`MODEL_MODE=oniblock1`), a LightGBM model trained on mainnet blocks. For how the two compare, see [Results](#results-no-hook-vs-jev-vs-oniblock1).
 5. **Calibration gate: the model earns its power.** An off-chain settler labels every block's arb-direction receipts by markout against the attested mid, computes each model's Brier score, and posts it on-chain (`setCalibration`) and to ENS. A model node has power over `k` only if all three hold:
    - it is allowlisted for the pool;
    - it has at least `minSamples` scored samples (otherwise it is on probation at `kDefault`);
@@ -43,7 +43,7 @@ flowchart LR
   subgraph offchain["Off-chain (services/)"]
     CEX["Binance mid<br/>(live or replayed klines)"]
     KEEP["keeper.ts<br/>features → model → EIP-712 sign"]
-    MODEL["Jev /v1/evaluate<br/>(heuristic fallback)"]
+    MODEL["Jev /v1/evaluate or oniblock1<br/>(heuristic fallback)"]
     SETTLE["settler.ts<br/>markout labels → Brier"]
     CEX --> KEEP
     KEEP <--> MODEL
@@ -91,7 +91,8 @@ oniblock.eth                    our own UserRegistry (VerifiableFactory proxy) +
 ├─ models.oniblock.eth          own subregistry
 │  ├─ jev-v1                    model-hash, agent-context (ENSIP-26), calibration.* (settler-only)
 │  ├─ heuristic-v1              model-hash, agent-context, calibration.* (settler-only)
-│  └─ kev-v1                    Kev-0.8B fine-tune (open weights); model-hash = SHA-256 of the adapter, agent-context, calibration.* (settler-only)
+│  ├─ kev-v1                    Kev-0.8B fine-tune (open weights); model-hash = SHA-256 of the adapter, agent-context, calibration.* (settler-only)
+│  └─ oniblock1                 production LightGBM model; model-hash = SHA-256 of ml/models/oniblock1.json, agent-context, calibration.* (settler-only)
 └─ pools.oniblock.eth           own subregistry
    └─ weth-usdc                 hook, pool-id, fee-min, fee-max, policy-uri
 ```
@@ -208,6 +209,34 @@ Reproduce: `pnpm -C benchmark bench` (about 8 minutes). `pnpm -C benchmark run:q
 <!-- V4-BENCH -->
 **v4: the AI decides the fee (routing competition, 12 windows, both fee tiers).** See `docs/review/V4_AI_DECIDES.md` (results pending at the time of this edit).
 <!-- /V4-BENCH -->
+
+### Results: No hook vs Jev vs oniblock1
+
+**The rule.** The hook charges a premium on a block iff the model's p is at or above a threshold. Otherwise it behaves as a vanilla pool.
+
+**The metrics.**
+- **Pass rate:** the share of charged blocks that were toxic.
+- **FPR:** the share of benign blocks that were charged.
+- **Target:** pass rate ≥ 75% and FPR < 7%.
+
+**The data.** Held-out mainnet Uniswap v3 USDC/WETH blocks from Sep 15–25 2026, graded with the dead-band label the settler uses. The subset is `test_3k`, the 3,000 blocks Jev was scored on. Each row was measured under different conditions, listed in the second column.
+
+| model | conditions | blocks charged | pass rate | FPR | toxic caught | AUC |
+|---|---|---|---|---|---|---|
+| No hook | vanilla pool; never charges a premium | 0% | — | 0% | 0% | — |
+| Jev as deployed | hosted TypeSafe Jev, Binance price 11 s old, k = 0.8·p (premium on every block) | 100% | 59.9% | 100% | 100% | 0.605 |
+| Jev + charge gate | calibrated on validation, charged iff p > 0.7682, price 11 s old | 13.8% | 81.1% | 6.5% | 18.6% | 0.605 |
+| **oniblock1** | keeper posts first in the block, Binance price 2 s old, rolling 7-day threshold at FPR ≤ 5% | **45.2%** | **95.1%** | **5.6%** | **71.7%** | **0.929** |
+
+**Full test.** On the full held-out test (12,837 blocks), oniblock1 has a 95.4% [94.2, 96.6] pass rate and 5.5% [4.2, 6.8] FPR, and catches 72.7% of toxic blocks. The brackets are 95% day-block bootstrap CIs.
+
+**Mainnet-block benchmark.** The hooked pool competes against a vanilla neighbour ([`results_v4/coop-builder`](benchmark/results_v4/coop-builder/results.md): real Binance 1 s klines, 12 s blocks, $20M pools, 3 volatile and 3 calm hours, net of keeper gas). With the keeper first in the block, oniblock1 earns LPs more than the vanilla pool:
+- **0.05% tier:** +0.246 bps/h [0.05, 0.48] ≈ +$492/h.
+- **0.30% tier:** +0.145 bps/h [−0.01, 0.35] ≈ +$290/h.
+
+All of the gain comes in the volatile hours. In calm hours the pool is about −0.01 bps/h, which is the keeper's gas. Jev was not run in the mainnet-block benchmark.
+
+**Full comparison.** [`docs/RESULTS_ONIBLOCK1.md`](docs/RESULTS_ONIBLOCK1.md) has the metric definitions, sources, the benchmark by regime and the reproduce commands.
 
 ---
 
@@ -404,6 +433,7 @@ The keeper's probability comes from a model. `ml/` holds everything to build the
 - **Dataset** — 174,135 real (pool, block) rows from mainnet Uniswap v3 USDC/WETH 0.05% and 0.30% pools (Jul 31 – Sep 25 2026), joined with Binance 1-second mids; label = the block's arbitrage-direction swaps were profitable against Binance after the fee (informed / toxic flow). Time-ordered splits; labels cross-checked against Heimbach et al.'s CEX-DEX searcher addresses. Dataset card: `ml/hf_release/README.md`.
 - **Dead-band labels** — 59% of blocks have |markout| < $1 (price noise). Training and the on-chain calibration gate use only decisive blocks (|markout| > max($1, 1 bp of arb volume)): 26,925 / 11,842 / 12,837 rows.
 - **Baselines** (dead-band test set): base rate Brier 0.238 · heuristic 0.227 · logistic 0.207 · LightGBM 0.201 (AUC 0.72, ECE 0.018).
+- **oniblock1 (production model)** — LightGBM on 17 features. It is trained on the same blocks, with the Binance features read about 2 s before the block (`build_v2.py --query-lag 3`). Test AUC is 0.936. See [`docs/RESULTS_ONIBLOCK1.md`](docs/RESULTS_ONIBLOCK1.md).
 - **Kev-4B fine-tuning** — `ml/train_kev4b/README.md` is a self-contained, time-boxed guide (Kev = open-weight, Apache-2.0, Jev-compatible decision model). Data ships as `ml/train_kev4b.zip`. The shipped Kev-0.8B adapter (`ml/models/kev08b-v1/`) has its SHA-256 published as `model-hash` on `kev-v1.models.oniblock.eth`, so anyone can verify which model set each fee.
 
 See `ml/README.md` for the rebuild pipeline.
