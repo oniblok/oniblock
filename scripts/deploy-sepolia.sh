@@ -63,8 +63,9 @@ else
   echo "[sepolia] ENS finish (register $ENS_NAME, subregistries, roles, resolver, EnsV2RoleOracle)..."
   ens_phase finish || { tail -20 "$LOGS/ens.log"; exit 1; }
 fi
-# v5: the settler also writes calibration.jit.* records; grant those setter roles on an existing setup (no-op if held).
-echo "[sepolia] ENS grant-jit (calibration.jit.* setter roles for the settler)..."
+# the settler also writes calibration.jit.* (v5) and calibration.chargeThreshold records; grant every settler key on an
+# existing setup (no-op for keys already held).
+echo "[sepolia] ENS grant-jit (calibration.* + calibration.jit.* setter roles for the settler)..."
 ens_phase grant-jit || { tail -20 "$LOGS/ens.log"; exit 1; }
 ROLE_ORACLE=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["roleOracle"])' "$ENS_OUT")
 RESOLVER=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["resolver"])' "$ENS_OUT")
@@ -91,7 +92,7 @@ cast send --rpc-url "$RPC" --private-key "$DEPLOYER_PK" "$RESOLVER" "multicall(b
 # 5b. live wildcard resolver + ENSIP-26 endpoints (both idempotent) ---------------------------------
 # add-live deploys OniblockLiveResolver for this hook/pool (reused on re-runs), registers `live.$ENS_NAME` with it (or
 # repoints an existing `live`), sets the known model labels. set-endpoints writes agent-endpoint[web] on jev-v1 and
-# heuristic-v1 (and kev-v1 when ENS_ENDPOINT_KEV is set) if they differ.
+# heuristic-v1 (and kev-v1 / oniblock1 when ENS_ENDPOINT_KEV / ENS_ENDPOINT_ONIBLOCK1 is set) if they differ.
 echo "[sepolia] ENS add-live (OniblockLiveResolver: *.live.$ENS_NAME wildcard-resolved from the hook)..."
 ens_phase add-live || { tail -20 "$LOGS/ens.log"; exit 1; }
 echo "[sepolia] ENS set-endpoints (ENSIP-26 agent-endpoint[web] on jev-v1 / heuristic-v1)..."

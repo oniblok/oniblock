@@ -50,6 +50,7 @@ export function modelKind(name: string | undefined): string | null {
   if (/jev/i.test(name)) return 'jev';
   if (/heuristic/i.test(name)) return 'heuristic';
   if (/^rule-/i.test(name)) return 'rule';
+  if (/^oniblock1\./i.test(name)) return 'oniblock1'; // the production LightGBM model
   return name.split('.')[0] ?? name;
 }
 
@@ -165,10 +166,10 @@ export async function getState(): Promise<StateJson> {
   const lastAttArgs = (lastAtt as { args?: Record<string, unknown> } | undefined)?.args;
   let attestMix: StateJson['status']['attestMix'] = null;
   if (recentAtts.length) {
-    const m = { window: MIX_WINDOW, total: recentAtts.length, jev: 0, heuristic: 0, rule: 0, other: 0 };
+    const m = { window: MIX_WINDOW, total: recentAtts.length, jev: 0, heuristic: 0, oniblock1: 0, rule: 0, other: 0 };
     for (const l of recentAtts as unknown as { args: { modelNode?: Hex } }[]) {
       const k = modelKind(nameOf(c, l.args.modelNode));
-      if (k === 'jev' || k === 'heuristic' || k === 'rule') m[k]++;
+      if (k === 'jev' || k === 'heuristic' || k === 'oniblock1' || k === 'rule') m[k]++;
       else m.other++;
     }
     attestMix = m;
