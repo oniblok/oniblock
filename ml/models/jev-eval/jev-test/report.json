@@ -1,0 +1,16 @@
+{
+ "model": "typesafe-ai/jev",
+ "url": "https://ai-gateway.vercel.sh/v1/evaluate",
+ "data": "ml/train_kev4b/data/test_3k.jsonl",
+ "latency_ms": {
+  "median": 382.83466699067503,
+  "p95": 522.5415830209386
+ },
+ "coverage": {
+  "requested_records": 3000,
+  "evaluated_records": 3000,
+  "failed_records": 0
+ },
+ "wall_seconds": 149.98977518081665,
+ "concurrency": 8
+}

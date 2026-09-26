@@ -18,6 +18,7 @@ ml/raw/
 ml/data/*.parquet
 ml/data/kev/
 ml/train_kev4b/data/
+ml/runs/
 ml/**/__pycache__/
 deployments/*.rehearsal*.json
 .cache/
