@@ -55,4 +55,15 @@ describe('features', () => {
     expect(featuresToState(f)).toContain('swaps toward the Binance mid pay 0.800% (base + k x gap, k = 0.50)');
     expect(computeFeatures({ ...inp, kBps: 8000, feeMax: 10000 }).arbFeePips).toBe(10000); // capped
   });
+
+  it('v4 state is k-free and states the edge at the base fee', () => {
+    const inp = { swaps: [], oracleX96: oracle, poolX96: oracle + oracle / 1000n, depth0: 0n, recentMids: [], currentBlock: 1, lastAttestBlock: 1, baseFee: 3000 };
+    const a = featuresToState(computeFeatures({ ...inp, kBps: 0, feeMax: 10000 }), { format: 'v4' });
+    const b = featuresToState(computeFeatures({ ...inp, kBps: 8000, feeMax: 10000 }), { format: 'v4' });
+    expect(a).toBe(b); // the model's own k never feeds back into its input
+    expect(a).toContain('arb_edge_at_base_fee: gap minus base fee = -0.200%');
+    expect(a).toContain('NO profitable arbitrage');
+    const hi = featuresToState(computeFeatures({ ...inp, poolX96: oracle + oracle / 200n }), { format: 'v4' });
+    expect(hi).toContain('arbitrage IS profitable at the base fee');
+  });
 });

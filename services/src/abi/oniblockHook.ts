@@ -3,7 +3,7 @@
  * INTEGRATION: once `abis/OniblockHook.json` exists (contracts/export-abis.sh), switch
  * to the generated ABI. Verified identical (signatures) to abis/OniblockHook.json on 2026-09-26
  * (re-checked after docs/review/CONTRACT_FIXES_1.md: every entry here is unchanged; modelAllowed + errors added).
- * `poolState` is omitted (nested tuple return; read via generated ABI if needed).
+ * v3: `poolConfig` added (PoolConfig incl. arbThresholdPips). `poolState` is omitted (nested tuple return; read via generated ABI if needed).
  */
 
 const poolKeyComponents = [
@@ -12,6 +12,25 @@ const poolKeyComponents = [
   { name: 'fee', type: 'uint24' },
   { name: 'tickSpacing', type: 'int24' },
   { name: 'hooks', type: 'address' },
+] as const;
+
+/** OniblockHook.PoolConfig (field order = struct order; arbThresholdPips appended in v3). */
+export const poolConfigComponents = [
+  { name: 'baseFee', type: 'uint24' },
+  { name: 'feeMax', type: 'uint24' },
+  { name: 'conservativeFee', type: 'uint24' },
+  { name: 'kMinBps', type: 'uint32' },
+  { name: 'kMaxBps', type: 'uint32' },
+  { name: 'kDefaultBps', type: 'uint32' },
+  { name: 'maxKStepBps', type: 'uint32' },
+  { name: 'staleBlocks', type: 'uint16' },
+  { name: 'sanityBandBps', type: 'uint32' },
+  { name: 'chainlinkFeed', type: 'address' },
+  { name: 'chainlinkInverted', type: 'bool' },
+  { name: 'brierDemoteBps', type: 'uint32' },
+  { name: 'minSamples', type: 'uint32' },
+  { name: 'chainlinkMaxAge', type: 'uint32' },
+  { name: 'arbThresholdPips', type: 'uint24' },
 ] as const;
 
 export const poolKeyTuple = { name: 'key', type: 'tuple', components: poolKeyComponents } as const;
@@ -185,6 +204,24 @@ export const oniblockHookAbi = [
       { name: 'modelNode', type: 'bytes32' },
     ],
     outputs: [{ name: '', type: 'bool' }],
+  },
+  // v3 (docs/review/V3_THRESHOLD_BUILD.md): PoolConfig gained a trailing `uint24 arbThresholdPips`.
+  {
+    type: 'function',
+    name: 'poolConfig',
+    stateMutability: 'view',
+    inputs: [{ name: 'id', type: 'bytes32' }],
+    outputs: [{ name: '', type: 'tuple', components: poolConfigComponents }],
+  },
+  // v4 (docs/review/V4_AI_DECIDES.md): config events, used by the keeper to drop its poolConfig cache on a change.
+  {
+    type: 'event',
+    name: 'PoolConfigUpdated',
+    anonymous: false,
+    inputs: [
+      { name: 'id', type: 'bytes32', indexed: true },
+      { name: 'config', type: 'tuple', indexed: false, components: poolConfigComponents },
+    ],
   },
   { type: 'error', name: 'ModelNotAllowed', inputs: [] },
   { type: 'error', name: 'AlreadyAttested', inputs: [] },

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseJev, scoreWithJev, JevCache } from '../src/model/jev.js';
+import { parseJev, scoreWithJev, JevCache, jevCacheKey, JEV_QUESTIONS, JEV_QUESTIONS_V1, JEV_QUESTIONS_V4 } from '../src/model/jev.js';
 import { computeFeatures, featuresToState } from '../src/features.js';
 import { Q96 } from '../src/price.js';
 
@@ -43,6 +43,26 @@ describe('jev parsing (offline)', () => {
     const again = await scoreWithJev('same', { apiKey: 'k', fetchImpl: ok, cache });
     expect(n).toBe(1);
     expect(again?.pToxicBps).toBe(7000);
+  });
+});
+
+describe('v4 prompt (offline)', () => {
+  it('defaults to the v4 question and namespaces the cache (v1 keys unchanged)', async () => {
+    expect(JEV_QUESTIONS).toBe(JEV_QUESTIONS_V4);
+    expect(JEV_QUESTIONS_V4.toxic.instructions).toContain('probability must be near 0');
+    expect(jevCacheKey('s', 'v1')).toBe('s');
+    expect(jevCacheKey('s', 'v4')).not.toBe('s');
+    const bodies: string[] = [];
+    const ok = (async (_u: string, init: { body: string }) => {
+      bodies.push(init.body);
+      return new Response(JSON.stringify(sample), { status: 200 });
+    }) as unknown as typeof fetch;
+    const cache = new JevCache();
+    await scoreWithJev('x', { apiKey: 'k', fetchImpl: ok, cache });
+    await scoreWithJev('x', { apiKey: 'k', fetchImpl: ok, cache, prompt: 'v1' }); // different key => second call
+    expect(bodies.length).toBe(2);
+    expect(JSON.parse(bodies[0]!).questions.toxic.instructions).toBe(JEV_QUESTIONS_V4.toxic.instructions);
+    expect(JSON.parse(bodies[1]!).questions.toxic.instructions).toBe(JEV_QUESTIONS_V1.toxic.instructions);
   });
 });
 

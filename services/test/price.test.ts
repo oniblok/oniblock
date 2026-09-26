@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  excessGap,
   Q96, midToPriceX96, priceX96ToMid, sqrtPriceX96ToPriceX96, priceX96ToSqrtPriceX96,
   gapPips, isArbDir, arbZeroForOne, feeLaw, isqrt, toE18, sqrtPriceX96ToMid,
 } from '../src/price.js';
@@ -74,9 +75,22 @@ describe('gap & arb direction (contract mirror)', () => {
     expect(arbZeroForOne(100n, 100n)).toBe(null);
   });
 
-  it('fee law', () => {
-    expect(feeLaw({ arbDir: false, gapPips: 5000, kBps: 5000, baseFee: 3000, feeMax: 10000 })).toBe(3000);
-    expect(feeLaw({ arbDir: true, gapPips: 5000, kBps: 5000, baseFee: 3000, feeMax: 10000 })).toBe(5500);
-    expect(feeLaw({ arbDir: true, gapPips: 50000, kBps: 5000, baseFee: 3000, feeMax: 10000 })).toBe(10000);
+  it('fee law (threshold 0 = v2 law)', () => {
+    const c = { baseFee: 3000, feeMax: 10000, arbThresholdPips: 0 };
+    expect(feeLaw({ ...c, arbDir: false, gapPips: 5000, kBps: 5000 })).toBe(3000);
+    expect(feeLaw({ ...c, arbDir: true, gapPips: 5000, kBps: 5000 })).toBe(5500);
+    expect(feeLaw({ ...c, arbDir: true, gapPips: 50000, kBps: 5000 })).toBe(10000);
+  });
+
+  it('fee law v3: only the gap above the arb threshold is priced', () => {
+    const c = { baseFee: 3000, feeMax: 10000, arbThresholdPips: 3300 };
+    expect(feeLaw({ ...c, arbDir: true, gapPips: 2000, kBps: 5000 })).toBe(3000); // below threshold => base
+    expect(feeLaw({ ...c, arbDir: true, gapPips: 3300, kBps: 5000 })).toBe(3000); // at threshold => base
+    expect(feeLaw({ ...c, arbDir: true, gapPips: 3500, kBps: 5000 })).toBe(3100); // 3000 + 200 * 0.5
+    expect(feeLaw({ ...c, arbDir: true, gapPips: 10000, kBps: 5000 })).toBe(6350);
+    expect(feeLaw({ ...c, arbDir: true, gapPips: 50000, kBps: 5000 })).toBe(10000); // capped
+    expect(feeLaw({ ...c, arbDir: false, gapPips: 50000, kBps: 5000 })).toBe(3000);
+    expect(excessGap(2000, 3300)).toBe(0);
+    expect(excessGap(4000, 3300)).toBe(700);
   });
 });

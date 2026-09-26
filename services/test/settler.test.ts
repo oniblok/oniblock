@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { Hex } from 'viem';
-import { attestationIndex, brierStats, calibrate, gateBps, labelBlocks } from '../src/settler.js';
+import { namehash, type Hex } from 'viem';
+import { attestationIndex, brierStats, calibrate, gateBps, labelBlocks, ruleModelNode, usdPerRawToken1 } from '../src/settler.js';
 import type { AttestationLog, ReceiptLog } from '../src/chain.js';
 import { Q96 } from '../src/price.js';
 
@@ -83,5 +83,53 @@ describe('settler labelling + calibration', () => {
     expect(idx.midInForce(9)).toBeUndefined();
     expect(idx.midInForce(11)).toBe(2n);
     expect(idx.midInForce(20)).toBe(3n);
+  });
+});
+
+describe('v3: settler skips the rule-v1 node', () => {
+  it('labelBlocks drops receipts of skipModelNodes', () => {
+    const labels = labelBlocks([r(1, -100n, 101n), r(2, -100n, 101n, 3000, { modelNode: NODE2 })], () => Q96, () => 0.5, { skipModelNodes: [NODE2] });
+    expect(labels.map((l) => l.block)).toEqual([1]);
+  });
+  it('v4 base-fee label: an arb that paid a high AI fee (net < 0) was still profitable at the base fee => informed', () => {
+    // sells 1000 token0 for 998 token1 paying 0.80% (k raised by the model): net -2, gross 6 > base cost 3
+    const rs = [r(1, -100n * 10n, 998n, 8000), r(2, -1000n, 996n, 3000)];
+    expect(labelBlocks(rs, () => Q96, () => 0.9).map((l) => l.y)).toEqual([0, 0]); // pre-v4: net markout > 0
+    // block 2: net -4, gross -1 < base cost 3 => benign under both labels
+    expect(labelBlocks(rs, () => Q96, () => 0.9, { labelFee: 'base', baseFeePips: 3000 }).map((l) => l.y)).toEqual([1, 0]);
+  });
+  it('dead band: |markout| <= max($1, 1 bp of volume) is not graded and counted as ambiguous', () => {
+    // toy pair: token1 = quote with 6 decimals (usd per raw token1 = 1e-6); amounts scaled so 1 raw = 1e-6 USD
+    const usd = 1e6;
+    const rs = [
+      r(1, BigInt(-1000 * usd), BigInt(1000 * usd) + BigInt(0.5 * usd), 3000), // net +$0.5, gross $3.5 vs base cost $3: m = +$0.5 <= T = $1 => ambiguous
+      r(2, BigInt(-1000 * usd), BigInt(1005 * usd), 3000), // m = gross 8 - base 3 = +$5 > T => informed
+      r(3, BigInt(-1000 * usd), BigInt(990 * usd), 3000), // m = gross -7 - 3 = -$10 < -T => benign
+      r(4, BigInt(-100000 * usd), BigInt(100000 * usd) + BigInt(5 * usd), 3000), // m = 5 + 300 - 300 = +$5, T = max(1, 1bp of 100k = $10) => ambiguous
+    ];
+    const stats = { skippedAmbiguous: 0, graded: 0 };
+    const labels = labelBlocks(rs, () => Q96, () => 0.5, { labelFee: 'base', baseFeePips: 3000, deadbandUsd: 1, deadbandBps: 1, usdPerRawToken1: () => 1e-6, stats });
+    expect(labels.map((l) => [l.block, l.y])).toEqual([[2, 1], [3, 0]]);
+    expect(stats).toEqual({ skippedAmbiguous: 2, graded: 2 });
+    // 0/0 = sign-only label (old behaviour): every block graded
+    expect(labelBlocks(rs, () => Q96, () => 0.5, { labelFee: 'base', baseFeePips: 3000, deadbandUsd: 0, deadbandBps: 0 }).map((l) => l.y)).toEqual([1, 1, 0, 1]);
+    // no USD conversion available => not graded under a dead band
+    expect(labelBlocks(rs, () => Q96, () => 0.5, { labelFee: 'base', baseFeePips: 3000, deadbandUsd: 1, deadbandBps: 1 })).toHaveLength(0);
+  });
+  it('usdPerRawToken1 handles both token orders', () => {
+    expect(usdPerRawToken1({ token0: '0x1', token1: '0x2', decimals0: 18, decimals1: 6, baseIsToken0: true }, Q96)).toBe(1e-6);
+    // token0 = USDC (6), token1 = WETH (18): px = raw wei per raw usdc; at $2000/ETH px = 1e18/(2000*1e6) = 5e8 => usd per wei = 1e-6/5e8 = 2e-15
+    const px = (10n ** 18n * Q96) / (2000n * 10n ** 6n);
+    expect(usdPerRawToken1({ token0: '0x1', token1: '0x2', decimals0: 6, decimals1: 18, baseIsToken0: false }, px)).toBeCloseTo(2e-15, 20);
+  });
+  it('ruleModelNode = namehash(rule-v1.models.oniblock.eth)', () => {
+    expect(ruleModelNode()).toBe(namehash('rule-v1.models.oniblock.eth'));
+  });
+  it('labels against the CEX mid at the swap block: an arb that looks unprofitable vs a lagged mid is informed', () => {
+    // Swapper sells 1000 token0 for 995 token1 (fee inside). CEX mid at the block = 0.99 (price fell) => +5 informed;
+    // the lagged attested mid (1.00) would say -5 => not informed.
+    const cexMid = (Q96 * 99n) / 100n;
+    expect(labelBlocks([r(7, -1000n, 995n)], () => cexMid, () => 0.9)[0]!.y).toBe(1);
+    expect(labelBlocks([r(7, -1000n, 995n)], () => Q96, () => 0.9)[0]!.y).toBe(0);
   });
 });

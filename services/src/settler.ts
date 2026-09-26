@@ -5,11 +5,30 @@
  *   markout_net(b) = Σ swaps [ amount0 * mid_h + amount1 ]   (token1 units; swapper deltas,
  *                    positive = received, so fees paid are already inside the amounts)
  *   feePaid(b)     = Σ |input leg| * feePips / 1e6
- *   y(b) = 1 ("informed") iff gross markout (net + fee) > feePaid   <=>  net markout > 0
+ *   y(b) = 1 ("informed") iff gross markout (net + fee) > the label fee (SETTLER_LABEL_FEE):
+ *     base (v4 default) -> Σ |input leg| * poolConfig.baseFee / 1e6: "was there profitable arbitrage at the BASE fee?"
+ *                          — exactly the v4 Jev question. Independent of the k the model chose, so a model that
+ *                          protects LPs (high k makes the remaining arb-direction flow unprofitable net of the fee
+ *                          it paid) is not graded as wrong for it.
+ *     paid (pre-v4)     -> feePaid, i.e. net markout > 0.
+ *   Dead band (v4, SETTLER_DEADBAND_USD=1, SETTLER_DEADBAND_BPS=1; 0/0 = old behaviour): 59% of real blocks have
+ *   |markout| < $1, so a sign-only label is decided by mid noise most of the time and the gate grades coin flips.
+ *   With m = markout net of the label fee and T = max(DEADBAND_USD, DEADBAND_BPS/1e4 * arb-direction USD volume of
+ *   the block): y = 1 iff m > T, y = 0 iff m < -T, and |m| <= T is NOT graded (counted as skipped_ambiguous). The
+ *   fine-tuning export (ml/src/kev_export_deadband.py) uses the same label, so the model and the gate agree.
  *   p(b) = pToxic of the attestation in force at b (the one referenced by the Receipt's modelNode)
- *   mid_h: MARKOUT_HORIZON=0 (default) -> the attested mid in force at b: the CEX mid the hook priced the swap
- *          against (the LVR definition: profitable vs the contemporaneous CEX price, net of fee);
- *          MARKOUT_HORIZON=1 -> first attested mid mined after b (the +1-block markout). Adds the next block's
+ *   Only receipts whose modelNode is a REAL model are graded: receipts priced under the keeper's deterministic
+ *   below-threshold rule (rule-v1.models.oniblock.eth, env RULE_MODEL_NAME; v3 gate) are skipped, so rule-v1
+ *   never gets a calibration record (it stays unseasoned => kDefault, which is irrelevant below the threshold).
+ *   mid_h (SETTLER_LABEL_MID, v3 default `cex`):
+ *     cex      -> the CEX mid AT THE SWAP'S BLOCK TIME, fetched ex post: PRICE_SOURCE=replay -> the replay path's
+ *                 mid at block b (the same series the keeper/arb use); otherwise the Binance 1s kline at block b's
+ *                 timestamp (SettlerOpts.midSource overrides both). The LVR definition: profitable vs the
+ *                 contemporaneous CEX price, net of fee. Fixes the pre-v3 mislabelling: the attested mid lags the
+ *                 arbitrageur (keeper lag), so arbs measured against it look unprofitable and an honest model is
+ *                 demoted (benchmark/results_v2, labelatt variant).
+ *     attested -> the attested mid in force at b (pre-v3 behaviour, = old MARKOUT_HORIZON=0).
+ *   MARKOUT_HORIZON=1 (overrides) -> first attested mid mined after b (the +1-block markout). Adds the next block's
  *          price move to every label; when that move is comparable to the fee (4-minute replay steps) the labels
  *          are mostly noise and an honest model fails the gate (docs/review/INTEGRATION_1.md, experiment).
  * Per modelNode over the last CALIB_WINDOW labelled blocks:
@@ -30,10 +49,11 @@
  *
  * The +1-block mid comes from the next posted attestation (the keeper's mid, auditable on-chain);
  * fallback: the shared replay path (PRICE_SOURCE=replay) or a Binance 1s kline at block b+1's timestamp.
+ * If the CEX mid for a block cannot be fetched (SETTLER_LABEL_MID=cex), that block is not labelled.
  *
  * CLI: tsx src/settler.ts [--chain local] [--once] [--every M] [--from BLOCK]
  */
-import type { Hex, PublicClient } from 'viem';
+import { namehash, type Hex, type PublicClient } from 'viem';
 import { oniblockHookAbi } from './abi/oniblockHook.js';
 import { fetchKlines, midAt } from './cex.js';
 import {
@@ -115,10 +135,27 @@ export function labelBlocks(
   receipts: ReceiptLog[],
   midNext: (block: number) => bigint | undefined,
   pOf: (r: ReceiptLog) => number | undefined,
+  opts: {
+    skipModelNodes?: readonly Hex[];
+    labelFee?: 'paid' | 'base';
+    baseFeePips?: number;
+    /** dead band: USD floor and bps of the block's arb-direction USD volume (0/0 = sign-only label) */
+    deadbandUsd?: number;
+    deadbandBps?: number;
+    /** USD value of one raw token1 unit at block b (needed for the dead band; undefined => no dead band for b) */
+    usdPerRawToken1?: (block: number) => number | undefined;
+    /** counters filled in by the call */
+    stats?: { skippedAmbiguous: number; graded: number };
+  } = {},
 ): LabelledBlock[] {
+  const atBase = opts.labelFee === 'base' && opts.baseFeePips !== undefined;
+  const dbUsd = opts.deadbandUsd ?? 0;
+  const dbBps = opts.deadbandBps ?? 0;
+  const skip = new Set((opts.skipModelNodes ?? []).map((n) => n.toLowerCase()));
   const byBlock = new Map<string, ReceiptLog[]>();
   for (const r of receipts) {
     if (!r.arbDir || r.stale) continue;
+    if (skip.size && skip.has(String(r.modelNode).toLowerCase())) continue; // e.g. rule-v1: not a model
     const k = `${r.blockNumber}:${r.modelNode}`;
     (byBlock.get(k) ?? byBlock.set(k, []).get(k)!).push(r);
   }
@@ -131,6 +168,8 @@ export function labelBlocks(
     const px = Number(m) / Number(Q96); // raw token1 per raw token0
     let net = 0;
     let fee = 0;
+    let baseCost = 0;
+    let volume = 0; // arb-direction input value, token1 raw units
     for (const r of rs) {
       const a0 = Number(r.amount0 * AMOUNT_SIGN);
       const a1 = Number(r.amount1 * AMOUNT_SIGN);
@@ -138,9 +177,28 @@ export function labelBlocks(
       // input leg = the negative one (paid by swapper)
       const inVal = a0 < 0 ? -a0 * px : a1 < 0 ? -a1 : 0;
       fee += (inVal * r.feePips) / 1e6;
+      volume += inVal;
+      if (atBase) baseCost += (inVal * opts.baseFeePips!) / 1e6;
     }
     const gross = net + fee;
-    out.push({ block: b, modelNode: rs[0]!.modelNode, p, y: gross > fee ? 1 : 0, markoutNet: net, feePaid: fee, nSwaps: rs.length });
+    const mk = gross - (atBase ? baseCost : fee); // markout net of the label fee, token1 raw units
+    let y: 0 | 1;
+    if (dbUsd > 0 || dbBps > 0) {
+      const usd1 = opts.usdPerRawToken1?.(b);
+      if (usd1 === undefined || !(usd1 > 0)) {
+        continue; // cannot express the dead band in USD for this block: not graded
+      }
+      const T = Math.max(dbUsd, (dbBps / 1e4) * volume * usd1);
+      const mUsd = mk * usd1;
+      if (mUsd > T) y = 1;
+      else if (mUsd < -T) y = 0;
+      else {
+        if (opts.stats) opts.stats.skippedAmbiguous++;
+        continue;
+      }
+    } else y = mk > 0 ? 1 : 0;
+    if (opts.stats) opts.stats.graded++;
+    out.push({ block: b, modelNode: rs[0]!.modelNode, p, y, markoutNet: net, feePaid: fee, nSwaps: rs.length });
   }
   return out.sort((a, b) => a.block - b.block);
 }
@@ -198,8 +256,27 @@ export function attestationIndex(atts: AttestationLog[]) {
   };
 }
 
+/** Model node of the keeper's deterministic below-threshold rule (never graded). */
+/**
+ * USD value of one raw token1 unit given the mid (priceX96 = raw token1 per raw token0) and the pair: the quote
+ * token is USD-denominated (mUSDC). Quote = token1 => 10^-dec1; quote = token0 => 10^-dec0 / px.
+ */
+export function usdPerRawToken1(meta: PairMeta, midX96: bigint | undefined): number | undefined {
+  if (meta.baseIsToken0) return 10 ** -meta.decimals1;
+  if (midX96 === undefined || midX96 === 0n) return undefined;
+  return 10 ** -meta.decimals0 / (Number(midX96) / Number(Q96));
+}
+
+export function ruleModelNode(): Hex {
+  return namehash(env('RULE_MODEL_NAME', 'rule-v1.models.oniblock.eth')!);
+}
+
+export type LabelMid = 'cex' | 'attested';
+
 export interface SettlerOpts {
   chain: ChainName;
+  /** CEX mid (human quote per base) at a block, for SETTLER_LABEL_MID=cex (default: replay path / Binance). */
+  midSource?: (block: number) => Promise<number>;
   every?: number;
   fromBlock?: number;
   window?: number;
@@ -219,6 +296,7 @@ export class Settler {
   private lastSettled = -1;
   private busy = false;
   private tsCache = new Map<number, number>();
+  private cexCache = new Map<number, bigint>();
   /** PRICE_SOURCE=replay: the fallback mid at b+1 comes from the same replay path the keeper/arb use. */
   private readonly replayMid: ((block?: number) => Promise<number>) | undefined;
 
@@ -252,6 +330,77 @@ export class Settler {
     }
   }
 
+  private async blockTs(block: number): Promise<number> {
+    let ts = this.tsCache.get(block);
+    if (ts === undefined) {
+      const blk = await this.pc.getBlock({ blockNumber: BigInt(block) });
+      ts = Number(blk.timestamp) * 1000;
+      this.tsCache.set(block, ts);
+    }
+    return ts;
+  }
+
+  /** CEX mid (priceX96) at each block's time, fetched ex post; blocks that cannot be resolved are absent. */
+  async cexMidsX96(blocks: number[]): Promise<Map<number, bigint>> {
+    const need = [...new Set(blocks)].filter((b) => !this.cexCache.has(b)).sort((a, b) => a - b);
+    const src = this.o.midSource ?? this.replayMid;
+    const failed: number[] = [];
+    let lastErr = '';
+    if (src) {
+      for (const b of need) {
+        try {
+          this.cexCache.set(b, midToPriceX96((await src(b)).toFixed(8), this.meta));
+        } catch (e) {
+          failed.push(b); // unresolved => not labelled (logged below)
+          lastErr = (e as Error).message.split('\n')[0];
+        }
+      }
+    } else if (need.length) {
+      try {
+        const ts = new Map<number, number>();
+        for (const b of need) ts.set(b, await this.blockTs(b));
+        const lo = Math.min(...ts.values());
+        const hi = Math.max(...ts.values());
+        const ks = await fetchKlines({ interval: '1s', startMs: lo - 30_000, endMs: hi + 1_000, cacheDir: false });
+        for (const [b, t] of ts) {
+          const m = midAt(ks, t);
+          if (m) this.cexCache.set(b, midToPriceX96(m.toFixed(8), this.meta));
+        }
+        for (const b of ts.keys()) if (!this.cexCache.has(b)) failed.push(b);
+      } catch (e) {
+        // Binance unreachable => those blocks are not labelled this round (retried next settle)
+        failed.push(...need);
+        lastErr = (e as Error).message.split('\n')[0];
+      }
+    }
+    if (failed.length) {
+      // loud, not silent: without CEX mids the settler grades nothing and every model stays at its current record
+      log('settler', 'cex_mid_unavailable', { blocks: failed.length, first: failed[0], last: failed[failed.length - 1], error: lastErr || 'no kline at block time' });
+    }
+    const out = new Map<number, bigint>();
+    for (const b of blocks) {
+      const m = this.cexCache.get(b);
+      if (m !== undefined) out.set(b, m);
+    }
+    return out;
+  }
+
+  private baseFeeCache: number | undefined;
+  /** label stats of the last computeUpTo (dead band) */
+  lastStats = { skippedAmbiguous: 0, graded: 0 };
+  /** Pool base fee (hook.poolConfig; deployment JSON / 3000 fallback) for the v4 base-fee label. */
+  private async baseFee(): Promise<number> {
+    if (this.baseFeeCache !== undefined) return this.baseFeeCache;
+    try {
+      const c = await this.pc.readContract({ address: this.d.hook, abi: oniblockHookAbi, functionName: 'poolConfig', args: [this.pool.poolId] });
+      this.baseFeeCache = Number(c.baseFee);
+    } catch {
+      const c = (this.d.raw.pools as Record<string, { config?: { baseFee?: number } }> | undefined)?.[this.pool.name]?.config;
+      return Number(c?.baseFee ?? 3000);
+    }
+    return this.baseFeeCache;
+  }
+
   async computeUpTo(head: number): Promise<{ labels: LabelledBlock[]; cal: Calibration[] }> {
     const from = BigInt(this.o.fromBlock ?? this.d.startBlock ?? 0);
     const to = BigInt(head);
@@ -260,22 +409,43 @@ export class Settler {
       getAttestations(this.pc, this.d.hook, this.pool.poolId, from, to),
     ]);
     const idx = attestationIndex(atts);
-    // Pre-resolve fallback mids only for blocks that lack a following attestation.
-    const need = new Set<number>();
-    for (const r of receipts) if (r.arbDir && !r.stale && r.blockNumber < head && idx.midAfter(r.blockNumber) === undefined) need.add(r.blockNumber);
-    const fallback = new Map<number, bigint>();
-    if (env('SETTLER_BINANCE_FALLBACK', '1') === '1') {
-      for (const b of need) {
-        const m = await this.binanceMidX96(b);
-        if (m) fallback.set(b, m);
-      }
-    }
+    const rule = ruleModelNode();
+    const graded = receipts.filter((r) => r.blockNumber < head && r.arbDir && !r.stale && r.modelNode.toLowerCase() !== rule.toLowerCase());
     const horizon = envInt('MARKOUT_HORIZON', 0);
-    const labels = labelBlocks(
-      receipts.filter((r) => r.blockNumber < head), // need b+1 to exist
-      (b) => (horizon === 0 ? idx.midInForce(b) : (idx.midAfter(b) ?? fallback.get(b))),
-      (r) => idx.pAt(r.blockNumber, r.modelNode),
-    );
+    const labelMid = env('SETTLER_LABEL_MID', 'cex') as LabelMid;
+    let midOf: (b: number) => bigint | undefined;
+    if (horizon === 1) {
+      // Pre-resolve fallback mids only for blocks that lack a following attestation.
+      const need = new Set<number>();
+      for (const r of graded) if (idx.midAfter(r.blockNumber) === undefined) need.add(r.blockNumber);
+      const fallback = new Map<number, bigint>();
+      if (env('SETTLER_BINANCE_FALLBACK', '1') === '1') {
+        for (const b of need) {
+          const m = await this.binanceMidX96(b);
+          if (m) fallback.set(b, m);
+        }
+      }
+      midOf = (b) => idx.midAfter(b) ?? fallback.get(b);
+    } else if (labelMid === 'attested') {
+      midOf = (b) => idx.midInForce(b);
+    } else {
+      const cex = await this.cexMidsX96(graded.map((r) => r.blockNumber));
+      midOf = (b) => cex.get(b);
+    }
+    const labelFee = env('SETTLER_LABEL_FEE', 'base') === 'paid' ? 'paid' : 'base';
+    const stats = { skippedAmbiguous: 0, graded: 0 };
+    const labels = labelBlocks(graded, midOf, (r) => idx.pAt(r.blockNumber, r.modelNode), {
+      skipModelNodes: [rule],
+      labelFee,
+      baseFeePips: await this.baseFee(),
+      deadbandUsd: Number(env('SETTLER_DEADBAND_USD', '1')),
+      deadbandBps: Number(env('SETTLER_DEADBAND_BPS', '1')),
+      usdPerRawToken1: (b) => usdPerRawToken1(this.meta, midOf(b)),
+      stats,
+    });
+    this.lastStats = stats;
+    if (graded.length && !labels.length)
+      log('settler', 'nothing_labelled', { graded: graded.length, labelMid, skippedAmbiguous: stats.skippedAmbiguous, hint: stats.skippedAmbiguous ? 'every graded block fell inside the dead band' : 'CEX mids unavailable for every graded block?' });
     return { labels, cal: calibrate(labels, this.o.window ?? envInt('CALIB_WINDOW', 30)) };
   }
 
@@ -297,7 +467,7 @@ export class Settler {
           args: [c.modelNode, c.brierBps, c.hitRateBps, c.n],
           label: 'setCalibration',
         });
-        log('settler', rc?.status === 'success' ? 'calibration_set' : 'calibration_failed', { head, ...c, labelled: labels.length, tx: rc?.hash });
+        log('settler', rc?.status === 'success' ? 'calibration_set' : 'calibration_failed', { head, ...c, labelled: labels.length, skippedAmbiguous: this.lastStats.skippedAmbiguous, tx: rc?.hash });
         if (rc?.status === 'success')
           await this.ens.write(c.modelNode, { brierBps: c.brierBps, hitRateBps: c.hitRateBps, n: c.n, epoch: head, rawBrierBps: c.rawBrierBps, skillBps: c.skillBps, baseRateBps: c.baseRateBps });
       }
@@ -313,7 +483,17 @@ export class Settler {
 
   run(): () => void {
     const every = this.o.every ?? envInt('SETTLE_EVERY', 10);
-    log('settler', 'start', { hook: this.d.hook, poolId: this.pool.poolId, settler: this.sender.address, every, ens: this.ens.kind });
+    log('settler', 'start', {
+      hook: this.d.hook,
+      poolId: this.pool.poolId,
+      settler: this.sender.address,
+      every,
+      ens: this.ens.kind,
+      labelMid: envInt('MARKOUT_HORIZON', 0) === 1 ? 'next-attestation' : env('SETTLER_LABEL_MID', 'cex'),
+      labelFee: env('SETTLER_LABEL_FEE', 'base'),
+      deadband: { usd: Number(env('SETTLER_DEADBAND_USD', '1')), bps: Number(env('SETTLER_DEADBAND_BPS', '1')) },
+      skip: ruleModelNode(),
+    });
     return this.pc.watchBlockNumber({
       emitOnBegin: true,
       onBlockNumber: (bn) => {

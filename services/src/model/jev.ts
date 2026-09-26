@@ -20,8 +20,8 @@ import { clampBps, type FlowClass, type ModelScore } from './types.js';
 export const JEV_MODEL = 'typesafe-ai/jev';
 export const JEV_URL = env('JEV_URL', 'https://ai-gateway.vercel.sh/v1/evaluate')!;
 
-/** Typed questions. Two questions keep the call cheap; the choice head carries Jev's own confidence. */
-export const JEV_QUESTIONS = {
+/** v1-v3 typed questions (kept byte-identical so the frozen v1-v3 benchmark caches stay valid). */
+export const JEV_QUESTIONS_V1 = {
   toxic: {
     type: 'boolean',
     instructions:
@@ -41,6 +41,34 @@ export const JEV_QUESTIONS = {
     },
   },
 } as const;
+
+/**
+ * v4 ("the AI decides the fee", docs/review/V4_AI_DECIDES.md): Jev is asked every block and its probability IS the
+ * fee decision (hook: k = kMax * p * c with kMin = 0, arbThresholdPips = 0). The question says so, and says that
+ * without profitable arbitrage at the base fee the probability must be near 0 (then the pool charges exactly base).
+ * Pair with the v4 state text (featuresToState format 'v4'). The regime head still carries Jev's own confidence.
+ */
+export const JEV_QUESTIONS_V4 = {
+  toxic: {
+    type: 'boolean',
+    instructions:
+      'Should this pool charge an extra arbitrage fee on the next block? Answer true only if there is profitable, informed arbitrage: the pool price is stale versus the Binance mid by MORE than the base fee (arb_edge_at_base_fee positive), so arbitrageurs will trade toward the Binance mid at liquidity providers expense. The extra fee is proportional to your probability. If arb_edge_at_base_fee is zero or negative there is no profitable arbitrage: the probability must be near 0, because an extra fee would only push ordinary traders to other pools.',
+    criteria: {
+      true: 'profitable arbitrage at the base fee: arb_edge_at_base_fee is positive and arbitrageurs will close the gap at LPs expense',
+      false: 'no profitable arbitrage at the base fee (arb_edge_at_base_fee zero or negative): ordinary flow, charge only the base fee',
+    },
+  },
+  regime: JEV_QUESTIONS_V1.regime,
+} as const;
+
+export type JevPrompt = 'v1' | 'v4';
+/** Keeper default: v4 (env JEV_PROMPT=v1 restores the pre-v4 question + state). */
+export const defaultJevPrompt = (): JevPrompt => (env('JEV_PROMPT', 'v4') === 'v1' ? 'v1' : 'v4');
+/** Default questions of this build (v4). */
+export const JEV_QUESTIONS = JEV_QUESTIONS_V4;
+export const jevQuestions = (p: JevPrompt) => (p === 'v1' ? JEV_QUESTIONS_V1 : JEV_QUESTIONS_V4);
+/** Cache key: v1 keys are the bare state text (old caches stay valid); v4 keys are namespaced by the prompt. */
+export const jevCacheKey = (state: string, p: JevPrompt) => (p === 'v1' ? state : `[jev-prompt:${p}]\n${state}`);
 
 export interface JevRaw {
   answers?: {
@@ -102,6 +130,8 @@ export class JevCache {
 }
 
 export interface JevOpts {
+  /** Question set (default: defaultJevPrompt(), i.e. v4 unless JEV_PROMPT=v1). Also namespaces the cache key. */
+  prompt?: JevPrompt;
   timeoutMs?: number;
   apiKey?: string;
   cache?: JevCache;
@@ -114,7 +144,8 @@ export interface JevOpts {
  * Ask Jev the typed questions about `state`. Returns null on any failure (never throws).
  */
 export async function scoreWithJev(state: string | object, opts: JevOpts = {}): Promise<ModelScore | null> {
-  const key = typeof state === 'string' ? state : JSON.stringify(state);
+  const prompt = opts.prompt ?? defaultJevPrompt();
+  const key = jevCacheKey(typeof state === 'string' ? state : JSON.stringify(state), prompt);
   const cached = opts.cache?.get(key);
   if (cached) return { ...cached, latencyMs: 0 };
 
@@ -130,7 +161,7 @@ export async function scoreWithJev(state: string | object, opts: JevOpts = {}): 
       method: 'POST',
       signal: ctl.signal,
       headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ model: JEV_MODEL, state, questions: JEV_QUESTIONS }),
+      body: JSON.stringify({ model: JEV_MODEL, state, questions: jevQuestions(prompt) }),
     });
     const text = await res.text();
     const latency = performance.now() - t0;

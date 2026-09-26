@@ -6,13 +6,15 @@
  *
  * plus kill-switch evidence (attestation gaps, stale receipts at conservativeFee, quoter changes).
  *
- * CLI: tsx src/e2e/story.ts [--chain local|fork] [--from BLOCK] [--degraded-at BLOCK]
+ * CLI: tsx src/e2e/story.ts [--chain local|fork] [--from BLOCK] [--degraded-at BLOCK] [--model-node NODE]
  *                           [--expect seasoned,demoted,honest-active,stale,resumed]
+ * The k phases are graded for the model that actually ran the pool (the dominant attestation node, e.g. heuristic-v1
+ * when Jev was unreachable; --model-node forces one) — see `modelGraded` in the summary.
  * With --degraded-at (the block the keeper was degraded), "demoted" must happen after it and "honest-active"
  * requires that no settler post before it demoted the (honest) model once seasoned.
  * Exit 1 if an expected phase is missing. Prints one JSON line ({c:"story", e:"summary", ...}).
  */
-import type { Hex } from 'viem';
+import { namehash, type Hex } from 'viem';
 import { oniblockHookAbi } from '../abi/oniblockHook.js';
 import { getAttestations, getReceipts } from '../chain.js';
 import { env, loadDeployment, log, makePublicClient, oniblockPool, parseArgs, selectChain, type ChainName } from '../config.js';
@@ -31,12 +33,25 @@ const conservativeFee = Number(cfgRaw.conservativeFee ?? 5000);
 
 const from = BigInt(a.from ?? d.startBlock ?? 0);
 const head = await pc.getBlockNumber();
-const [atts, rcpts, cals] = await Promise.all([
+const [allAtts, rcpts, cals] = await Promise.all([
   getAttestations(pc, d.hook, pool.poolId, from, head),
   getReceipts(pc, d.hook, pool.poolId, from, head),
   pc.getContractEvents({ address: d.hook, abi: oniblockHookAbi, eventName: 'CalibrationUpdated', fromBlock: from, toBlock: head }),
 ]);
-const primary = (env('MODEL_NODE') as Hex | undefined) ?? d.modelNode;
+const configured = (env('MODEL_NODE') as Hex | undefined) ?? d.modelNode;
+// v3 gate only (KEEPER_GATE=1): attestations posted under the keeper's below-threshold rule (rule-v1, k = kDefault
+// because rule-v1 is never graded) say nothing about the model's k; the k phases use model attestations only.
+// Kill-switch evidence uses all. The v4 default keeper never posts rule-v1.
+const ruleNode = namehash(env('RULE_MODEL_NAME', 'rule-v1.models.oniblock.eth')!).toLowerCase();
+const atts = allAtts.filter((x) => x.modelNode.toLowerCase() !== ruleNode);
+// The story is about the model that actually ran the pool. When Jev is slow/unreachable the keeper posts the
+// heuristic fallback under heuristic-v1 (the degrade flag applies to it too), so grade the DOMINANT node of the
+// model attestations unless the configured primary posted at least half of them (--model-node NODE forces one).
+const byNode = new Map<string, number>();
+for (const x of atts) byNode.set(x.modelNode.toLowerCase(), (byNode.get(x.modelNode.toLowerCase()) ?? 0) + 1);
+const dominant = [...byNode.entries()].sort((p, q) => q[1] - p[1])[0]?.[0];
+const primaryCount = configured ? (byNode.get(configured.toLowerCase()) ?? 0) : 0;
+const primary = (a['model-node'] as Hex | undefined) ?? (configured && primaryCount * 2 >= atts.length ? configured : ((dominant as Hex | undefined) ?? configured));
 const calRows = cals
   .map((c) => ({ block: Number(c.blockNumber), node: c.args.modelNode as Hex, brier: Number(c.args.brierBps), hit: Number(c.args.hitRateBps), n: Number(c.args.n) }))
   .filter((c) => !primary || c.node.toLowerCase() === primary.toLowerCase() || a['all-models']);
@@ -58,12 +73,12 @@ const unseasonedAtts = atts.filter((x) => !seasonedCal || x.minedBlock < seasone
 
 // Kill switch: gaps between consecutive attestations longer than staleBlocks, and quoter changes.
 const gaps: { from: number; to: number; blocks: number }[] = [];
-for (let i = 1; i < atts.length; i++) {
-  const g = atts[i]!.minedBlock - atts[i - 1]!.minedBlock;
-  if (g > staleBlocks) gaps.push({ from: atts[i - 1]!.minedBlock, to: atts[i]!.minedBlock, blocks: g });
+for (let i = 1; i < allAtts.length; i++) {
+  const g = allAtts[i]!.minedBlock - allAtts[i - 1]!.minedBlock;
+  if (g > staleBlocks) gaps.push({ from: allAtts[i - 1]!.minedBlock, to: allAtts[i]!.minedBlock, blocks: g });
 }
 const quoters: { quoter: string; firstBlock: number }[] = [];
-for (const x of atts) if (!quoters.length || quoters[quoters.length - 1]!.quoter !== x.quoter) quoters.push({ quoter: x.quoter, firstBlock: x.minedBlock });
+for (const x of allAtts) if (!quoters.length || quoters[quoters.length - 1]!.quoter !== x.quoter) quoters.push({ quoter: x.quoter, firstBlock: x.minedBlock });
 const stale = rcpts.filter((r) => r.stale);
 
 const summary = {
@@ -72,6 +87,8 @@ const summary = {
   fromBlock: Number(from),
   head: Number(head),
   config: { kDefault, minSamples, brierDemote, staleBlocks, conservativeFee },
+  modelGraded: { node: primary ?? null, configured: configured ?? null, attestationsByNode: Object.fromEntries(byNode) },
+  ruleAttestations: allAtts.length - atts.length,
   attestations: atts.length,
   receipts: rcpts.length,
   unseasoned: firstAtt ? { firstBlock: firstAtt.minedBlock, attestations: unseasonedAtts.length, allAtKDefault: unseasonedAtts.every((x) => x.kBps === kDefault) } : null,

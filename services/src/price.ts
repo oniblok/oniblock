@@ -103,8 +103,20 @@ export function arbZeroForOne(poolX96: bigint, oracleX96: bigint): boolean | nul
   return poolX96 > oracleX96; // selling token0 lowers token1/token0 price
 }
 
-/** Fee law mirror (for simulation / bots): fee = arbDir ? min(base + gap*k/1e4, feeMax) : base. */
-export function feeLaw(p: { arbDir: boolean; gapPips: number; kBps: number; baseFee: number; feeMax: number }): number {
+/**
+ * Fee law mirror (v3 threshold law, for simulation / bots / checks):
+ *   fee = arbDir ? min(base + floor(max(0, gap - arbThresholdPips) * k / 1e4), feeMax) : base
+ * `gapPips` is the raw (high-water) gap as reported in Receipt.gapPips; `arbThresholdPips` comes from
+ * hook.poolConfig(id).arbThresholdPips (0 = the v2 law, premium from the first pip). Below the threshold the pool
+ * charges exactly baseFee in both directions.
+ */
+export function feeLaw(p: { arbDir: boolean; gapPips: number; kBps: number; baseFee: number; feeMax: number; arbThresholdPips: number }): number {
   if (!p.arbDir) return p.baseFee;
-  return Math.min(p.baseFee + Math.floor((p.gapPips * p.kBps) / 10_000), p.feeMax);
+  const excess = Math.max(0, p.gapPips - p.arbThresholdPips);
+  return Math.min(p.baseFee + Math.floor((excess * p.kBps) / 10_000), p.feeMax);
+}
+
+/** Excess gap above the arbitrage threshold (pips); 0 at/below it. */
+export function excessGap(gapPips: number, arbThresholdPips: number): number {
+  return Math.max(0, gapPips - arbThresholdPips);
 }
