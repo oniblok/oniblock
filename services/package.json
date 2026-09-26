@@ -18,7 +18,8 @@
     "story": "tsx src/e2e/story.ts",
     "pricesource": "tsx src/pricesource.ts",
     "calib:experiment": "tsx src/e2e/calib-experiment.ts",
-    "systemone": "tsx src/systemone.ts"
+    "systemone": "tsx src/systemone.ts",
+    "ens:primary": "tsx src/ens-primary.ts"
   },
   "dependencies": {
     "dotenv": "^18.0.4",

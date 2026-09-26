@@ -122,7 +122,10 @@ export function dnsEncode(name: string): Hex {
   ]);
 }
 
-const urAbi = parseAbi(['function resolve(bytes name, bytes data) view returns (bytes, address)']);
+const urAbi = parseAbi([
+  'function resolve(bytes name, bytes data) view returns (bytes, address)',
+  'function reverse(bytes lookupAddress, uint256 coinType) view returns (string name, address resolver, address reverseResolver)',
+]);
 const profileAbi = parseAbi([
   'function text(bytes32 node, string key) view returns (string)',
   'function addr(bytes32 node) view returns (address)',
@@ -173,6 +176,32 @@ export async function ensAddr(c: Ctx, name: string): Promise<Address | undefined
   } catch {
     return undefined;
   }
+}
+
+/** ENSIP-19: an L1 primary name is `<addr>.addr.reverse` = coin type 60; the UR forward-checks it with addr(name, 60). */
+export const REVERSE_COIN_TYPE = 60n;
+const reverseCache = new Map<string, { name: string | null; t: number }>();
+
+/**
+ * Primary name of an address via UniversalResolverV2.reverse(addr, 60) (ENSIP-19). The UR reads the reverse record
+ * (on Sepolia: the DefaultReverseRegistrar's nameForAddr, set by `pnpm -C services ens:primary`) and reverts unless
+ * addr(name) resolves back to the address, so a returned name is forward-verified. null = none / mismatch / no ENS.
+ * Cached 15 s per address (the status strip polls every 2 s).
+ */
+export async function ensReverse(c: Ctx, addr: Address | undefined): Promise<string | null> {
+  if (!addr || !c.ens?.universalResolver) return null;
+  const k = `${c.sel.rpcUrl}|${c.ens.universalResolver}|${addr.toLowerCase()}`;
+  const hit = reverseCache.get(k);
+  if (hit && Date.now() - hit.t < 15_000) return hit.name;
+  let name: string | null = null;
+  try {
+    const [n] = await c.pc.readContract({ address: c.ens.universalResolver, abi: urAbi, functionName: 'reverse', args: [addr, REVERSE_COIN_TYPE] });
+    name = n || null;
+  } catch {
+    name = null;
+  }
+  reverseCache.set(k, { name, t: Date.now() });
+  return name;
 }
 
 /** calibration.brier = the gate value posted on-chain (skill-normalised, 2500 = base rate); brierRaw / skill / baseRate are detail records. */

@@ -2,6 +2,16 @@
 pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
+import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
+import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
+import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
+import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
+import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
+import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
+import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
+import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
+import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
+import {HookMiner} from "@uniswap/v4-periphery/src/utils/HookMiner.sol";
 
 import {EnsSetup} from "../../script/EnsSetup.s.sol";
 import {
@@ -10,10 +20,17 @@ import {
     IEnsPermissionedResolver,
     IEnsUniversalResolver,
     IEnsProfiles,
+    IEnsAddressProfile,
+    IEnsMulticallable,
     IEnsVerifiableFactory
 } from "../../src/interfaces/ens/IEnsV2.sol";
 import {EnsV2Lib} from "../../src/roles/EnsV2Lib.sol";
 import {EnsV2RoleOracle} from "../../src/roles/EnsV2RoleOracle.sol";
+import {OniblockHook} from "../../src/OniblockHook.sol";
+import {OniblockLiveResolver} from "../../src/ens/OniblockLiveResolver.sol";
+import {IRoleOracle} from "../../src/interfaces/IRoleOracle.sol";
+import {MockRoleOracle} from "../../src/mocks/MockRoleOracle.sol";
+import {MockERC20} from "../../src/mocks/MockERC20.sol";
 
 /// @notice Full ENSv2 setup on a Sepolia fork (no broadcast).
 /// Run: FORK=1 SEPOLIA_RPC_HTTPS=<rpc> forge test --match-path test/fork/EnsSetup.t.sol -vv
@@ -74,6 +91,9 @@ contract EnsSetupForkTest is Test {
         cfg.modelHashJev = vm.toString(keccak256("typesafe-ai/jev"));
         cfg.modelHashHeuristic = vm.toString(keccak256("oniblock/heuristic-v1"));
         cfg.modelHashKev = "0x24f0793d55e0fde516ebe4da1d187e0468a5f7c830ba9a9f4d48e43f007c88be";
+        cfg.poolLabel = "weth-usdc";
+        cfg.endpointJev = "https://ai-gateway.vercel.sh/v1/evaluate";
+        cfg.endpointHeuristic = "in-process";
 
         IEnsETHRegistrar registrar = IEnsETHRegistrar(cfg.ens.registrar);
         assertTrue(registrar.isAvailable("oniblock"), "oniblock.eth must be available at fork block");
@@ -113,6 +133,12 @@ contract EnsSetupForkTest is Test {
         // resource of a fresh name = labelhash with low 32 bits = eacVersionId (0)
         assertEq(r.quoterResource, EnsV2Lib.resourceAt(EnsV2Lib.labelId("quoter"), 0));
         assertEq(r.settlerResource, EnsV2Lib.resourceAt(EnsV2Lib.labelId("settler"), 0));
+
+        // live.<name>: registered by finish with the shared resolver as a placeholder (no hook known here)
+        assertEq(reg.getOwner(EnsV2Lib.labelId("live")), owner);
+        assertEq(reg.getResolver("live"), r.resolver);
+        assertEq(reg.getSubregistry("live"), address(0));
+        assertEq(r.liveResolver, address(0));
     }
 
     // ------------------------------------------------------------------ quoter kill switch
@@ -235,6 +261,10 @@ contract EnsSetupForkTest is Test {
         assertGt(bytes(_urText("kev-v1.models.oniblock.eth", "description")).length, 0);
         assertGt(bytes(_urText("jev-v1.models.oniblock.eth", "agent-context")).length, 0);
         assertEq(_urText("weth-usdc.pools.oniblock.eth", "fee-max"), "10000");
+        // ENSIP-26 agent-endpoint[<protocol>]
+        assertEq(_urText("jev-v1.models.oniblock.eth", "agent-endpoint[web]"), cfg.endpointJev);
+        assertEq(_urText("heuristic-v1.models.oniblock.eth", "agent-endpoint[web]"), "in-process");
+        assertEq(_urText("kev-v1.models.oniblock.eth", "agent-endpoint[web]"), "");
         assertEq(_urText("weth-usdc.pools.oniblock.eth", "hook"), vm.toString(address(0xB00C)));
         assertEq(_urText("weth-usdc.pools.oniblock.eth", "pool-id"), vm.toString(cfg.poolId));
 
@@ -243,6 +273,266 @@ contract EnsSetupForkTest is Test {
             abi.encodeCall(IEnsProfiles.addr, (EnsV2Lib.namehash("settler.oniblock.eth")))
         );
         assertEq(abi.decode(out, (address)), settler);
+    }
+
+    // ------------------------------------------------------------------ ENSIP-10 wildcard: *.live.oniblock.eth
+    /// The UR finds no resolver for `<label>.live.oniblock.eth` (no subregistry under `live`), walks up to `live`,
+    /// checks IExtendedResolver and calls OniblockLiveResolver.resolve(fullName, data): nothing under `live` is
+    /// registered, every record comes from the hook.
+    function test_liveWildcard_throughUniversalResolver() public {
+        (OniblockHook hook, PoolKey memory key) = _deployHookAndPool();
+        bytes32 poolId = PoolId.unwrap(key.toId());
+        bytes32 jev = EnsV2Lib.namehash("jev-v1.models.oniblock.eth");
+        IEnsPermissionedRegistry reg = IEnsPermissionedRegistry(r.registry);
+        IEnsUniversalResolver ur = IEnsUniversalResolver(cfg.ens.universalResolver);
+
+        // before add-live the placeholder (shared) resolver answers with empty records
+        assertEq(reg.getResolver("live"), r.resolver);
+        assertEq(_urText("jev-v1.live.oniblock.eth", "status"), "");
+
+        address live = setup.addLiveBroadcast(cfg, r.registry, address(0), address(hook), poolId, key);
+        assertEq(reg.getResolver("live"), live, "resolver of live repointed");
+        assertEq(reg.getSubregistry("live"), address(0), "nothing registered under live");
+        assertEq(OniblockLiveResolver(live).owner(), owner);
+        assertEq(OniblockLiveResolver(live).knownLabels().length, 4);
+
+        // the UR walk stops at `live` (offset 7 = after "\x06jev-v1") and accepts the resolver as ENSIP-10
+        (address found, bytes32 node, uint256 offset) = ur.findResolver(EnsV2Lib.dnsEncode("jev-v1.live.oniblock.eth"));
+        assertEq(found, live);
+        assertEq(node, EnsV2Lib.namehash("jev-v1.live.oniblock.eth"));
+        assertEq(offset, 7);
+
+        // model records: allowlisted + unseasoned => probation; unknown label => unknown
+        assertEq(_urText("jev-v1.live.oniblock.eth", "status"), "probation");
+        assertEq(_urText("jev-v1.live.oniblock.eth", "allowed"), "true");
+        assertEq(_urText("jev-v1.live.oniblock.eth", "calibration.n"), "0");
+        assertEq(_urText("jev-v1.live.oniblock.eth", "model-node"), Strings.toHexString(uint256(jev), 32));
+        assertEq(_urText("jev-v1.live.oniblock.eth", "models-name"), "jev-v1.models.oniblock.eth");
+        assertEq(_urText("nobody-v9.live.oniblock.eth", "status"), "unknown");
+        assertEq(_urText("kev-v1.live.oniblock.eth", "status"), "unknown"); // registered in ENS, not allowlisted
+        // pool records
+        assertEq(_urText("weth-usdc.live.oniblock.eth", "k"), "5000");
+        assertEq(_urText("weth-usdc.live.oniblock.eth", "stale"), "true");
+        assertEq(_urText("weth-usdc.live.oniblock.eth", "hook"), Strings.toChecksumHexString(address(hook)));
+        assertEq(_urText("weth-usdc.live.oniblock.eth", "pool-id"), Strings.toHexString(uint256(poolId), 32));
+        assertEq(_urText("weth-usdc.live.oniblock.eth", "fee-zero-for-one"), "5000"); // stale => conservative
+        assertEq(_urText("weth-usdc.live.oniblock.eth", "pools-name"), "weth-usdc.pools.oniblock.eth");
+        // current alias + the namespace itself
+        assertEq(_urText("current.live.oniblock.eth", "status"), "unknown");
+        assertEq(_urText("live.oniblock.eth", "pool"), "weth-usdc");
+        assertEq(_urText("live.oniblock.eth", "known-labels"), "jev-v1,heuristic-v1,kev-v1,rule-v1");
+        // addr through the UR: the pool name resolves to the hook
+        (bytes memory out, address via) = ur.resolve(
+            EnsV2Lib.dnsEncode("weth-usdc.live.oniblock.eth"),
+            abi.encodeCall(IEnsProfiles.addr, (EnsV2Lib.namehash("weth-usdc.live.oniblock.eth")))
+        );
+        assertEq(via, live);
+        assertEq(abi.decode(out, (address)), address(hook));
+
+        // the settler grades the model on the hook: the same ENS name flips, with no ENS write at all
+        vm.prank(settler);
+        hook.setCalibration(jev, 1000, 6000, 10);
+        assertEq(_urText("jev-v1.live.oniblock.eth", "status"), "active");
+        assertEq(_urText("jev-v1.live.oniblock.eth", "calibration.brier"), "1000");
+        assertEq(_urText("jev-v1.live.oniblock.eth", "demoted"), "false");
+
+        // multicall through the UR (direct call path: IERC7996 + RESOLVE_MULTICALL)
+        bytes[] memory calls = new bytes[](2);
+        calls[0] = abi.encodeCall(IEnsProfiles.text, (bytes32(0), "k"));
+        calls[1] = abi.encodeCall(IEnsProfiles.text, (bytes32(0), "base-fee"));
+        (out, via) = ur.resolve(
+            EnsV2Lib.dnsEncode("weth-usdc.live.oniblock.eth"), abi.encodeCall(IEnsMulticallable.multicall, (calls))
+        );
+        bytes[] memory rs = abi.decode(out, (bytes[]));
+        assertEq(abi.decode(rs[0], (string)), "5000");
+        assertEq(abi.decode(rs[1], (string)), "3000");
+
+        // an unsupported profile is propagated by the UR as its own UnsupportedResolverProfile error
+        vm.expectRevert(
+            abi.encodeWithSelector(OniblockLiveResolver.UnsupportedResolverProfile.selector, IEnsProfiles.addr.selector)
+        );
+        ur.resolve(EnsV2Lib.dnsEncode("jev-v1.live.oniblock.eth"), abi.encodeCall(IEnsProfiles.addr, (jev)));
+
+        // idempotent: the recorded resolver is reused, nothing re-registered or repointed
+        address again = setup.addLiveBroadcast(cfg, r.registry, live, address(hook), poolId, key);
+        assertEq(again, live);
+        assertEq(reg.getResolver("live"), live);
+        // a recorded resolver bound to another hook/pool is replaced by a fresh one
+        address stale_ = setup.addLiveBroadcast(cfg, r.registry, address(0xdead), address(hook), poolId, key);
+        assertTrue(stale_ != live);
+        assertEq(reg.getResolver("live"), stale_);
+        assertEq(_urText("weth-usdc.live.oniblock.eth", "k"), "5000");
+
+        // a recorded resolver for the same hook/pool but another owner or pool label is not reused either
+        bytes32 modelsNode = EnsV2Lib.namehash("models.oniblock.eth");
+        bytes32 poolsNode = EnsV2Lib.namehash("pools.oniblock.eth");
+        address foreign = address(
+            new OniblockLiveResolver(rando, hook, poolId, key, modelsNode, poolsNode, "live.oniblock.eth", cfg.poolLabel)
+        );
+        address fresh = setup.addLiveBroadcast(cfg, r.registry, foreign, address(hook), poolId, key);
+        assertTrue(fresh != foreign, "other owner => fresh resolver");
+        assertEq(OniblockLiveResolver(fresh).owner(), owner);
+        address otherPool = address(
+            new OniblockLiveResolver(owner, hook, poolId, key, modelsNode, poolsNode, "live.oniblock.eth", "other-pool")
+        );
+        fresh = setup.addLiveBroadcast(cfg, r.registry, otherPool, address(hook), poolId, key);
+        assertTrue(fresh != otherPool, "other pool label => fresh resolver");
+        assertEq(reg.getResolver("live"), fresh);
+        assertEq(setup.addLiveBroadcast(cfg, r.registry, fresh, address(hook), poolId, key), fresh, "match => reused");
+
+        // the old names keep resolving through the shared resolver: same UR, two resolver kinds under one parent
+        assertEq(_urText("jev-v1.models.oniblock.eth", "model-hash"), cfg.modelHashJev);
+    }
+
+    // ------------------------------------------------------------------ add-model / set-endpoints phases
+    function test_addModel_phase() public {
+        IEnsPermissionedRegistry models = IEnsPermissionedRegistry(r.modelsRegistry);
+        IEnsPermissionedResolver res = IEnsPermissionedResolver(r.resolver);
+        EnsSetup.ModelSpec memory m = EnsSetup.ModelSpec({
+            label: "test-v9",
+            owner: owner,
+            modelHash: vm.toString(keccak256("test-v9")),
+            context: "Test model context",
+            endpoint: "https://example.org/evaluate",
+            description: "Test model"
+        });
+        (bool registered, uint256 writes, uint256 grants) =
+            setup.addModelBroadcast(cfg, r.modelsRegistry, r.resolver, settler, m);
+        assertTrue(registered);
+        assertEq(writes, 4);
+        assertEq(grants, 0, "finish already granted every key");
+        assertEq(models.getOwner(EnsV2Lib.labelId("test-v9")), owner);
+        assertEq(models.getResolver("test-v9"), r.resolver);
+        assertEq(_urText("test-v9.models.oniblock.eth", "model-hash"), m.modelHash);
+        assertEq(_urText("test-v9.models.oniblock.eth", "agent-context"), m.context);
+        assertEq(_urText("test-v9.models.oniblock.eth", "agent-endpoint[web]"), m.endpoint);
+        assertEq(_urText("test-v9.models.oniblock.eth", "description"), m.description);
+
+        // the settler can grade it (per-key grants are name-independent), nobody else can
+        bytes memory name = EnsV2Lib.dnsEncode("test-v9.models.oniblock.eth");
+        vm.prank(settler);
+        res.setText(name, "calibration.jit.n", "3");
+        assertEq(_urText("test-v9.models.oniblock.eth", "calibration.jit.n"), "3");
+        vm.prank(owner);
+        vm.expectRevert();
+        res.setText(name, "calibration.n", "1");
+
+        // idempotent: nothing to do
+        (registered, writes, grants) = setup.addModelBroadcast(cfg, r.modelsRegistry, r.resolver, settler, m);
+        assertFalse(registered);
+        assertEq(writes, 0);
+        assertEq(grants, 0);
+        // partial update: only the record that differs is rewritten; empty values leave records alone
+        m.description = "Test model v2";
+        m.modelHash = "";
+        (registered, writes,) = setup.addModelBroadcast(cfg, r.modelsRegistry, r.resolver, settler, m);
+        assertFalse(registered);
+        assertEq(writes, 1);
+        assertEq(_urText("test-v9.models.oniblock.eth", "description"), "Test model v2");
+        assertEq(_urText("test-v9.models.oniblock.eth", "model-hash"), vm.toString(keccak256("test-v9")));
+
+        // a model owned by another account (its own identity + token permissions; records still written by owner)
+        address agent = makeAddr("oniblock.ens.agentOwner");
+        vm.etch(agent, ""); // Sepolia EIP-7702 delegations on well-known keys would break the ERC1155 mint
+        EnsSetup.ModelSpec memory a = EnsSetup.ModelSpec({
+            label: "agent-v1",
+            owner: agent,
+            modelHash: "",
+            context: "",
+            endpoint: "https://agent.example/mcp",
+            description: ""
+        });
+        (registered, writes,) = setup.addModelBroadcast(cfg, r.modelsRegistry, r.resolver, settler, a);
+        assertTrue(registered);
+        assertEq(writes, 1);
+        assertEq(models.getOwner(EnsV2Lib.labelId("agent-v1")), agent);
+        assertEq(_urText("agent-v1.models.oniblock.eth", "agent-endpoint[web]"), "https://agent.example/mcp");
+        // an author-owned name is registered without ROLE_SET_RESOLVER: the author cannot repoint it away from the
+        // shared resolver (where the settler's scorecard lives), nor can a stranger
+        uint256 agentId = EnsV2Lib.labelId("agent-v1");
+        assertFalse(models.hasRoles(agentId, EnsV2Lib.ROLE_SET_RESOLVER, agent));
+        vm.prank(agent);
+        vm.expectRevert();
+        models.setResolver(agentId, address(0xBEEF));
+        assertEq(models.getResolver("agent-v1"), r.resolver);
+        vm.prank(rando);
+        vm.expectRevert();
+        models.setResolver(agentId, address(0xBEEF));
+        // the team owner still can (registry root roles), and add-model puts the shared resolver back
+        vm.prank(owner);
+        models.setResolver(agentId, address(0xBEEF));
+        assertEq(models.getResolver("agent-v1"), address(0xBEEF));
+        setup.addModelBroadcast(cfg, r.modelsRegistry, r.resolver, settler, a);
+        assertEq(models.getResolver("agent-v1"), r.resolver);
+        // re-running with another ENS_MODEL_OWNER warns and changes nothing (no auto-transfer)
+        a.owner = rando;
+        (registered, writes,) = setup.addModelBroadcast(cfg, r.modelsRegistry, r.resolver, settler, a);
+        assertFalse(registered);
+        assertEq(writes, 0);
+        assertEq(models.getOwner(agentId), agent);
+    }
+
+    function test_setEndpoints_phase() public {
+        (uint256 writes, uint256 grants) = setup.setEndpointsBroadcast(cfg, r.resolver);
+        assertEq(writes, 0, "finish already wrote them");
+        assertEq(grants, 0);
+        cfg.endpointJev = "https://other.example/v1/evaluate";
+        (writes, grants) = setup.setEndpointsBroadcast(cfg, r.resolver);
+        assertEq(writes, 1);
+        assertEq(_urText("jev-v1.models.oniblock.eth", "agent-endpoint[web]"), cfg.endpointJev);
+        assertEq(_urText("heuristic-v1.models.oniblock.eth", "agent-endpoint[web]"), "in-process");
+        // kev-v1: empty ENS_ENDPOINT_KEV (default) = skipped; set = written once
+        assertEq(_urText("kev-v1.models.oniblock.eth", "agent-endpoint[web]"), "");
+        cfg.endpointKev = "https://kev.example/evaluate";
+        (writes,) = setup.setEndpointsBroadcast(cfg, r.resolver);
+        assertEq(writes, 1);
+        assertEq(_urText("kev-v1.models.oniblock.eth", "agent-endpoint[web]"), cfg.endpointKev);
+        (writes,) = setup.setEndpointsBroadcast(cfg, r.resolver);
+        assertEq(writes, 0);
+    }
+
+    /// A real hook + registered/initialized Oniblock pool on the fork (fresh PoolManager, mock tokens), so the live
+    /// resolver has state to serve. Mirrors OniblockTestBase without its block/time rewinds.
+    function _deployHookAndPool() internal returns (OniblockHook hook, PoolKey memory key) {
+        IPoolManager pm = IPoolManager(deployCode("out/PoolManager.sol/PoolManager.json", abi.encode(address(this))));
+        MockERC20 a = new MockERC20("Mock WETH", "mWETH", 18);
+        MockERC20 b = new MockERC20("Mock USDC", "mUSDC", 6);
+        (Currency c0, Currency c1) = address(a) < address(b)
+            ? (Currency.wrap(address(a)), Currency.wrap(address(b)))
+            : (Currency.wrap(address(b)), Currency.wrap(address(a)));
+        MockRoleOracle roles = new MockRoleOracle(address(this));
+        roles.setSettler(settler, true);
+        address attestor = makeAddr("oniblock.ens.attestor");
+        uint160 flags = uint160(
+            Hooks.BEFORE_INITIALIZE_FLAG | Hooks.AFTER_INITIALIZE_FLAG | Hooks.AFTER_ADD_LIQUIDITY_FLAG
+                | Hooks.AFTER_REMOVE_LIQUIDITY_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG
+                | Hooks.AFTER_ADD_LIQUIDITY_RETURNS_DELTA_FLAG | Hooks.AFTER_REMOVE_LIQUIDITY_RETURNS_DELTA_FLAG
+        );
+        bytes memory args = abi.encode(pm, address(this), attestor, IRoleOracle(address(roles)), uint48(10), uint256(0));
+        (address expected, bytes32 salt) = HookMiner.find(address(this), flags, type(OniblockHook).creationCode, args);
+        hook = new OniblockHook{salt: salt}(pm, address(this), attestor, IRoleOracle(address(roles)), 10, 0);
+        require(address(hook) == expected, "hook addr");
+
+        OniblockHook.PoolConfig memory c;
+        c.baseFee = 3000;
+        c.feeMax = 10000;
+        c.conservativeFee = 5000;
+        c.kMinBps = 2000;
+        c.kMaxBps = 8000;
+        c.kDefaultBps = 5000;
+        c.maxKStepBps = 1000;
+        c.staleBlocks = 5;
+        c.brierDemoteBps = 2500;
+        c.minSamples = 10;
+        c.chainlinkMaxAge = 2 hours;
+        c.arbThresholdPips = 3300;
+        c.jitWindowMin = 10;
+        c.jitWindowMax = 100;
+        c.jitWindowDefault = 10;
+        key = PoolKey(c0, c1, LPFeeLibrary.DYNAMIC_FEE_FLAG, 60, IHooks(address(hook)));
+        hook.registerPool(key, c);
+        hook.setModelAllowed(key.toId(), EnsV2Lib.namehash("jev-v1.models.oniblock.eth"), true);
+        pm.initialize(key, TickMath.getSqrtPriceAtTick(0));
     }
 
     function test_namehashLib() public pure {

@@ -2,6 +2,10 @@
 pragma solidity ^0.8.26;
 
 import {Script, console2} from "forge-std/Script.sol";
+import {VmSafe} from "forge-std/Vm.sol";
+import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
+import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
+import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 
 import {
     EnsGrant,
@@ -10,10 +14,13 @@ import {
     IEnsETHRegistrar,
     IEnsVerifiableFactory,
     IEnsPermissionedResolver,
+    IEnsProfiles,
     IEnsMockERC20
 } from "../src/interfaces/ens/IEnsV2.sol";
 import {EnsV2Lib} from "../src/roles/EnsV2Lib.sol";
 import {EnsV2RoleOracle} from "../src/roles/EnsV2RoleOracle.sol";
+import {OniblockHook} from "../src/OniblockHook.sol";
+import {OniblockLiveResolver} from "../src/ens/OniblockLiveResolver.sol";
 
 /// @title EnsSetup
 /// @notice ENSv2 (Sepolia beta) setup for Oniblock:
@@ -23,21 +30,43 @@ import {EnsV2RoleOracle} from "../src/roles/EnsV2RoleOracle.sol";
 ///      - VerifiableFactory proxies: PermissionedResolver, UserRegistry for <label>.eth, models.<label>.eth,
 ///        pools.<label>.eth (all owned by `owner` via root grants)
 ///      - ETH registry: setSubregistry / setResolver on <label>.eth
-///      - subnames: quoter, settler, models -> {jev-v1, heuristic-v1, kev-v1, rule-v1 (v3 gate only)}, pools -> {weth-usdc}
+///      - subnames: quoter, settler, models -> {jev-v1, heuristic-v1, kev-v1, rule-v1 (v3 gate only)}, pools -> {weth-usdc},
+///        live (ENSIP-10 wildcard namespace, see add-live)
 ///      - v4 pool config (DeployBase): arbThresholdPips 0, kMin 0, kDefault 0, kMax 8000, maxKStep 8000 — Jev decides
 ///      - EAC roles: ROLE_QUOTER on quoter.<label>.eth -> quoter; ROLE_SETTLER on settler.<label>.eth -> settler
-///      - resolver records (addr + text) and settler-only per-key text roles for calibration.* and
-///        calibration.jit.* (v5 JIT head)
+///      - resolver records (addr + text, incl. ENSIP-26 agent-context and agent-endpoint[web]) and settler-only
+///        per-key text roles for calibration.* and calibration.jit.* (v5 JIT head)
 ///      - deploys EnsV2RoleOracle pointing at the subregistry
+///      - `live.<label>.eth`: registered with the OniblockLiveResolver when ENS_HOOK is set and matches the
+///        deployment json (ENS_DEPLOYMENT_JSON / ../deployments/<chainId>.json); otherwise with the shared
+///        PermissionedResolver as a placeholder that `add-live` repoints once the hook exists
 ///      - writes ../deployments/<chainId>.ens.json
 ///   3. grant-jit : (v5 upgrade of an EXISTING setup, no re-registration) grants the settler the per-key setter
 ///      roles for calibration.jit.* on the resolver recorded in ENS_OUT / ../deployments/<chainId>.ens.json.
 ///      Idempotent: keys the settler already holds are skipped. ENS_SETTLER defaults to the json's settler.
+///   4. add-live  : deploys OniblockLiveResolver (constructor from the deployment json: hook, Oniblock pool id/key;
+///      models/pools nodes from ENS_NAME) unless the json's `liveResolver` already serves that hook + pool with the
+///      same base name, pool label and owner, registers `live` in the <label>.eth registry with it (or repoints the
+///      resolver of an existing `live`), sets the known labels (ENS_LIVE_LABELS, default
+///      jev-v1,heuristic-v1,kev-v1,rule-v1) and records hook / liveResolver / liveName / liveNode + the live
+///      namehashes in the ens json. Idempotent.
+///   5. add-model : registers ENS_MODEL_LABEL in the models registry (owner ENS_MODEL_OWNER, default ENS_OWNER) with
+///      the shared PermissionedResolver, writes model-hash / agent-context / agent-endpoint[web] / description
+///      (ENS_MODEL_HASH / ENS_MODEL_CONTEXT / ENS_MODEL_ENDPOINT / ENS_MODEL_DESCRIPTION; empty = leave as is) and
+///      grants the settler the calibration.* + calibration.jit.* keys. A name registered to an owner other than
+///      ENS_OWNER gets no ROLE_SET_RESOLVER, so its author cannot repoint it. Idempotent: registration is skipped
+///      when the name exists (with a warning, and no transfer, if its owner is not ENS_MODEL_OWNER), records are
+///      rewritten only when they differ, grants only when missing.
+///   6. set-endpoints : ENSIP-26 `agent-endpoint[web]` on jev-v1 (ENS_ENDPOINT_JEV, default the Vercel AI Gateway
+///      evaluate URL), heuristic-v1 (ENS_ENDPOINT_HEURISTIC, default "in-process") and kev-v1 (ENS_ENDPOINT_KEV,
+///      default empty = skip) for setups from before the key existed. Idempotent.
+///   The ens json is written (finish / add-live / add-model) only under `forge script --broadcast` (or --resume);
+///   a dry run leaves it untouched.
 ///
 /// Env (all optional except where noted):
-///   ENS_PHASE      commit | finish | all | grant-jit  (default all; `all` only works in simulation / on a chain
-///                  where the script's vm.warp is honoured, i.e. forge test. For anvil use commit, then
-///                  `cast rpc evm_increaseTime 61 && cast rpc anvil_mine`, then finish.)
+///   ENS_PHASE      commit | finish | all | grant-jit | add-live | add-model | set-endpoints  (default all; `all`
+///                  only works in simulation / on a chain where the script's vm.warp is honoured, i.e. forge test.
+///                  For anvil use commit, then `cast rpc evm_increaseTime 61 && cast rpc anvil_mine`, then finish.)
 ///   ENS_NAME       default "oniblock.eth"
 ///   ENS_OWNER      default: the broadcasting sender (msg.sender of the script)
 ///   ENS_QUOTER     default: owner         ENS_SETTLER default: owner
@@ -45,6 +74,11 @@ import {EnsV2RoleOracle} from "../src/roles/EnsV2RoleOracle.sol";
 ///   ENS_SECRET     commit-reveal secret (default keccak256("oniblock-ens", owner, label))
 ///   ENS_DURATION   seconds (default 365 days)   ENS_SALT  factory salt nonce (default 0)
 ///   ENS_OUT        output json path (default ../deployments/<chainId>.ens.json; use a different path for fork runs)
+///   ENS_DEPLOYMENT_JSON  hook deployment json (default ../deployments/<chainId>.json; add-live / finish-with-hook)
+///   ENS_POOL_LABEL default "weth-usdc"   ENS_LIVE_LABELS comma list (default jev-v1,heuristic-v1,kev-v1,rule-v1)
+///   ENS_ENDPOINT_JEV / ENS_ENDPOINT_HEURISTIC / ENS_ENDPOINT_KEV   ENSIP-26 agent-endpoint[web] values
+///   ENS_MODEL_LABEL (required by add-model) / ENS_MODEL_OWNER / ENS_MODEL_HASH / ENS_MODEL_CONTEXT /
+///   ENS_MODEL_ENDPOINT / ENS_MODEL_DESCRIPTION
 ///   ENS_FEE_MIN / ENS_FEE_MAX / ENS_POLICY_URI / ENS_MODEL_HASH_JEV / ENS_MODEL_HASH_HEURISTIC /
 ///   ENS_MODEL_HASH_KEV (default: sha256 model hash of ml/models/kev08b-v1, see its NOTE.md)
 ///   ENS_ETH_REGISTRAR, ENS_VERIFIABLE_FACTORY, ENS_USER_REGISTRY_IMPL, ENS_PERMISSIONED_RESOLVER_IMPL,
@@ -53,6 +87,8 @@ contract EnsSetup is Script {
     // ------------------------------------------------------------------ text keys
     string internal constant K_MODEL_HASH = "model-hash";
     string internal constant K_AGENT_CONTEXT = "agent-context"; // ENSIP-26
+    /// ENSIP-26 `agent-endpoint[<protocol>]`, protocol in {mcp, a2a, web}; value: the endpoint URL.
+    string internal constant K_AGENT_ENDPOINT = "agent-endpoint[web]";
     string internal constant K_DESCRIPTION = "description";
     string internal constant K_CAL_BRIER = "calibration.brier";
     string internal constant K_CAL_HIT = "calibration.hitRate";
@@ -77,6 +113,10 @@ contract EnsSetup is Script {
     string internal constant K_FEE_MIN = "fee-min";
     string internal constant K_FEE_MAX = "fee-max";
     string internal constant K_POLICY_URI = "policy-uri";
+
+    string internal constant LIVE_LABEL = "live";
+    string internal constant DEFAULT_ENDPOINT_JEV = "https://ai-gateway.vercel.sh/v1/evaluate";
+    string internal constant DEFAULT_ENDPOINT_HEURISTIC = "in-process";
 
     struct Addrs {
         address registrar;
@@ -104,6 +144,10 @@ contract EnsSetup is Script {
         string modelHashJev;
         string modelHashHeuristic;
         string modelHashKev;
+        string poolLabel; // "weth-usdc": the pool served by <poolLabel>.live.<label>.eth
+        string endpointJev; // ENSIP-26 agent-endpoint[web] of jev-v1
+        string endpointHeuristic; // ... of heuristic-v1
+        string endpointKev; // ... of kev-v1 ("" = leave unset / unchanged)
     }
 
     struct Result {
@@ -113,9 +157,20 @@ contract EnsSetup is Script {
         address modelsRegistry;
         address poolsRegistry;
         address roleOracle;
+        address liveResolver; // OniblockLiveResolver serving live.<label>.eth (0 = placeholder shared resolver)
         uint256 tokenId; // <label>.eth token id in ETH registry (at registration time)
         uint256 quoterResource;
         uint256 settlerResource;
+    }
+
+    /// A model name to register / update under models.<label>.eth (add-model phase).
+    struct ModelSpec {
+        string label;
+        address owner;
+        string modelHash; // "" = leave unchanged
+        string context; // ENSIP-26 agent-context; "" = leave unchanged
+        string endpoint; // ENSIP-26 agent-endpoint[web]; "" = leave unchanged
+        string description; // "" = leave unchanged
     }
 
     // ================================================================== entry point
@@ -127,10 +182,18 @@ contract EnsSetup is Script {
             commitPhase(cfg);
         } else if (p == keccak256("finish")) {
             Result memory r = finishPhase(cfg);
-            writeJson(cfg, r);
+            if (_broadcasting()) writeJson(cfg, r);
+            else console2.log("finish: not broadcasting (no --broadcast), ens json not written");
         } else if (p == keccak256("grant-jit")) {
             grantJitPhase(cfg);
+        } else if (p == keccak256("add-live")) {
+            addLivePhase(cfg);
+        } else if (p == keccak256("add-model")) {
+            addModelPhase(cfg);
+        } else if (p == keccak256("set-endpoints")) {
+            setEndpointsPhase(cfg);
         } else {
+            require(p == keccak256("all"), "EnsSetup: unknown ENS_PHASE");
             commitPhase(cfg);
             vm.warp(block.timestamp + IEnsETHRegistrar(cfg.ens.registrar).MIN_COMMITMENT_AGE() + 1);
             Result memory r = finishPhase(cfg);
@@ -165,6 +228,10 @@ contract EnsSetup is Script {
         cfg.modelHashKev = vm.envOr(
             "ENS_MODEL_HASH_KEV", string("0x24f0793d55e0fde516ebe4da1d187e0468a5f7c830ba9a9f4d48e43f007c88be")
         );
+        cfg.poolLabel = vm.envOr("ENS_POOL_LABEL", string("weth-usdc"));
+        cfg.endpointJev = vm.envOr("ENS_ENDPOINT_JEV", DEFAULT_ENDPOINT_JEV);
+        cfg.endpointHeuristic = vm.envOr("ENS_ENDPOINT_HEURISTIC", DEFAULT_ENDPOINT_HEURISTIC);
+        cfg.endpointKev = vm.envOr("ENS_ENDPOINT_KEV", string(""));
     }
 
     // ================================================================== phase 1: commit
@@ -215,8 +282,7 @@ contract EnsSetup is Script {
         // ---- 2d. subnames
         IEnsPermissionedRegistry reg = IEnsPermissionedRegistry(r.registry);
         reg.setParent(address(ethRegistry), cfg.label); // canonical name for UniversalResolver
-        uint256 std = EnsV2Lib.withAdmin(EnsV2Lib.ROLE_SET_RESOLVER | EnsV2Lib.ROLE_SET_SUBREGISTRY)
-            | EnsV2Lib.ROLE_CAN_TRANSFER_ADMIN;
+        uint256 std = _stdRoles();
         uint64 forever = type(uint64).max; // subnames in our own registry never expire (expiry wipes roles)
         reg.register("quoter", cfg.owner, address(0), r.resolver, std | EnsV2Lib.ROLE_QUOTER_ADMIN, forever);
         reg.register("settler", cfg.owner, address(0), r.resolver, std | EnsV2Lib.ROLE_SETTLER_ADMIN, forever);
@@ -232,7 +298,7 @@ contract EnsSetup is Script {
 
         IEnsPermissionedRegistry pools = IEnsPermissionedRegistry(r.poolsRegistry);
         pools.setParent(r.registry, "pools");
-        pools.register("weth-usdc", cfg.owner, address(0), r.resolver, std, forever);
+        pools.register(cfg.poolLabel, cfg.owner, address(0), r.resolver, std, forever);
 
         // ---- 2e. EAC roles: the kill switch. Owner holds *_ADMIN on the token resource; grants the regular role.
         reg.grantRoles(EnsV2Lib.labelId("quoter"), EnsV2Lib.ROLE_QUOTER, cfg.quoter);
@@ -252,6 +318,17 @@ contract EnsSetup is Script {
             )
         );
 
+        // ---- 2h. live.<label>.eth: the ENSIP-10 wildcard namespace. With the hook known (ENS_HOOK matching the
+        // deployment json) the OniblockLiveResolver is deployed and set right away; otherwise the label is
+        // registered with the shared resolver so the name exists, and `add-live` repoints it after the hook deploy.
+        if (cfg.hook != address(0) && _deploymentMatches(cfg)) {
+            (address hook, bytes32 poolId, PoolKey memory key) = _deployment(cfg);
+            r.liveResolver = addLive(cfg, r.registry, address(0), hook, poolId, key);
+        } else {
+            reg.register(LIVE_LABEL, cfg.owner, address(0), r.resolver, std, forever);
+            console2.log("live.<name> registered with the shared resolver; run ENS_PHASE=add-live after the hook deploy");
+        }
+
         vm.stopBroadcast();
     }
 
@@ -259,13 +336,10 @@ contract EnsSetup is Script {
     /// Grants the settler the calibration.jit.* setter roles on an already-deployed setup. Reads the resolver (and,
     /// unless ENS_SETTLER is set, the settler) from ENS_OUT / ../deployments/<chainId>.ens.json. Idempotent.
     function grantJitPhase(Config memory cfg) public {
-        string memory path = _jsonPath();
-        require(vm.exists(path), "EnsSetup: ens json not found (set ENS_OUT)");
-        string memory j = vm.readFile(path);
+        string memory j = _readEnsJson();
         address resolver = vm.parseJsonAddress(j, ".resolver");
         require(resolver != address(0), "EnsSetup: resolver missing in ens json");
-        address settler = vm.envOr("ENS_SETTLER", vm.parseJsonAddress(j, ".settler"));
-        require(settler != address(0), "EnsSetup: settler missing");
+        address settler = _settlerOf(cfg, j);
 
         bytes memory nRoot = EnsV2Lib.dnsEncode(string.concat(cfg.label, ".eth"));
         vm.startBroadcast(cfg.owner);
@@ -276,6 +350,283 @@ contract EnsSetup is Script {
         console2.log("grant-jit: new grants", granted);
     }
 
+    // ================================================================== phase 4: add-live (wildcard resolver)
+    /// Deploys / reuses the OniblockLiveResolver for the hook + pool in the deployment json, registers or repoints
+    /// `live.<label>.eth` to it, sets the known labels and records it in the ens json. Idempotent.
+    function addLivePhase(Config memory cfg) public {
+        string memory j = _readEnsJson();
+        address registry = vm.parseJsonAddress(j, ".registry");
+        require(registry != address(0), "EnsSetup: registry missing in ens json");
+        address existing = vm.keyExistsJson(j, ".liveResolver") ? vm.parseJsonAddress(j, ".liveResolver") : address(0);
+        (address hook, bytes32 poolId, PoolKey memory key) = _deployment(cfg);
+
+        address live = addLiveBroadcast(cfg, registry, existing, hook, poolId, key);
+
+        if (_broadcasting()) _writeLiveJson(cfg, j, live, hook);
+        else console2.log("add-live: not broadcasting (no --broadcast), ens json not written");
+        console2.log("add-live: liveResolver", live);
+        console2.log("add-live: hook", hook);
+        console2.logBytes32(poolId);
+    }
+
+    /// `addLive` broadcast as `cfg.owner` (the phase entry point and the fork tests).
+    function addLiveBroadcast(
+        Config memory cfg,
+        address registry,
+        address existing,
+        address hook,
+        bytes32 poolId,
+        PoolKey memory key
+    ) public returns (address live) {
+        vm.startBroadcast(cfg.owner);
+        live = addLive(cfg, registry, existing, hook, poolId, key);
+        vm.stopBroadcast();
+    }
+
+    /// Core of add-live (also used by finish when the hook is known). `existing` (may be 0) is reused when it already
+    /// serves this hook + pool. Registers `live` if missing, else repoints its resolver if it differs; sets the known
+    /// labels if they differ. Caller broadcasts as `cfg.owner`.
+    function addLive(
+        Config memory cfg,
+        address registry,
+        address existing,
+        address hook,
+        bytes32 poolId,
+        PoolKey memory key
+    ) public returns (address live) {
+        string memory root = string.concat(cfg.label, ".eth");
+        string memory baseName = string.concat(LIVE_LABEL, ".", root);
+        if (existing != address(0) && _liveMatches(cfg, existing, hook, poolId, baseName)) {
+            live = existing;
+        } else {
+            live = address(
+                new OniblockLiveResolver(
+                    cfg.owner,
+                    OniblockHook(hook),
+                    poolId,
+                    key,
+                    EnsV2Lib.namehash(string.concat("models.", root)),
+                    EnsV2Lib.namehash(string.concat("pools.", root)),
+                    baseName,
+                    cfg.poolLabel
+                )
+            );
+            console2.log("add-live: deployed OniblockLiveResolver", live);
+        }
+
+        IEnsPermissionedRegistry reg = IEnsPermissionedRegistry(registry);
+        uint256 id = EnsV2Lib.labelId(LIVE_LABEL);
+        if (reg.getState(id).status != IEnsPermissionedRegistry.Status.REGISTERED) {
+            reg.register(LIVE_LABEL, cfg.owner, address(0), live, _stdRoles(), type(uint64).max);
+            console2.log("add-live: registered", baseName);
+        } else if (reg.getResolver(LIVE_LABEL) != live) {
+            reg.setResolver(id, live);
+            console2.log("add-live: resolver of live repointed");
+        }
+
+        string[] memory labels = _liveLabels();
+        if (keccak256(abi.encode(OniblockLiveResolver(live).knownLabels())) != keccak256(abi.encode(labels))) {
+            OniblockLiveResolver(live).setKnownLabels(labels);
+        }
+    }
+
+    /// True iff `live` is an OniblockLiveResolver for exactly this setup: same hook, pool id, base name
+    /// (`live.<root>`), pool label and owner. Anything else (another root / pool label / owner) gets a fresh deploy.
+    function _liveMatches(Config memory cfg, address live, address hook, bytes32 poolId, string memory baseName)
+        internal
+        view
+        returns (bool)
+    {
+        if (live.code.length == 0) return false;
+        OniblockLiveResolver r = OniblockLiveResolver(live);
+        try r.hook() returns (OniblockHook h) {
+            if (address(h) != hook || r.poolId() != poolId || r.owner() != cfg.owner) return false;
+            return keccak256(bytes(r.baseName())) == keccak256(bytes(baseName))
+                && keccak256(bytes(r.poolLabel())) == keccak256(bytes(cfg.poolLabel));
+        } catch {
+            return false;
+        }
+    }
+
+    function _liveLabels() internal view returns (string[] memory labels) {
+        labels = new string[](4);
+        labels[0] = "jev-v1";
+        labels[1] = "heuristic-v1";
+        labels[2] = "kev-v1";
+        labels[3] = "rule-v1";
+        labels = vm.envOr("ENS_LIVE_LABELS", ",", labels);
+    }
+
+    // ================================================================== phase 5: add-model
+    /// Registers / updates one model name under models.<label>.eth from ENS_MODEL_* and grants the settler its
+    /// calibration keys. Idempotent.
+    function addModelPhase(Config memory cfg) public {
+        string memory j = _readEnsJson();
+        address modelsRegistry = vm.parseJsonAddress(j, ".modelsRegistry");
+        address resolver = vm.parseJsonAddress(j, ".resolver");
+        require(modelsRegistry != address(0) && resolver != address(0), "EnsSetup: ens json incomplete");
+        address settler = _settlerOf(cfg, j);
+
+        ModelSpec memory m;
+        m.label = vm.envString("ENS_MODEL_LABEL");
+        m.owner = vm.envOr("ENS_MODEL_OWNER", cfg.owner);
+        m.modelHash = vm.envOr("ENS_MODEL_HASH", string(""));
+        m.context = vm.envOr("ENS_MODEL_CONTEXT", string(""));
+        m.endpoint = vm.envOr("ENS_MODEL_ENDPOINT", string(""));
+        m.description = vm.envOr("ENS_MODEL_DESCRIPTION", string(""));
+
+        (bool registered, uint256 writes, uint256 grants) = addModelBroadcast(cfg, modelsRegistry, resolver, settler, m);
+
+        // keep the ens json's namehashes complete (services reverse-map model nodes through it)
+        if (_broadcasting()) {
+            string memory o = "ens-model";
+            vm.serializeJson(o, j);
+            string[] memory extra = new string[](1);
+            extra[0] = string.concat(m.label, ".models.", cfg.label, ".eth");
+            string memory json = vm.serializeString(o, "namehashes", _namehashesJson(cfg, j, extra));
+            vm.writeJson(json, _jsonPath());
+        } else {
+            console2.log("add-model: not broadcasting (no --broadcast), ens json not written");
+        }
+
+        console2.log("add-model:", m.label, registered ? "registered" : "already registered");
+        console2.log("add-model: records written", writes);
+        console2.log("add-model: new key grants", grants);
+    }
+
+    /// `addModel` broadcast as `cfg.owner`.
+    function addModelBroadcast(
+        Config memory cfg,
+        address modelsRegistry,
+        address resolver,
+        address settler,
+        ModelSpec memory m
+    ) public returns (bool registered, uint256 writes, uint256 grants) {
+        vm.startBroadcast(cfg.owner);
+        (registered, writes, grants) = addModel(cfg, modelsRegistry, resolver, settler, m);
+        vm.stopBroadcast();
+    }
+
+    /// Core of add-model. Caller broadcasts as `cfg.owner` (holds the registry root roles and the owner text keys).
+    function addModel(
+        Config memory cfg,
+        address modelsRegistry,
+        address resolver,
+        address settler,
+        ModelSpec memory m
+    ) public returns (bool registered, uint256 writes, uint256 grants) {
+        require(bytes(m.label).length > 0 && bytes(m.label).length < 256, "EnsSetup: bad model label");
+        IEnsPermissionedRegistry models = IEnsPermissionedRegistry(modelsRegistry);
+        IEnsPermissionedResolver res = IEnsPermissionedResolver(resolver);
+        uint256 id = EnsV2Lib.labelId(m.label);
+
+        if (models.getState(id).status != IEnsPermissionedRegistry.Status.REGISTERED) {
+            // A name owned by someone other than the team owner gets no ROLE_SET_RESOLVER (nor its admin bit): the
+            // author holds the token but cannot repoint the name away from the shared resolver where the settler's
+            // scorecard lives. The team owner keeps ROLE_SET_RESOLVER through its registry root roles.
+            uint256 roles = m.owner == cfg.owner ? _stdRoles() : _authorRoles();
+            models.register(m.label, m.owner, address(0), resolver, roles, type(uint64).max);
+            registered = true;
+        } else {
+            address current = models.getOwner(id);
+            if (current != m.owner) {
+                // never auto-transfer: the token is the current owner's; ENS_MODEL_OWNER only applies at registration
+                console2.log(
+                    string.concat(
+                        "add-model: WARNING ",
+                        m.label,
+                        " is already registered to ",
+                        vm.toString(current),
+                        "; ENS_MODEL_OWNER ",
+                        vm.toString(m.owner),
+                        " ignored - transfer the token manually"
+                    )
+                );
+            }
+            if (models.getResolver(m.label) != resolver) models.setResolver(id, resolver);
+        }
+
+        string memory root = string.concat(cfg.label, ".eth");
+        bytes memory nRoot = EnsV2Lib.dnsEncode(root);
+        bytes memory name = EnsV2Lib.dnsEncode(string.concat(m.label, ".models.", root));
+
+        // the static keys are owner-writable (granted at finish); agent-endpoint[web] is newer, grant if missing
+        string[] memory ownerKeys = new string[](4);
+        ownerKeys[0] = K_MODEL_HASH;
+        ownerKeys[1] = K_AGENT_CONTEXT;
+        ownerKeys[2] = K_AGENT_ENDPOINT;
+        ownerKeys[3] = K_DESCRIPTION;
+        grants += _grantKeys(res, nRoot, ownerKeys, cfg.owner);
+
+        string[] memory values = new string[](4);
+        values[0] = m.modelHash;
+        values[1] = m.context;
+        values[2] = m.endpoint;
+        values[3] = m.description;
+        bytes[] memory c = new bytes[](4);
+        uint256 n;
+        for (uint256 i; i < 4; ++i) {
+            if (_differs(res, name, ownerKeys[i], values[i])) c[n++] = _text(name, ownerKeys[i], values[i]);
+        }
+        if (n > 0) {
+            assembly ("memory-safe") {
+                mstore(c, n)
+            }
+            res.multicall(c);
+            writes = n;
+        }
+
+        grants += _grantKeys(res, nRoot, _calKeys(), settler);
+        grants += _grantKeys(res, nRoot, _jitCalKeys(), settler);
+    }
+
+    // ================================================================== phase 6: set-endpoints (ENSIP-26)
+    function setEndpointsPhase(Config memory cfg) public {
+        string memory j = _readEnsJson();
+        address resolver = vm.parseJsonAddress(j, ".resolver");
+        require(resolver != address(0), "EnsSetup: resolver missing in ens json");
+        (uint256 writes, uint256 grants) = setEndpointsBroadcast(cfg, resolver);
+        console2.log("set-endpoints: records written", writes);
+        console2.log("set-endpoints: new key grants", grants);
+    }
+
+    /// `setEndpoints` broadcast as `cfg.owner`.
+    function setEndpointsBroadcast(Config memory cfg, address resolver) public returns (uint256 writes, uint256 grants) {
+        vm.startBroadcast(cfg.owner);
+        (writes, grants) = setEndpoints(cfg, resolver);
+        vm.stopBroadcast();
+    }
+
+    /// Writes agent-endpoint[web] on jev-v1, heuristic-v1 and (when ENS_ENDPOINT_KEV is set) kev-v1 when they differ (grants the key to the owner first if
+    /// missing). Caller broadcasts as `cfg.owner`.
+    function setEndpoints(Config memory cfg, address resolver) public returns (uint256 writes, uint256 grants) {
+        IEnsPermissionedResolver res = IEnsPermissionedResolver(resolver);
+        string memory root = string.concat(cfg.label, ".eth");
+        string[] memory key = new string[](1);
+        key[0] = K_AGENT_ENDPOINT;
+        grants = _grantKeys(res, EnsV2Lib.dnsEncode(root), key, cfg.owner);
+
+        bytes memory nJev = EnsV2Lib.dnsEncode(string.concat("jev-v1.models.", root));
+        bytes memory nHeur = EnsV2Lib.dnsEncode(string.concat("heuristic-v1.models.", root));
+        bytes memory nKev = EnsV2Lib.dnsEncode(string.concat("kev-v1.models.", root));
+        bytes[] memory c = new bytes[](3);
+        uint256 n;
+        if (_differs(res, nJev, K_AGENT_ENDPOINT, cfg.endpointJev)) c[n++] = _text(nJev, K_AGENT_ENDPOINT, cfg.endpointJev);
+        if (_differs(res, nHeur, K_AGENT_ENDPOINT, cfg.endpointHeuristic)) {
+            c[n++] = _text(nHeur, K_AGENT_ENDPOINT, cfg.endpointHeuristic);
+        }
+        // kev-v1 (served locally by the keeper) has no public endpoint by default: ENS_ENDPOINT_KEV empty = skip
+        if (_differs(res, nKev, K_AGENT_ENDPOINT, cfg.endpointKev)) c[n++] = _text(nKev, K_AGENT_ENDPOINT, cfg.endpointKev);
+        if (n > 0) {
+            assembly ("memory-safe") {
+                mstore(c, n)
+            }
+            res.multicall(c);
+            writes = n;
+        }
+    }
+
+    // ================================================================== json inputs
     function _jsonPath() internal view returns (string memory) {
         return vm.envOr(
             "ENS_OUT",
@@ -283,18 +634,93 @@ contract EnsSetup is Script {
         );
     }
 
-    // ================================================================== helpers
-    function _calKeys() internal pure returns (string[7] memory) {
-        return [K_CAL_BRIER, K_CAL_HIT, K_CAL_N, K_CAL_EPOCH, K_CAL_BRIER_RAW, K_CAL_SKILL, K_CAL_BASE_RATE];
+    function _readEnsJson() internal view returns (string memory) {
+        string memory path = _jsonPath();
+        require(vm.exists(path), "EnsSetup: ens json not found (set ENS_OUT)");
+        return vm.readFile(path);
     }
 
-    function _jitCalKeys() internal pure returns (string[7] memory) {
-        return [K_JIT_BRIER, K_JIT_HIT, K_JIT_N, K_JIT_EPOCH, K_JIT_BRIER_RAW, K_JIT_SKILL, K_JIT_BASE_RATE];
+    function _settlerOf(Config memory, string memory j) internal view returns (address settler) {
+        settler = vm.envOr("ENS_SETTLER", vm.parseJsonAddress(j, ".settler"));
+        require(settler != address(0), "EnsSetup: settler missing");
+    }
+
+    function _deploymentPath() internal view returns (string memory) {
+        return vm.envOr(
+            "ENS_DEPLOYMENT_JSON",
+            string.concat(vm.projectRoot(), "/../deployments/", vm.toString(block.chainid), ".json")
+        );
+    }
+
+    /// Hook + Oniblock pool (id and key) from the hook deployment json (DeployBase output).
+    function _deployment(Config memory cfg) internal view returns (address hook, bytes32 poolId, PoolKey memory key) {
+        string memory path = _deploymentPath();
+        require(vm.exists(path), "EnsSetup: deployment json not found (set ENS_DEPLOYMENT_JSON)");
+        string memory d = vm.readFile(path);
+        hook = vm.parseJsonAddress(d, ".hook");
+        poolId = vm.parseJsonBytes32(d, ".pools.oniblock.poolId");
+        key.currency0 = Currency.wrap(vm.parseJsonAddress(d, ".pools.oniblock.key.currency0"));
+        key.currency1 = Currency.wrap(vm.parseJsonAddress(d, ".pools.oniblock.key.currency1"));
+        key.fee = uint24(vm.parseJsonUint(d, ".pools.oniblock.key.fee"));
+        key.tickSpacing = int24(vm.parseJsonInt(d, ".pools.oniblock.key.tickSpacing"));
+        key.hooks = IHooks(vm.parseJsonAddress(d, ".pools.oniblock.key.hooks"));
+        require(hook != address(0) && address(key.hooks) == hook, "EnsSetup: deployment json hook mismatch");
+        if (cfg.hook != address(0)) require(cfg.hook == hook, "EnsSetup: ENS_HOOK != deployment json hook");
+        if (cfg.poolId != bytes32(0)) require(cfg.poolId == poolId, "EnsSetup: ENS_POOL_ID != deployment json");
+    }
+
+    /// True iff a deployment json exists and its hook is ENS_HOOK.
+    function _deploymentMatches(Config memory cfg) internal view returns (bool) {
+        string memory path = _deploymentPath();
+        if (!vm.exists(path)) return false;
+        string memory d = vm.readFile(path);
+        if (!vm.keyExistsJson(d, ".hook")) return false;
+        return vm.parseJsonAddress(d, ".hook") == cfg.hook;
+    }
+
+    // ================================================================== helpers
+    function _stdRoles() internal pure returns (uint256) {
+        return EnsV2Lib.withAdmin(EnsV2Lib.ROLE_SET_RESOLVER | EnsV2Lib.ROLE_SET_SUBREGISTRY)
+            | EnsV2Lib.ROLE_CAN_TRANSFER_ADMIN;
+    }
+
+    /// Token roles for a model name registered to an author (ENS_MODEL_OWNER != ENS_OWNER): `_stdRoles` minus
+    /// ROLE_SET_RESOLVER and its admin bit, so the author cannot repoint the name's resolver.
+    function _authorRoles() internal pure returns (uint256) {
+        return EnsV2Lib.withAdmin(EnsV2Lib.ROLE_SET_SUBREGISTRY) | EnsV2Lib.ROLE_CAN_TRANSFER_ADMIN;
+    }
+
+    /// True under `forge script --broadcast` / `--resume`: the only runs whose results exist on chain, so the only
+    /// ones that may write the ens json (a dry run would record addresses that were never deployed).
+    function _broadcasting() internal view returns (bool) {
+        return vm.isContext(VmSafe.ForgeContext.ScriptBroadcast) || vm.isContext(VmSafe.ForgeContext.ScriptResume);
+    }
+
+    function _calKeys() internal pure returns (string[] memory k) {
+        k = new string[](7);
+        k[0] = K_CAL_BRIER;
+        k[1] = K_CAL_HIT;
+        k[2] = K_CAL_N;
+        k[3] = K_CAL_EPOCH;
+        k[4] = K_CAL_BRIER_RAW;
+        k[5] = K_CAL_SKILL;
+        k[6] = K_CAL_BASE_RATE;
+    }
+
+    function _jitCalKeys() internal pure returns (string[] memory k) {
+        k = new string[](7);
+        k[0] = K_JIT_BRIER;
+        k[1] = K_JIT_HIT;
+        k[2] = K_JIT_N;
+        k[3] = K_JIT_EPOCH;
+        k[4] = K_JIT_BRIER_RAW;
+        k[5] = K_JIT_SKILL;
+        k[6] = K_JIT_BASE_RATE;
     }
 
     /// Per-key setText grants for `account`, skipping keys it already holds (resource = keccak256(key), so a grant
     /// covers that key on every name served by the resolver). Returns the number of new grants.
-    function _grantKeys(IEnsPermissionedResolver res, bytes memory name, string[7] memory keys, address account)
+    function _grantKeys(IEnsPermissionedResolver res, bytes memory name, string[] memory keys, address account)
         internal
         returns (uint256 granted)
     {
@@ -303,6 +729,17 @@ contract EnsSetup is Script {
             res.grantSetterRoles(abi.encodeCall(IEnsPermissionedResolver.setText, (name, keys[i], "")), account);
             ++granted;
         }
+    }
+
+    /// True iff `value` is non-empty and differs from the text record currently stored for `name`/`key`.
+    function _differs(IEnsPermissionedResolver res, bytes memory name, string memory key, string memory value)
+        internal
+        view
+        returns (bool)
+    {
+        if (bytes(value).length == 0) return false;
+        string memory cur = abi.decode(res.resolve(name, abi.encodeCall(IEnsProfiles.text, (bytes32(0), key))), (string));
+        return keccak256(bytes(cur)) != keccak256(bytes(value));
     }
 
     function _deployResolver(Config memory cfg) internal returns (address) {
@@ -348,22 +785,28 @@ contract EnsSetup is Script {
         bytes memory nJev = EnsV2Lib.dnsEncode(string.concat("jev-v1.models.", root));
         bytes memory nHeur = EnsV2Lib.dnsEncode(string.concat("heuristic-v1.models.", root));
         bytes memory nKev = EnsV2Lib.dnsEncode(string.concat("kev-v1.models.", root));
-        bytes memory nPool = EnsV2Lib.dnsEncode(string.concat("weth-usdc.pools.", root));
+        bytes memory nPool = EnsV2Lib.dnsEncode(string.concat(cfg.poolLabel, ".pools.", root));
         bytes memory nRule = EnsV2Lib.dnsEncode(string.concat("rule-v1.models.", root));
 
         // Per-key text grants. Resource = keccak256(key) (name-independent), so a key grant covers that key
         // on every name served by this resolver.
-        string[10] memory ownerKeys = [
-            K_DESCRIPTION, K_MODEL_HASH, K_AGENT_CONTEXT, K_HOOK, K_POOL_ID, K_FEE_MIN, K_FEE_MAX, K_POLICY_URI,
-            "url", "avatar"
-        ];
-        for (uint256 i; i < ownerKeys.length; ++i) {
-            res.grantSetterRoles(abi.encodeCall(IEnsPermissionedResolver.setText, (nRoot, ownerKeys[i], "")), cfg.owner);
-        }
+        string[] memory ownerKeys = new string[](11);
+        ownerKeys[0] = K_DESCRIPTION;
+        ownerKeys[1] = K_MODEL_HASH;
+        ownerKeys[2] = K_AGENT_CONTEXT;
+        ownerKeys[3] = K_AGENT_ENDPOINT;
+        ownerKeys[4] = K_HOOK;
+        ownerKeys[5] = K_POOL_ID;
+        ownerKeys[6] = K_FEE_MIN;
+        ownerKeys[7] = K_FEE_MAX;
+        ownerKeys[8] = K_POLICY_URI;
+        ownerKeys[9] = "url";
+        ownerKeys[10] = "avatar";
+        _grantKeys(res, nRoot, ownerKeys, cfg.owner);
         _grantKeys(res, nRoot, _calKeys(), cfg.settler);
         _grantKeys(res, nRoot, _jitCalKeys(), cfg.settler); // v5 JIT head records
 
-        bytes[] memory c = new bytes[](21); // = number of c[n++] entries below
+        bytes[] memory c = new bytes[](23); // = number of c[n++] entries below
         uint256 n;
         c[n++] = _addr(nRoot, cfg.owner);
         c[n++] = _text(nRoot, K_DESCRIPTION, "Oniblock: attested, directional LVR fee law for Uniswap v4");
@@ -377,12 +820,14 @@ contract EnsSetup is Script {
             K_AGENT_CONTEXT,
             "Jev decision model (typesafe-ai/jev via Vercel AI Gateway), asked every block: is there profitable arbitrage at the base fee? -> {pToxicBps, confidenceBps}; public fee law k = kMax * p * c (kMin 0, no gap threshold), so p near 0 = base fee. JIT head (v5): will liquidity added next block be short-lived fee capture? -> pJitBps; JIT penalty window = min + (max - min) * pJit * c blocks. Calibration written by settler (calibration.* for k, calibration.jit.* for the JIT head)."
         );
+        c[n++] = _text(nJev, K_AGENT_ENDPOINT, cfg.endpointJev);
         c[n++] = _text(nHeur, K_MODEL_HASH, cfg.modelHashHeuristic);
         c[n++] = _text(
             nHeur,
             K_AGENT_CONTEXT,
             "Deterministic heuristic baseline (gap, imbalance, size/depth, realized vol) -> {pToxicBps, confidenceBps}; JIT head (v5) from recent liquidity churn -> pJitBps. Fallback when Jev is slow or demoted."
         );
+        c[n++] = _text(nHeur, K_AGENT_ENDPOINT, cfg.endpointHeuristic);
         c[n++] = _text(nKev, K_MODEL_HASH, cfg.modelHashKev);
         c[n++] = _text(
             nKev,
@@ -447,6 +892,9 @@ contract EnsSetup is Script {
         vm.serializeAddress(o, "modelsRegistry", r.modelsRegistry);
         vm.serializeAddress(o, "poolsRegistry", r.poolsRegistry);
         vm.serializeAddress(o, "roleOracle", r.roleOracle);
+        if (r.liveResolver != address(0)) vm.serializeAddress(o, "liveResolver", r.liveResolver); // 0 = placeholder
+        vm.serializeString(o, "liveName", string.concat(LIVE_LABEL, ".", root));
+        vm.serializeBytes32(o, "liveNode", EnsV2Lib.namehash(string.concat(LIVE_LABEL, ".", root)));
         vm.serializeUint(o, "nameTokenId", r.tokenId);
         vm.serializeString(o, "roleQuoter", vm.toString(bytes32(EnsV2Lib.ROLE_QUOTER)));
         vm.serializeString(o, "roleSettler", vm.toString(bytes32(EnsV2Lib.ROLE_SETTLER)));
@@ -454,34 +902,66 @@ contract EnsSetup is Script {
         vm.serializeString(o, "settlerLabelId", vm.toString(bytes32(EnsV2Lib.labelId("settler"))));
         vm.serializeString(o, "quoterResource", vm.toString(bytes32(r.quoterResource)));
         vm.serializeString(o, "settlerResource", vm.toString(bytes32(r.settlerResource)));
-
-        string memory nh = "namehash";
-        vm.serializeBytes32(nh, root, EnsV2Lib.namehash(root));
-        vm.serializeBytes32(nh, string.concat("quoter.", root), EnsV2Lib.namehash(string.concat("quoter.", root)));
-        vm.serializeBytes32(nh, string.concat("settler.", root), EnsV2Lib.namehash(string.concat("settler.", root)));
-        vm.serializeBytes32(nh, string.concat("models.", root), EnsV2Lib.namehash(string.concat("models.", root)));
-        vm.serializeBytes32(
-            nh, string.concat("jev-v1.models.", root), EnsV2Lib.namehash(string.concat("jev-v1.models.", root))
-        );
-        vm.serializeBytes32(
-            nh,
-            string.concat("heuristic-v1.models.", root),
-            EnsV2Lib.namehash(string.concat("heuristic-v1.models.", root))
-        );
-        vm.serializeBytes32(
-            nh, string.concat("kev-v1.models.", root), EnsV2Lib.namehash(string.concat("kev-v1.models.", root))
-        );
-        vm.serializeBytes32(
-            nh, string.concat("rule-v1.models.", root), EnsV2Lib.namehash(string.concat("rule-v1.models.", root))
-        );
-        vm.serializeBytes32(nh, string.concat("pools.", root), EnsV2Lib.namehash(string.concat("pools.", root)));
-        string memory nhJson = vm.serializeBytes32(
-            nh, string.concat("weth-usdc.pools.", root), EnsV2Lib.namehash(string.concat("weth-usdc.pools.", root))
-        );
-        string memory json = vm.serializeString(o, "namehashes", nhJson);
+        string memory json = vm.serializeString(o, "namehashes", _namehashesJson(cfg, "", new string[](0)));
 
         string memory path = _jsonPath();
         vm.writeJson(json, path);
         console2.log("wrote", path);
+    }
+
+    /// add-live: seeds the existing ens json and sets hook / liveResolver / liveName / liveNode + the live namehashes.
+    function _writeLiveJson(Config memory cfg, string memory j, address live, address hook) internal {
+        string memory root = string.concat(cfg.label, ".eth");
+        string memory o = "ens-live";
+        vm.serializeJson(o, j);
+        vm.serializeAddress(o, "hook", hook); // the hook the live resolver reads (deployment json)
+        vm.serializeAddress(o, "liveResolver", live);
+        vm.serializeString(o, "liveName", string.concat(LIVE_LABEL, ".", root));
+        vm.serializeBytes32(o, "liveNode", EnsV2Lib.namehash(string.concat(LIVE_LABEL, ".", root)));
+        string memory json = vm.serializeString(o, "namehashes", _namehashesJson(cfg, j, new string[](0)));
+        string memory path = _jsonPath();
+        vm.writeJson(json, path);
+        console2.log("wrote", path);
+    }
+
+    /// name -> namehash object: the default tree, the live names, every name already present in `existingJson`
+    /// (recomputed from the key, so custom add-model labels survive) and `extra`.
+    function _namehashesJson(Config memory cfg, string memory existingJson, string[] memory extra)
+        internal
+        returns (string memory out)
+    {
+        string memory root = string.concat(cfg.label, ".eth");
+        string memory live = string.concat(LIVE_LABEL, ".", root);
+        string memory nh = string.concat("namehash-", vm.toString(uint256(keccak256(bytes(existingJson)))));
+        string[] memory names = new string[](17);
+        names[0] = root;
+        names[1] = string.concat("quoter.", root);
+        names[2] = string.concat("settler.", root);
+        names[3] = string.concat("models.", root);
+        names[4] = string.concat("jev-v1.models.", root);
+        names[5] = string.concat("heuristic-v1.models.", root);
+        names[6] = string.concat("kev-v1.models.", root);
+        names[7] = string.concat("rule-v1.models.", root);
+        names[8] = string.concat("pools.", root);
+        names[9] = string.concat(cfg.poolLabel, ".pools.", root);
+        names[10] = live;
+        names[11] = string.concat(cfg.poolLabel, ".", live);
+        names[12] = string.concat("current.", live);
+        names[13] = string.concat("jev-v1.", live);
+        names[14] = string.concat("heuristic-v1.", live);
+        names[15] = string.concat("kev-v1.", live);
+        names[16] = string.concat("rule-v1.", live);
+        for (uint256 i; i < names.length; ++i) {
+            out = vm.serializeBytes32(nh, names[i], EnsV2Lib.namehash(names[i]));
+        }
+        if (bytes(existingJson).length > 0 && vm.keyExistsJson(existingJson, ".namehashes")) {
+            string[] memory keys = vm.parseJsonKeys(existingJson, ".namehashes");
+            for (uint256 i; i < keys.length; ++i) {
+                out = vm.serializeBytes32(nh, keys[i], EnsV2Lib.namehash(keys[i]));
+            }
+        }
+        for (uint256 i; i < extra.length; ++i) {
+            out = vm.serializeBytes32(nh, extra[i], EnsV2Lib.namehash(extra[i]));
+        }
     }
 }

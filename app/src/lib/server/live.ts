@@ -21,7 +21,7 @@ import {
   type RegimeCell,
   type StateJson,
 } from '../types';
-import { ctx, hasEvent, hasFn, jitCalibrationKey, jitHeadSupported, nameOf, tryRead, ensAvailable, type Ctx } from './chain';
+import { ctx, hasEvent, hasFn, jitCalibrationKey, jitHeadSupported, nameOf, tryRead, ensAvailable, ensReverse, type Ctx } from './chain';
 import type { PoolInfo } from './deployment';
 import { backupQuoterAddress } from './devkeys';
 import { readFlags } from './flags';
@@ -146,7 +146,7 @@ export async function getState(): Promise<StateJson> {
   // v5 JIT head: its own calibration record (under the derived key) and its own demotion, same parent allowlist.
   const jitSupported = jitHeadSupported(c);
   const jitKey = jitSupported ? jitCalibrationKey(modelNode) : null;
-  const [demoted, calibration, quoterActive, backupActive, settlerActive, recentAtts, jitDemoted, jitCalibration] = await Promise.all([
+  const [demoted, calibration, quoterActive, backupActive, settlerActive, recentAtts, jitDemoted, jitCalibration, quoterName, settlerName] = await Promise.all([
     tryRead<boolean>(c, 'isDemoted', [id, modelNode]),
     readCalibration(c, modelNode),
     isQuoter(c, c.d.quoter),
@@ -157,6 +157,9 @@ export async function getState(): Promise<StateJson> {
       .catch(() => []),
     jitSupported ? tryRead<boolean>(c, 'isJitDemoted', [id, modelNode]) : Promise.resolve(undefined),
     jitKey ? readCalibration(c, jitKey) : Promise.resolve(undefined),
+    // ENSIP-19 primary names of the role keys (UR.reverse; null without ENS or before ens:primary ran)
+    ens ? ensReverse(c, c.d.quoter) : Promise.resolve(null),
+    ens ? ensReverse(c, c.d.settler) : Promise.resolve(null),
   ]);
   const lastAtt = recentAtts.at(-1);
   const lastAttArgs = (lastAtt as { args?: Record<string, unknown> } | undefined)?.args;
@@ -186,6 +189,7 @@ export async function getState(): Promise<StateJson> {
   const unseasoned = !!demoted && allowed !== false && nCal < minSamples;
   const badCalibration = !!demoted && !unseasoned;
   const lastQuoter = lastAttArgs?.quoter as Address | undefined;
+  const lastQuoterName = ens && lastQuoter ? ((await ensReverse(c, lastQuoter)) ?? undefined) : undefined;
   const stale = !!ps?.[2];
   // Second knob: poolState.jitWindow / pJitBps, falling back to the last AttestationPosted (same values, event stream).
   const pJitBps = optNum(st.pJitBps) ?? optNum(lastAttArgs?.pJitBps);
@@ -229,7 +233,7 @@ export async function getState(): Promise<StateJson> {
       attestMix,
       calibration,
       lastQuoter,
-      lastQuoterName: undefined,
+      lastQuoterName,
       jit: {
         pJitBps,
         jitWindow,
@@ -249,6 +253,8 @@ export async function getState(): Promise<StateJson> {
       backupActive,
       settler: c.d.settler,
       settlerActive,
+      quoterName,
+      settlerName,
     },
     flags: { degraded: !!flags.degraded, useBackupQuoter: !!flags.useBackupQuoter },
     pools: {

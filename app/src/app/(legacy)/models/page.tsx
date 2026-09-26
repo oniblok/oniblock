@@ -1,11 +1,14 @@
 'use client';
+import { EnsNamespaceCard, PrimaryName } from '@/components/EnsNamespace';
 import { LineChart } from '@/components/LineChart';
 import { bpsPct, brier, short } from '@/lib/format';
 import type { ModelsPage } from '@/lib/server/models';
+import type { EnsNamespaceJson } from '@/lib/types';
 import { usePoll } from '@/lib/usePoll';
 
 export default function Models() {
   const { data, error } = usePoll<ModelsPage>('/api/models', 4000);
+  const en = usePoll<EnsNamespaceJson>('/api/ens', 10_000);
   if (!data) return <div className="card p-6 text-ink-2">{error ? <span className="text-bad">{error}</span> : 'Loading models…'}</div>;
   return (
     <div className="space-y-4">
@@ -24,6 +27,19 @@ export default function Models() {
           block {data.head} · {data.chain.ens ? `ENS: ${data.chain.ensName}` : 'no ENS on this chain — labels from deployments'}
         </span>
       </div>
+      {en.data && (
+        <div className="flex flex-wrap gap-x-5 gap-y-1 px-1 text-xs text-ink-2">
+          {en.data.primary.map((p) => (
+            <span key={p.role}>
+              {p.role === 'quoter' ? 'Quoter (posts attestations)' : 'Settler (scores models, writes calibration.*)'}:{' '}
+              <PrimaryName name={p.name} address={p.address} className="text-ink" />
+              {p.name ? <span className="mono text-muted"> {short(p.address)}</span> : null}
+              {p.matches === false ? <span className="text-bad"> · addr({p.expected}) ≠ key</span> : null}
+            </span>
+          ))}
+          <span className="text-muted">primary names via UniversalResolverV2.reverse (ENSIP-19); raw address when none is set</span>
+        </div>
+      )}
       {data.models.length === 0 && <div className="card p-6 text-muted">No model has attested yet.</div>}
       {data.models.map((m) => {
         const current = data.currentModelNode === m.modelNode.toLowerCase();
@@ -121,6 +137,7 @@ export default function Models() {
           </div>
         );
       })}
+      <EnsNamespaceCard data={en.data} error={en.error} title="ENS namespace (live records)" />
     </div>
   );
 }
