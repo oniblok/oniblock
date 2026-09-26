@@ -203,6 +203,11 @@ describe('tabular v2 (generic JSON feature list)', () => {
     expect(predictTabular(m, { ...f, ret900Bps: 6 })).toBeCloseTo(1 / (1 + Math.exp(-2)), 12);
     expect(scoreTabular(f, m)).toMatchObject({ confidenceBps: 10_000, model: 'tabular' });
   });
+  it('charge threshold keys: chargeThreshold and charge_threshold only (a generic `threshold` is ignored)', () => {
+    const tree = { features: ['gapPips'], trees: [{ v: 0 }], version: 2 };
+    expect(loadTabularModel(write('ct1.json', { ...tree, name: 'a', charge_threshold: 0.7 }))!.chargeThreshold).toBe(0.7);
+    expect(loadTabularModel(write('ct2.json', { ...tree, name: 'b', threshold: 0.7 }))!.chargeThreshold).toBeUndefined();
+  });
   it('rejects unknown feature names', () => {
     const p = write('bad.json', { version: 2, name: 'x', features: ['gapPips', 'mystery'], trees: [] });
     expect(() => loadTabularModel(p)).toThrow(/unknown features mystery/);

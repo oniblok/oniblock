@@ -2,21 +2,24 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, utimesSync } from '
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { decodeFunctionData, namehash, type Hex } from 'viem';
+import { ContractFunctionExecutionError, ContractFunctionRevertedError, decodeFunctionData, encodeErrorResult, namehash, type Hex } from 'viem';
 import {
   ChargeThresholdPublisher,
   chargeStats,
   chargeThresholdFor,
+  chargeThresholdKey,
+  chargeThresholdMaxAgeS,
   chargeThresholdTextValue,
+  ensWriteDue,
   readChargeThresholdFile,
   rollingThresholdFor,
   writeChargeThresholdFile,
   type ChargeThresholdFile,
   type LabelledP,
 } from '../src/chargeThreshold.js';
-import { CHARGE_THRESHOLD_KEY, dnsEncode, EnsV2CalibrationWriter, NoopCalibrationWriter, resolverAbi, type CalibrationRecordWriter } from '../src/ens.js';
+import { CHARGE_THRESHOLD_KEY, dnsEncode, EAC_UNAUTHORIZED_SELECTOR, EnsV2CalibrationWriter, isEnsAuthorizationError, NoopCalibrationWriter, resolverAbi, type CalibrationRecordWriter, type TextWriteResult } from '../src/ens.js';
 import type { TxSender } from '../src/chain.js';
-import { applyChargeThreshold, chargeThreshold, chargeThresholdMode, resolveChargeThreshold } from '../src/keeper.js';
+import { applyChargeThreshold, chargeRole, chargeThreshold, chargeThresholdMode, fallbackSameNodeWarning, resolveChargeThreshold } from '../src/keeper.js';
 
 const B = (p: number): LabelledP => ({ p, y: 0 });
 const T = (p: number): LabelledP => ({ p, y: 1 });
@@ -154,7 +157,8 @@ describe('ChargeThresholdPublisher (settler)', () => {
     expect(a.threshold).toBeLessThan(0.9); // the old p = 0.9 regime is outside the window
     expect(a.tpr).toBe(1);
     expect(a.precision).toBeGreaterThan(0.85);
-    expect(typeof a.updatedAt).toBe('string');
+    expect(typeof a.updatedAt).toBe('number'); // ms
+    expect(a.modelNode).toBe(A.toLowerCase());
     const b = f[Bn.toLowerCase()]!;
     expect(b).toMatchObject({ threshold: null, fpr: null, precision: null, tpr: null, coverage: null, nBenign: 15, nToxic: 5, fromBlock: 150, toBlock: 169 });
     expect(readdirSync(join(dir, 'sub'))).toEqual(['charge-threshold.json']); // no tmp file left behind
@@ -165,35 +169,81 @@ describe('ChargeThresholdPublisher (settler)', () => {
     expect(g[A.toLowerCase()]).toMatchObject({ threshold: null, nBenign: 0, nToxic: 0, fromBlock: null, toBlock: null });
   });
 
-  it('ENS calibration.chargeThreshold: written on change only; a refusal is logged once and the file keeps being written', async () => {
+  // fmax 0: t = the largest benign p + 1e-6, so benign p = x gives the ENS value ceil(x * 10000 + 0.01) = x bps + 1
+  const flat = (node: Hex, x: number, n = 20) => labels(node, 0, n, () => x);
+
+  it('ENS rate limit (pure): first value, equal, to/from empty, big move at once, small move only after the interval', () => {
+    expect(ensWriteDue(undefined, '5001', 10, 100, 300)).toBe(true);
+    expect(ensWriteDue(undefined, '', 10, 100, 300)).toBe(false); // never '' before a first value
+    const prev = { v: '5001', head: 100 };
+    expect(ensWriteDue(prev, '5001', 10_000, 100, 300)).toBe(false);
+    expect(ensWriteDue(prev, '', 101, 100, 300)).toBe(true);
+    expect(ensWriteDue({ v: '', head: 100 }, '5001', 101, 100, 300)).toBe(true);
+    expect(ensWriteDue(prev, '5101', 101, 100, 300)).toBe(true); // |d| = 100 >= 100
+    expect(ensWriteDue(prev, '4901', 101, 100, 300)).toBe(true);
+    expect(ensWriteDue(prev, '5099', 399, 100, 300)).toBe(false); // small move, 299 blocks
+    expect(ensWriteDue(prev, '5099', 400, 100, 300)).toBe(true); // small move, 300 blocks
+  });
+
+  it('ENS calibration.chargeThreshold: rate-limited per node (CHARGE_ENS_MIN_DELTA_BPS / _MIN_INTERVAL_BLOCKS)', async () => {
     const path = join(tmp(), 'c.json');
-    const writes: [Hex, [string, string][]][] = [];
-    let refuse = false;
+    const writes: [Hex, string][] = [];
+    const ens: CalibrationRecordWriter = { kind: 'ensv2', write: async () => true, writeText: async (node, recs) => (writes.push([node, recs[0]![1]]), true) };
+    const pub = new ChargeThresholdPublisher({ windowBlocks: 0, fmax: 0, minBenign: 5, path, ensMinDeltaBps: 100, ensMinIntervalBlocks: 300 }, ens);
+    await pub.publish(100, flat(A, 0.5));
+    expect(writes).toEqual([[A.toLowerCase(), '5001']]);
+    await pub.publish(110, flat(A, 0.5)); // unchanged
+    await pub.publish(120, flat(A, 0.505)); // +50 bps within 300 blocks: file only
+    expect(writes).toHaveLength(1);
+    expect(readChargeThresholdFile(path)[A.toLowerCase()]!.threshold).toBeCloseTo(0.505, 5); // the file always follows
+    await pub.publish(400, flat(A, 0.505)); // 300 blocks since the last write: the small move goes out
+    expect(writes.at(-1)).toEqual([A.toLowerCase(), '5051']);
+    await pub.publish(410, flat(A, 0.6)); // +949 bps: at once
+    expect(writes.at(-1)).toEqual([A.toLowerCase(), '6001']);
+    await pub.publish(420, flat(Bn, 0.1, 3)); // B: null and never written -> no '' write
+    expect(writes).toHaveLength(3);
+    // defaults from env: 100 bps / 300 blocks
+    const def = new ChargeThresholdPublisher({ windowBlocks: 0, fmax: 0, minBenign: 5, path }, ens);
+    await def.publish(100, flat(A, 0.5));
+    await def.publish(101, flat(A, 0.509)); // +90 bps, 1 block: not yet
+    expect(writes).toHaveLength(4);
+    await def.publish(102, flat(A, 0.51)); // +100 bps
+    expect(writes).toHaveLength(5);
+  });
+
+  it('ENS: only an authorization refusal (or an unknown name) disables a node; transient failures are retried next settle', async () => {
+    const path = join(tmp(), 'c.json');
+    const attempts: string[] = [];
+    let next: TextWriteResult | Error = true;
     const ens: CalibrationRecordWriter = {
       kind: 'ensv2',
       write: async () => true,
       writeText: async (node, recs) => {
-        writes.push([node, recs]);
-        return !refuse;
+        attempts.push(`${node === A.toLowerCase() ? 'A' : 'B'}:${recs[0]![1]}`);
+        if (next instanceof Error) throw next;
+        return next;
       },
     };
-    const pub = new ChargeThresholdPublisher({ windowBlocks: 0, fmax: 0.05, minBenign: 20, path }, ens);
-    const ls = labels(A, 0, 100, (i) => i / 100);
-    await pub.publish(100, ls);
-    expect(writes).toHaveLength(1);
-    expect(writes[0]![0]).toBe(A.toLowerCase());
-    expect(writes[0]![1][0]![0]).toBe(CHARGE_THRESHOLD_KEY);
-    expect(writes[0]![1][0]![1]).toMatch(/^\d+$/);
-    await pub.publish(100, ls); // unchanged -> no tx
-    expect(writes).toHaveLength(1);
-    await pub.publish(101, labels(Bn, 0, 10, () => 0.1)); // B: null and never written -> no '' write
-    expect(writes).toHaveLength(1);
-    refuse = true;
-    await pub.publish(200, [...ls, ...labels(A, 100, 100, () => 0.5)]); // A changes, resolver refuses
-    expect(writes).toHaveLength(2);
-    await pub.publish(300, [...ls, ...labels(A, 100, 150, () => 0.3)]); // disabled for A: no more attempts
-    expect(writes).toHaveLength(2);
-    expect(readChargeThresholdFile(path)[A.toLowerCase()]!.toBlock).toBe(249); // the file still follows
+    const pub = new ChargeThresholdPublisher({ windowBlocks: 0, fmax: 0, minBenign: 5, path, ensMinDeltaBps: 100, ensMinIntervalBlocks: 300 }, ens);
+    next = { ok: false, reason: 'failed', error: 'nonce too low' };
+    await pub.publish(100, flat(A, 0.5));
+    next = new Error('fetch failed'); // a throwing writer is transient too
+    await pub.publish(101, flat(A, 0.5));
+    next = false; // bare false (reason unknown) = transient
+    await pub.publish(102, flat(A, 0.5));
+    next = true;
+    await pub.publish(103, flat(A, 0.5));
+    await pub.publish(104, flat(A, 0.5)); // written at 103: nothing more to do
+    expect(attempts).toEqual(['A:5001', 'A:5001', 'A:5001', 'A:5001']);
+    next = { ok: false, reason: 'unauthorized', error: 'EACUnauthorizedAccountRoles' };
+    await pub.publish(200, flat(A, 0.7)); // big move, resolver refuses the role
+    await pub.publish(300, flat(A, 0.9)); // disabled for A: no more attempts
+    expect(attempts).toHaveLength(5);
+    expect(readChargeThresholdFile(path)[A.toLowerCase()]!.threshold).toBeCloseTo(0.9, 5); // the file still follows
+    next = { ok: false, reason: 'unknown_node' };
+    await pub.publish(301, flat(Bn, 0.4));
+    await pub.publish(302, flat(Bn, 0.8));
+    expect(attempts.slice(5)).toEqual(['B:4001']);
   });
 
   it('noop writer (no ENS deployment) and a writer without writeText are fine', async () => {
@@ -213,8 +263,68 @@ describe('ChargeThresholdPublisher (settler)', () => {
     const calls = sent[0]!.args[0] as Hex[];
     expect(calls).toHaveLength(1);
     expect(decodeFunctionData({ abi: resolverAbi, data: calls[0]! }).args).toEqual([dnsEncode(name), 'calibration.chargeThreshold', '8224']);
-    expect(await w.writeText(Bn, [[CHARGE_THRESHOLD_KEY, '1']])).toBe(false); // unknown node, no tx
+    expect(await w.writeText(Bn, [[CHARGE_THRESHOLD_KEY, '1']])).toEqual({ ok: false, reason: 'unknown_node' }); // no tx
     expect(sent).toHaveLength(1);
+  });
+
+  it('EnsV2CalibrationWriter.writeText classifies a failed send: permission revert -> unauthorized, anything else -> failed', async () => {
+    const name = 'oniblock1.models.oniblock.eth';
+    const revert = new ContractFunctionExecutionError(
+      new ContractFunctionRevertedError({
+        abi: resolverAbi,
+        functionName: 'multicall',
+        data: encodeErrorResult({ abi: resolverAbi, errorName: 'EACUnauthorizedAccountRoles', args: [1n, 2n, '0x0000000000000000000000000000000000000002'] }),
+      }),
+      { abi: resolverAbi, functionName: 'multicall', args: [[]] },
+    );
+    const writerFailingWith = (err: unknown) =>
+      new EnsV2CalibrationWriter(
+        { address: '0x0000000000000000000000000000000000000002', send: async (req: { onError?: (e: unknown) => void }) => (req.onError?.(err), null) } as unknown as TxSender,
+        { resolver: '0x0000000000000000000000000000000000000003', namehashes: { [name]: A }, file: 'x' },
+      );
+    expect(isEnsAuthorizationError(revert)).toBe(true);
+    expect(await writerFailingWith(revert).writeText(A, [[CHARGE_THRESHOLD_KEY, '1']])).toMatchObject({ ok: false, reason: 'unauthorized' });
+    // an undecoded revert carrying the raw selector is recognised too
+    expect(isEnsAuthorizationError({ shortMessage: 'reverted', cause: { data: `${EAC_UNAUTHORIZED_SELECTOR}00ff` } })).toBe(true);
+    for (const e of [new Error('nonce too low'), new Error('fetch failed'), new Error('insufficient funds for gas'), undefined]) {
+      expect(isEnsAuthorizationError(e)).toBe(false);
+      expect(await writerFailingWith(e).writeText(A, [[CHARGE_THRESHOLD_KEY, '1']])).toMatchObject({ ok: false, reason: 'failed' });
+    }
+  });
+
+  it('file identity: two pools (and chains) sharing a file never clobber each other; the settler writes the scoped shape', async () => {
+    const path = join(tmp(), 'c.json');
+    const P1 = '0x' + '11'.repeat(32);
+    const P2 = '0x' + '22'.repeat(32);
+    const pub1 = new ChargeThresholdPublisher({ windowBlocks: 0, fmax: 0, minBenign: 5, path, scope: { chainId: 1, poolId: P1 } });
+    const pub2 = new ChargeThresholdPublisher({ windowBlocks: 0, fmax: 0, minBenign: 5, path, scope: { chainId: 1, poolId: P2 } });
+    const pub3 = new ChargeThresholdPublisher({ windowBlocks: 0, fmax: 0, minBenign: 5, path, scope: { chainId: 11155111, poolId: P1 } });
+    const now = new Date(1_700_000_000_000);
+    await pub1.publish(10, flat(A, 0.5), now);
+    await pub2.publish(10, flat(A, 0.7), now);
+    await pub3.publish(10, flat(A, 0.9), now);
+    const f = JSON.parse(readFileSync(path, 'utf8')) as ChargeThresholdFile;
+    expect(Object.keys(f).sort()).toEqual([`1:${P1}:${A.toLowerCase()}`, `1:${P2}:${A.toLowerCase()}`, `11155111:${P1}:${A.toLowerCase()}`].sort());
+    expect(f[chargeThresholdKey(A, { chainId: 1, poolId: P1 })]).toMatchObject({ chainId: 1, poolId: P1, modelNode: A.toLowerCase(), updatedAt: now.getTime() });
+    const at = (chainId: number, poolId: string) => rollingThresholdFor(A, path, { scope: { chainId, poolId }, nowMs: now.getTime() })?.threshold;
+    expect(at(1, P1)).toBeCloseTo(0.5, 5);
+    expect(at(1, P2.toUpperCase().replace('0X', '0x'))).toBeCloseTo(0.7, 5); // case-insensitive
+    expect(at(11155111, P1)).toBeCloseTo(0.9, 5);
+    expect(at(1, '0x' + '33'.repeat(32))).toBeUndefined(); // another pool: nothing (no legacy entry)
+  });
+
+  it('legacy modelNode-only files are still read; a scoped write replaces the legacy key of the same node', () => {
+    const path = join(tmp(), 'c.json');
+    const P1 = '0x' + '11'.repeat(32);
+    const legacy = { threshold: 0.42, fpr: 0.05, precision: 0.9, tpr: 0.7, coverage: 0.2, nBenign: 300, nToxic: 90, fromBlock: 1, toBlock: 2, updatedAt: new Date().toISOString() };
+    writeChargeThresholdFile(path, { [A]: legacy });
+    expect(rollingThresholdFor(A, path)?.threshold).toBe(0.42);
+    expect(rollingThresholdFor(A, path, { scope: { chainId: 1, poolId: P1 } })).toMatchObject({ threshold: 0.42, key: A.toLowerCase() });
+    writeChargeThresholdFile(path, { [chargeThresholdKey(A, { chainId: 1, poolId: P1 })]: { ...legacy, threshold: 0.6, updatedAt: Date.now(), chainId: 1, poolId: P1, modelNode: A.toLowerCase() } });
+    bumpMtime(path);
+    const f = readChargeThresholdFile(path);
+    expect(f[A.toLowerCase()]).toBeUndefined();
+    expect(rollingThresholdFor(A, path, { scope: { chainId: 1, poolId: P1 } })?.threshold).toBe(0.6);
   });
 });
 
@@ -222,12 +332,12 @@ describe('keeper charge threshold resolution (fixed > rolling > fallback, unset 
   const node = namehash('oniblock1.models.oniblock.eth');
   const saved = { ...process.env };
   afterEach(() => {
-    for (const k of ['CHARGE_THRESHOLD', 'CHARGE_THRESHOLD_FALLBACK', 'CHARGE_THRESHOLD_FILE']) {
+    for (const k of ['CHARGE_THRESHOLD', 'CHARGE_THRESHOLD_FALLBACK', 'CHARGE_THRESHOLD_FILE', 'CHARGE_THRESHOLD_MAX_AGE_S']) {
       if (saved[k] === undefined) delete process.env[k];
       else process.env[k] = saved[k];
     }
   });
-  const entry = (threshold: number | null) => ({ threshold, fpr: 0.05, precision: 0.95, tpr: 0.7, coverage: 0.3, nBenign: 300, nToxic: 100, fromBlock: 1, toBlock: 2, updatedAt: 'x' });
+  const entry = (threshold: number | null, updatedAt: number | string = Date.now()) => ({ threshold, fpr: 0.05, precision: 0.95, tpr: 0.7, coverage: 0.3, nBenign: 300, nToxic: 100, fromBlock: 1, toBlock: 2, updatedAt });
 
   it('mode parsing: unset/empty = off, auto, number; invalid is a ConfigError', () => {
     expect(chargeThresholdMode(undefined)).toBe('off');
@@ -275,6 +385,62 @@ describe('keeper charge threshold resolution (fixed > rolling > fallback, unset 
     process.env.CHARGE_THRESHOLD_FALLBACK = '0.66';
     expect(resolveChargeThreshold({ modelNode: namehash('x.eth') })).toEqual({ threshold: 0.66, source: 'fallback' });
     expect(rollingThresholdFor(node)?.threshold).toBe(0.55);
+  });
+
+  it('a stale entry (older than CHARGE_THRESHOLD_MAX_AGE_S, default 3600 s) falls back: env fallback, model JSON, else none', () => {
+    const file = join(tmp(), 'c.json');
+    const now = Date.now();
+    writeChargeThresholdFile(file, { [node]: entry(0.61, now - 3601_000) });
+    expect(chargeThresholdMaxAgeS(undefined)).toBe(3600);
+    expect(resolveChargeThreshold({ modelNode: node, raw: 'auto', file, fallbackRaw: '0.7', nowMs: now })).toEqual({ threshold: 0.7, source: 'fallback' });
+    expect(resolveChargeThreshold({ modelNode: node, raw: 'auto', file, fallbackRaw: undefined, modelThreshold: () => 0.8224, nowMs: now })).toEqual({ threshold: 0.8224, source: 'fallback' });
+    expect(resolveChargeThreshold({ modelNode: node, raw: 'auto', file, fallbackRaw: undefined, nowMs: now })).toEqual({ threshold: Number.POSITIVE_INFINITY, source: 'none' });
+    // just inside the limit it is used; env knob; <= 0 disables the limit
+    expect(resolveChargeThreshold({ modelNode: node, raw: 'auto', file, fallbackRaw: undefined, nowMs: now - 2_000 })).toEqual({ threshold: 0.61, source: 'rolling' });
+    process.env.CHARGE_THRESHOLD_MAX_AGE_S = '7200';
+    expect(resolveChargeThreshold({ modelNode: node, raw: 'auto', file, fallbackRaw: undefined, nowMs: now }).source).toBe('rolling');
+    expect(resolveChargeThreshold({ modelNode: node, raw: 'auto', file, fallbackRaw: undefined, nowMs: now, maxAgeS: 0 }).source).toBe('rolling');
+    // no readable timestamp = stale; a legacy ISO timestamp is parsed
+    writeChargeThresholdFile(file, { [node]: entry(0.61, 'x') });
+    bumpMtime(file);
+    expect(resolveChargeThreshold({ modelNode: node, raw: 'auto', file, fallbackRaw: undefined, nowMs: now }).source).toBe('none');
+    writeChargeThresholdFile(file, { [node]: entry(0.61, new Date(now - 60_000).toISOString()) });
+    bumpMtime(file);
+    expect(resolveChargeThreshold({ modelNode: node, raw: 'auto', file, fallbackRaw: undefined, nowMs: now }).source).toBe('rolling');
+  });
+
+  it('a non-primary model is never gated by a fixed / fallback / model-JSON threshold (different p scale)', () => {
+    const file = join(tmp(), 'c.json');
+    const primary = node;
+    const fb = namehash('heuristic-v1.models.oniblock.eth');
+    expect(chargeRole(primary, primary, 'tabular')).toBe('primary');
+    expect(chargeRole(primary.toUpperCase().replace('0X', '0x'), primary, 'jev')).toBe('primary');
+    expect(chargeRole(fb, primary, 'heuristic')).toBe('fallback');
+    expect(chargeRole(primary, primary, 'heuristic')).toBe('shared'); // FALLBACK_SAME_NODE=1
+    const model = () => 0.8224;
+    const none = { threshold: Number.POSITIVE_INFINITY, source: 'none' };
+    // fixed: the primary gets it, the fallback node does not (no entry of its own -> charges nothing)
+    expect(resolveChargeThreshold({ modelNode: primary, role: 'primary', raw: '0.4', file })).toEqual({ threshold: 0.4, source: 'fixed' });
+    expect(resolveChargeThreshold({ modelNode: fb, role: 'fallback', raw: '0.4', file })).toEqual(none);
+    // auto: env fallback / model JSON apply to the primary only
+    expect(resolveChargeThreshold({ modelNode: fb, role: 'fallback', raw: 'auto', file, fallbackRaw: '0.7', modelThreshold: model })).toEqual(none);
+    expect(resolveChargeThreshold({ modelNode: primary, role: 'primary', raw: 'auto', file, fallbackRaw: '0.7', modelThreshold: model })).toEqual({ threshold: 0.7, source: 'fallback' });
+    // the fallback node's own rolling entry does gate it (fixed or auto)
+    writeChargeThresholdFile(file, { [fb]: entry(0.33), [primary]: entry(0.61) });
+    bumpMtime(file);
+    expect(resolveChargeThreshold({ modelNode: fb, role: 'fallback', raw: 'auto', file, fallbackRaw: '0.7' })).toEqual({ threshold: 0.33, source: 'rolling' });
+    expect(resolveChargeThreshold({ modelNode: fb, role: 'fallback', raw: '0.4', file })).toEqual({ threshold: 0.33, source: 'rolling' });
+    // shared node: the entry is the primary's -> charges nothing; unset stays off for every role
+    expect(resolveChargeThreshold({ modelNode: primary, role: 'shared', raw: 'auto', file, fallbackRaw: '0.7', modelThreshold: model })).toEqual(none);
+    expect(resolveChargeThreshold({ modelNode: primary, role: 'shared', raw: '0.4', file })).toEqual(none);
+    for (const role of ['primary', 'fallback', 'shared'] as const) expect(resolveChargeThreshold({ modelNode: fb, role, raw: undefined, file }).source).toBe('off');
+  });
+
+  it('startup warning: FALLBACK_SAME_NODE=1 with CHARGE_THRESHOLD=auto (the settler mixes both models under the primary node)', () => {
+    const env = (e: Record<string, string>) => (n: string) => e[n];
+    expect(fallbackSameNodeWarning(env({ FALLBACK_SAME_NODE: '1', CHARGE_THRESHOLD: 'auto' }))?.code).toBe('charge_threshold_shared_node');
+    expect(fallbackSameNodeWarning(env({ FALLBACK_SAME_NODE: '1', CHARGE_THRESHOLD: '0.8' }))).toBeUndefined();
+    expect(fallbackSameNodeWarning(env({ CHARGE_THRESHOLD: 'auto' }))).toBeUndefined();
   });
 
   it('auto with no rolling / fallback / model threshold charges nothing (vanilla pool), pToxic unchanged', () => {

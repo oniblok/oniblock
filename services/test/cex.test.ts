@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mkdtempSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { binanceGet, fetchKlines, fetchMid, midAt, realizedVolBps, type Kline } from '../src/cex.js';
+import { binanceGet, fetchKlines, fetchMid, historicalMids, midAt, realizedVolBps, type Kline } from '../src/cex.js';
 
 const live = process.env.OFFLINE === '1' ? describe.skip : describe;
 
@@ -68,4 +68,47 @@ live('cex live (Binance public API; OFFLINE=1 to skip)', () => {
     const ks = await fetchKlines({ interval: '1m', startMs: start, endMs: end, cacheDir: false });
     expect(ks.length).toBe(1500);
   }, 60_000);
+});
+
+describe('historicalMids: USDC per ETH = ETHUSDT 1s / USDCUSDT 1m (offline, mocked klines)', () => {
+  const row = (t: number, c: number) => [t, '0', '0', '0', String(c), '1', t + 999];
+  function fakeKlines(series: Record<string, unknown[][]>) {
+    const calls: string[] = [];
+    const fetchImpl = (async (url: string) => {
+      calls.push(url);
+      const sym = new URL(url).searchParams.get('symbol')!;
+      return new Response(JSON.stringify(series[sym] ?? []), { status: 200 });
+    }) as unknown as typeof fetch;
+    return { calls, fetch: { hosts: ['https://fake'], retries: 0, fetchImpl } };
+  }
+  const T = 1_700_000_000_000;
+
+  it('divides at-or-before on both sides; quote older than 180 s => absent', async () => {
+    const f = fakeKlines({
+      ETHUSDT: [row(T - 2_000, 3000), row(T, 3001), row(T + 60_000, 3002), row(T + 400_000, 3003)],
+      USDCUSDT: [row(T - 60_000, 1.0002), row(T + 60_000, 1.0004)],
+    });
+    const m = await historicalMids([T - 1_000, T + 59_999, T + 60_000, T + 400_000], { symbol: 'ETHUSDT', quoteSymbol: 'USDCUSDT', cacheDir: false, fetch: f.fetch });
+    expect(m.get(T - 1_000)).toBeCloseTo(3000 / 1.0002, 9);
+    expect(m.get(T + 59_999)).toBeCloseTo(3001 / 1.0002, 9); // the +60 s quote kline is not open yet
+    expect(m.get(T + 60_000)).toBeCloseTo(3002 / 1.0004, 9);
+    expect(m.has(T + 400_000)).toBe(false); // last quote kline opened 340 s earlier (> 180 s)
+    expect(f.calls.some((u) => u.includes('symbol=USDCUSDT&interval=1m'))).toBe(true);
+  });
+  it('quoteSymbol "" opts out (ETHUSDT only, no quote request)', async () => {
+    const f = fakeKlines({ ETHUSDT: [row(T, 3001)] });
+    const m = await historicalMids([T + 500], { symbol: 'ETHUSDT', quoteSymbol: '', cacheDir: false, fetch: f.fetch });
+    expect(m.get(T + 500)).toBe(3001);
+    expect(f.calls.every((u) => u.includes('symbol=ETHUSDT'))).toBe(true);
+  });
+  it('a quote fetch failure rejects (never an uncorrected mid)', async () => {
+    const fetchImpl = (async (url: string) =>
+      url.includes('USDCUSDT') ? new Response('down', { status: 400 }) : new Response(JSON.stringify([row(T, 3001)]), { status: 200 })) as unknown as typeof fetch;
+    await expect(historicalMids([T], { quoteSymbol: 'USDCUSDT', cacheDir: false, fetch: { hosts: ['https://fake'], retries: 0, fetchImpl } })).rejects.toThrow(/USDCUSDT/);
+  });
+  it('midAt maxAgeMs', () => {
+    const ks = [{ openTime: 0, close: 1 } as Kline];
+    expect(midAt(ks, 180_000, 180_000)).toBe(1);
+    expect(midAt(ks, 180_001, 180_000)).toBeUndefined();
+  });
 });

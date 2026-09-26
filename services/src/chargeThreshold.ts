@@ -11,18 +11,23 @@
  *        Charging p >= t then charges only benign p > b_{m+1}, at most m of them, so FPR <= fmax on those pairs (ties
  *        at b_{m+1} are all left uncharged). m >= N (fmax = 1) -> t = 0. Null when N < minBenign.
  *   `ChargeThresholdPublisher`  settler side: per model node, the labelled (p, y) of the trailing CHARGE_WINDOW_BLOCKS
- *        -> the threshold -> CHARGE_THRESHOLD_FILE (atomic JSON, keyed by lowercase modelNode) and, when the ENS writer
- *        can, the text record calibration.chargeThreshold (bps: charged iff pToxicBps >= value; '' = no threshold).
- *   `readChargeThresholdFile`  keeper side (CHARGE_THRESHOLD=auto): re-parsed only when the file's mtime changes.
+ *        -> the threshold -> CHARGE_THRESHOLD_FILE (atomic JSON, keyed `<chainId>:<poolId>:<modelNode>` lowercase, each
+ *        entry with updatedAt in ms) and, when the ENS writer can, the text record calibration.chargeThreshold (bps:
+ *        charged iff pToxicBps >= value; '' = no threshold), rate-limited (ensWriteDue).
+ *   `readChargeThresholdFile` / `rollingThresholdFor`  keeper side (CHARGE_THRESHOLD=auto): re-parsed only when the
+ *        file's mtime changes; the scoped key first, then a legacy modelNode-only key; entries older than
+ *        CHARGE_THRESHOLD_MAX_AGE_S are ignored (the settler stopped: fall back, never trust an old threshold forever).
  *
  * Env: CHARGE_WINDOW_BLOCKS (default 50400 = 7 days of 12 s blocks; 0 = every labelled block), CHARGE_FPR_MAX
- * (default 0.05), CHARGE_MIN_BENIGN (default 200), CHARGE_THRESHOLD_FILE (default <ROOT>/.runtime/charge-threshold.json).
+ * (default 0.05), CHARGE_MIN_BENIGN (default 200), CHARGE_THRESHOLD_FILE (default <ROOT>/.runtime/charge-threshold.json),
+ * CHARGE_THRESHOLD_MAX_AGE_S (keeper, default 3600; <= 0 = no limit), CHARGE_ENS_MIN_DELTA_BPS (settler, default 100),
+ * CHARGE_ENS_MIN_INTERVAL_BLOCKS (settler, default 300).
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import type { Hex } from 'viem';
 import { env, envInt, log, ROOT } from './config.js';
-import { CHARGE_THRESHOLD_KEY, type CalibrationRecordWriter } from './ens.js';
+import { CHARGE_THRESHOLD_KEY, type CalibrationRecordWriter, type TextWriteResult } from './ens.js';
 
 export const CHARGE_WINDOW_BLOCKS_DEFAULT = 50_400;
 export const CHARGE_FPR_MAX_DEFAULT = 0.05;
@@ -103,14 +108,43 @@ export interface ChargeThresholdEntry {
   /** Block range of the labels in the window (null: none). */
   fromBlock: number | null;
   toBlock: number | null;
-  /** ISO time of the settle that wrote the entry. */
-  updatedAt: string;
+  /** Time (ms since epoch) of the settle that wrote the entry; the keeper ignores entries older than CHARGE_THRESHOLD_MAX_AGE_S.
+   *  Legacy files carry an ISO string (still parsed). */
+  updatedAt: number | string;
+  /** Identity of the entry (new shape; legacy modelNode-keyed entries have none). */
+  chainId?: number;
+  poolId?: string;
+  modelNode?: string;
 }
 
+/**
+ * Keys: `<chainId>:<poolId>:<modelNode>` (lowercase; chargeThresholdKey) so two pools / chains sharing a file never
+ * clobber each other. Legacy files keyed by the bare lowercase modelNode are still read (rollingThresholdFor).
+ */
 export type ChargeThresholdFile = Record<string, ChargeThresholdEntry>;
+
+/** Scope of a threshold: the chain and pool its labels come from. */
+export interface ChargeScope {
+  chainId: number;
+  poolId: string;
+}
+
+export const CHARGE_THRESHOLD_MAX_AGE_S_DEFAULT = 3600;
+
+/** File key of an entry: `<chainId>:<poolId>:<modelNode>` (lowercase), or the bare modelNode (legacy) without a scope. */
+export function chargeThresholdKey(modelNode: string, scope?: ChargeScope): string {
+  const n = modelNode.toLowerCase();
+  return scope ? `${scope.chainId}:${scope.poolId.toLowerCase()}:${n}` : n;
+}
 
 export function chargeThresholdPath(): string {
   return env('CHARGE_THRESHOLD_FILE', resolve(ROOT, '.runtime', 'charge-threshold.json'))!;
+}
+
+/** CHARGE_THRESHOLD_MAX_AGE_S (default 3600; <= 0 = no age limit). */
+export function chargeThresholdMaxAgeS(raw = env('CHARGE_THRESHOLD_MAX_AGE_S')): number {
+  const v = raw === undefined || raw.trim() === '' ? CHARGE_THRESHOLD_MAX_AGE_S_DEFAULT : Number(raw);
+  return Number.isFinite(v) ? v : CHARGE_THRESHOLD_MAX_AGE_S_DEFAULT;
 }
 
 function readJson(path: string): ChargeThresholdFile {
@@ -123,10 +157,18 @@ function readJson(path: string): ChargeThresholdFile {
   }
 }
 
-/** Merge `entries` (keys lowercased) into the file and write it atomically (tmp + rename). */
+/**
+ * Merge `entries` (keys lowercased) into the file and write it atomically (tmp + rename). A scoped entry (with
+ * modelNode) drops the legacy bare-modelNode key of the same node, so an old unscoped value cannot outlive it.
+ */
 export function writeChargeThresholdFile(path: string, entries: ChargeThresholdFile): void {
   const cur = readJson(path);
-  for (const [k, v] of Object.entries(entries)) cur[k.toLowerCase()] = v;
+  for (const [k, v] of Object.entries(entries)) {
+    const key = k.toLowerCase();
+    cur[key] = v;
+    const legacy = v.modelNode?.toLowerCase();
+    if (legacy && legacy !== key) delete cur[legacy];
+  }
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.${process.pid}.tmp`;
   writeFileSync(tmp, JSON.stringify(cur, null, 2) + '\n');
@@ -149,11 +191,46 @@ export function readChargeThresholdFile(path = chargeThresholdPath()): ChargeThr
   }
 }
 
-/** The published threshold for `modelNode` (case-insensitive), or undefined if absent / null / not a number >= 0. */
-export function rollingThresholdFor(modelNode: Hex | string, path = chargeThresholdPath()): { threshold: number; entry: ChargeThresholdEntry } | undefined {
-  const e = readChargeThresholdFile(path)[modelNode.toLowerCase()];
-  const t = e?.threshold;
-  return typeof t === 'number' && Number.isFinite(t) && t >= 0 ? { threshold: t, entry: e! } : undefined;
+/** updatedAt as ms (number, or a legacy ISO string); NaN if absent / unparseable. */
+export function entryUpdatedAtMs(e: Pick<ChargeThresholdEntry, 'updatedAt'> | undefined): number {
+  const u = e?.updatedAt;
+  if (typeof u === 'number') return u;
+  if (typeof u === 'string') return Date.parse(u);
+  return Number.NaN;
+}
+
+export interface RollingLookup {
+  /** chain + pool of the keeper: the scoped key is tried first, then the legacy modelNode key. */
+  scope?: ChargeScope;
+  /** Entries older than this are ignored (default CHARGE_THRESHOLD_MAX_AGE_S; <= 0 = no limit). An entry without a
+   *  readable updatedAt counts as too old. */
+  maxAgeS?: number;
+  nowMs?: number;
+}
+
+/**
+ * The published threshold for `modelNode` (case-insensitive) in `scope` (falls back to a legacy modelNode-keyed
+ * entry), or undefined if absent / null / not a number >= 0 / older than maxAgeS (the settler stopped publishing:
+ * the keeper then falls through to its fallback chain).
+ */
+export function rollingThresholdFor(
+  modelNode: Hex | string,
+  path = chargeThresholdPath(),
+  o: RollingLookup = {},
+): { threshold: number; entry: ChargeThresholdEntry; key: string } | undefined {
+  const f = readChargeThresholdFile(path);
+  const keys = o.scope ? [chargeThresholdKey(modelNode, o.scope), chargeThresholdKey(modelNode)] : [chargeThresholdKey(modelNode)];
+  const key = keys.find((k) => f[k] !== undefined);
+  if (key === undefined) return undefined;
+  const e = f[key]!;
+  const t = e.threshold;
+  if (!(typeof t === 'number' && Number.isFinite(t) && t >= 0)) return undefined;
+  const maxAgeS = o.maxAgeS ?? chargeThresholdMaxAgeS();
+  if (maxAgeS > 0) {
+    const age = (o.nowMs ?? Date.now()) - entryUpdatedAtMs(e);
+    if (!(age <= maxAgeS * 1000)) return undefined; // NaN (no timestamp) counts as stale
+  }
+  return { threshold: t, entry: e, key };
 }
 
 /** ENS value of calibration.chargeThreshold: bps, charged iff pToxicBps >= value ('' = no threshold). */
@@ -161,11 +238,20 @@ export function chargeThresholdTextValue(t: number | null): string {
   return t === null ? '' : String(Math.ceil(t * 10_000 - 1e-9));
 }
 
+export const CHARGE_ENS_MIN_DELTA_BPS_DEFAULT = 100;
+export const CHARGE_ENS_MIN_INTERVAL_BLOCKS_DEFAULT = 300;
+
 export interface ChargeWindowOpts {
   windowBlocks: number;
   fmax: number;
   minBenign: number;
   path: string;
+  /** chain + pool the labels come from: the file key (settler passes it; without one the legacy modelNode key is written). */
+  scope?: ChargeScope;
+  /** ENS rate limit: write when the bps value moves by >= this (default CHARGE_ENS_MIN_DELTA_BPS = 100)... */
+  ensMinDeltaBps?: number;
+  /** ...or, for a smaller move, when this many blocks passed since the last write (default CHARGE_ENS_MIN_INTERVAL_BLOCKS = 300). */
+  ensMinIntervalBlocks?: number;
 }
 
 export function chargeWindowOpts(): ChargeWindowOpts {
@@ -176,19 +262,37 @@ export function chargeWindowOpts(): ChargeWindowOpts {
     fmax,
     minBenign: envInt('CHARGE_MIN_BENIGN', CHARGE_MIN_BENIGN_DEFAULT),
     path: chargeThresholdPath(),
+    ensMinDeltaBps: envInt('CHARGE_ENS_MIN_DELTA_BPS', CHARGE_ENS_MIN_DELTA_BPS_DEFAULT),
+    ensMinIntervalBlocks: envInt('CHARGE_ENS_MIN_INTERVAL_BLOCKS', CHARGE_ENS_MIN_INTERVAL_BLOCKS_DEFAULT),
   };
 }
 
 /**
+ * ENS rate limit (pure): write `next` over the last written `prev` (at block `prevHead`) at block `head`? Never when
+ * equal, never '' before a first value; a first value, a move to / from '' (no threshold), or a move of >= minDeltaBps
+ * is written at once; a smaller move only once minIntervalBlocks passed since the last write.
+ */
+export function ensWriteDue(prev: { v: string; head: number } | undefined, next: string, head: number, minDeltaBps: number, minIntervalBlocks: number): boolean {
+  if (prev === undefined) return next !== '';
+  if (next === prev.v) return false;
+  if (next === '' || prev.v === '') return true;
+  if (Math.abs(Number(next) - Number(prev.v)) >= minDeltaBps) return true;
+  return head - prev.head >= minIntervalBlocks;
+}
+
+/**
  * Settler side (see the header). `publish(head, labels)` takes the arb head's labelled blocks (any range; only those in
- * (head - windowBlocks, head] count), writes one entry per model node seen in `labels` (a node whose window is empty gets
- * threshold null, so the keeper falls back), logs `charge_threshold` per node, and mirrors the value to ENS: only when it
- * changed since the last write, never '' before a first value, and not at all for a node once the resolver refused it (logged
- * once per node as `charge_threshold_ens_unauthorized`; EnsSetup grants the settler per key).
+ * (head - windowBlocks, head] count), writes one entry per model node seen in `labels` (key chargeThresholdKey(node,
+ * scope); a node whose window is empty gets threshold null, so the keeper falls back), logs `charge_threshold` per node,
+ * and mirrors the value to ENS, rate-limited by ensWriteDue (CHARGE_ENS_MIN_DELTA_BPS / CHARGE_ENS_MIN_INTERVAL_BLOCKS: a
+ * calibration.chargeThreshold tx per model per settle would be wasteful). A node stops being mirrored only when the
+ * resolver refused the settler's role (EACUnauthorizedAccountRoles; EnsSetup grants the settler per key) or the node has
+ * no ENS name — logged once as `charge_threshold_ens_unauthorized`. Any other failure (RPC, nonce, gas) is logged as
+ * `charge_threshold_ens_retry` and retried on the next settle.
  */
 export class ChargeThresholdPublisher {
-  private readonly lastEns = new Map<string, string>();
-  /** nodes whose calibration.chargeThreshold write was refused (unknown name / no per-key grant): file only from then on */
+  private readonly lastEns = new Map<string, { v: string; head: number }>();
+  /** nodes whose calibration.chargeThreshold write was refused (no per-key grant / unknown name): file only from then on */
   private readonly ensOff = new Set<string>();
   constructor(
     private readonly opts: ChargeWindowOpts = chargeWindowOpts(),
@@ -208,6 +312,7 @@ export class ChargeThresholdPublisher {
       if (l.block <= head && (w <= 0 || l.block > head - w)) arr.push(l);
     }
     const out: ChargeThresholdFile = {};
+    const scope = this.opts.scope;
     for (const [node, ls] of by) {
       const r = chargeThresholdFor(ls, { fmax: this.opts.fmax, minBenign: this.opts.minBenign });
       const counts = r ?? chargeStats(ls, Number.POSITIVE_INFINITY);
@@ -217,7 +322,7 @@ export class ChargeThresholdPublisher {
         lo = lo === null ? l.block : Math.min(lo, l.block);
         hi = hi === null ? l.block : Math.max(hi, l.block);
       }
-      out[node] = {
+      out[chargeThresholdKey(node, scope)] = {
         threshold: r?.threshold ?? null,
         fpr: r?.fpr ?? null,
         precision: r?.precision ?? null,
@@ -227,43 +332,51 @@ export class ChargeThresholdPublisher {
         nToxic: counts.nToxic,
         fromBlock: lo,
         toBlock: hi,
-        updatedAt: now.toISOString(),
+        updatedAt: now.getTime(),
+        ...(scope ? { chainId: scope.chainId, poolId: scope.poolId.toLowerCase() } : {}),
+        modelNode: node,
       };
     }
     return out;
   }
 
-  async publish(head: number, labels: readonly { block: number; modelNode: Hex; p: number; y: 0 | 1 }[]): Promise<ChargeThresholdFile> {
-    const entries = this.compute(head, labels);
+  async publish(head: number, labels: readonly { block: number; modelNode: Hex; p: number; y: 0 | 1 }[], now = new Date()): Promise<ChargeThresholdFile> {
+    const entries = this.compute(head, labels, now);
     if (!Object.keys(entries).length) return entries;
     try {
       writeChargeThresholdFile(this.opts.path, entries);
     } catch (e) {
       log('settler', 'charge_threshold_write_error', { path: this.opts.path, error: (e as Error).message.split('\n')[0] });
     }
-    for (const [node, e] of Object.entries(entries)) {
-      log('settler', 'charge_threshold', { head, modelNode: node, ...e, windowBlocks: this.opts.windowBlocks, fmax: this.opts.fmax, minBenign: this.opts.minBenign, file: this.opts.path });
-      await this.mirrorToEns(node as Hex, e.threshold);
+    for (const [key, e] of Object.entries(entries)) {
+      log('settler', 'charge_threshold', { head, key, ...e, windowBlocks: this.opts.windowBlocks, fmax: this.opts.fmax, minBenign: this.opts.minBenign, file: this.opts.path });
+      await this.mirrorToEns(e.modelNode as Hex, e.threshold, head);
     }
     return entries;
   }
 
-  private async mirrorToEns(node: Hex, t: number | null): Promise<void> {
+  private async mirrorToEns(node: Hex, t: number | null, head: number): Promise<void> {
     if (this.ensOff.has(node) || !this.ens?.writeText) return;
     const v = chargeThresholdTextValue(t);
-    const prev = this.lastEns.get(node);
-    if (v === prev || (v === '' && prev === undefined)) return;
-    let ok = false;
+    const minDelta = this.opts.ensMinDeltaBps ?? CHARGE_ENS_MIN_DELTA_BPS_DEFAULT;
+    const minInterval = this.opts.ensMinIntervalBlocks ?? CHARGE_ENS_MIN_INTERVAL_BLOCKS_DEFAULT;
+    if (!ensWriteDue(this.lastEns.get(node), v, head, minDelta, minInterval)) return;
+    let r: TextWriteResult;
     try {
-      ok = await this.ens.writeText(node, [[CHARGE_THRESHOLD_KEY, v]]);
-    } catch {
-      ok = false;
+      r = await this.ens.writeText(node, [[CHARGE_THRESHOLD_KEY, v]]);
+    } catch (e) {
+      r = { ok: false, reason: 'failed', error: (e as Error).message?.split('\n')[0] };
     }
-    if (ok || this.ens.kind === 'noop') {
-      this.lastEns.set(node, v); // noop (no ENS deployment): logged once per change by the writer
+    if (r === true || this.ens.kind === 'noop') {
+      this.lastEns.set(node, { v, head }); // noop (no ENS deployment): logged once per write by the writer
       return;
     }
-    this.ensOff.add(node);
-    log('settler', 'charge_threshold_ens_unauthorized', { modelNode: node, key: CHARGE_THRESHOLD_KEY, hint: 'resolver refused the key (EnsSetup grants the settler per key); publishing to the file only from now on' });
+    const reason = typeof r === 'object' ? r.reason : 'failed';
+    if (reason === 'unauthorized' || reason === 'unknown_node') {
+      this.ensOff.add(node);
+      log('settler', 'charge_threshold_ens_unauthorized', { modelNode: node, key: CHARGE_THRESHOLD_KEY, reason, hint: 'resolver refused the key (EnsSetup grants the settler per key) or the model has no ENS name; publishing to the file only from now on' });
+      return;
+    }
+    log('settler', 'charge_threshold_ens_retry', { modelNode: node, key: CHARGE_THRESHOLD_KEY, value: v, head, error: typeof r === 'object' ? (r.error ?? null) : null, hint: 'transient failure; retried on the next settle' });
   }
 }

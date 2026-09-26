@@ -174,9 +174,10 @@ export async function fetchKlines(q: KlineQuery, opts: FetchOpts = {}): Promise<
 
 /**
  * Mid at a timestamp from a sorted kline series: the close of the last kline whose
- * openTime <= ts (forward-fill across empty 1s buckets). Returns undefined if before series.
+ * openTime <= ts (forward-fill across empty 1s buckets). Returns undefined if before series,
+ * or if that kline opened more than `maxAgeMs` before ts.
  */
-export function midAt(klines: Kline[], tsMs: number): number | undefined {
+export function midAt(klines: Kline[], tsMs: number, maxAgeMs = Infinity): number | undefined {
   let lo = 0;
   let hi = klines.length - 1;
   let ans = -1;
@@ -187,7 +188,62 @@ export function midAt(klines: Kline[], tsMs: number): number | undefined {
       lo = m + 1;
     } else hi = m - 1;
   }
-  return ans >= 0 ? klines[ans]!.close : undefined;
+  return ans >= 0 && tsMs - klines[ans]!.openTime <= maxAgeMs ? klines[ans]!.close : undefined;
+}
+
+/**
+ * The pools are USDC/WETH, and oniblock1 was trained on mid = USDC per ETH = ETHUSDT / USDCUSDT
+ * (ml/src/common.py Mids.mid). Every CEX mid the services post or label with must carry the same correction.
+ *   CEX_QUOTE_SYMBOL=USDCUSDT (default)   divisor symbol; set to the empty string to disable the correction
+ *                                          (non-USDC pools, tests).
+ */
+export const DEFAULT_QUOTE_SYMBOL = 'USDCUSDT';
+/** A 1m quote kline opened more than this before t is unusable (common.py usdc_usdt: 180 s). */
+export const QUOTE_KLINE_MAX_AGE_MS = 180_000;
+
+/** CEX_QUOTE_SYMBOL; unset => USDCUSDT, empty string => '' (no correction). Read raw: env() maps '' to the fallback. */
+export function cexQuoteSymbol(): string {
+  const v = process.env.CEX_QUOTE_SYMBOL;
+  return v === undefined ? DEFAULT_QUOTE_SYMBOL : v.trim();
+}
+
+export interface HistoricalMidOpts {
+  /** Base symbol (default CEX_SYMBOL or ETHUSDT). */
+  symbol?: string;
+  /** Divisor symbol (default cexQuoteSymbol()); '' = no correction. */
+  quoteSymbol?: string;
+  /** Base kline interval (default 1s). The quote always uses 1m klines, like common.py. */
+  interval?: KlineQuery['interval'];
+  /** Base klines fetched from min(t) - baseLookbackMs (default 30 s). */
+  baseLookbackMs?: number;
+  cacheDir?: string | false;
+  fetch?: FetchOpts;
+}
+
+/**
+ * Historical CEX mid at each timestamp (ms): base close at-or-before t / quote 1m close at-or-before t
+ * (the quote kline at most 180 s old). Timestamps where either side is missing are absent from the map.
+ * Both kline windows are fetched in parallel; a fetch error rejects (caller decides: never an uncorrected mid).
+ */
+export async function historicalMids(times: number[], o: HistoricalMidOpts = {}): Promise<Map<number, number>> {
+  const out = new Map<number, number>();
+  if (!times.length) return out;
+  const symbol = o.symbol ?? env('CEX_SYMBOL', 'ETHUSDT')!;
+  const quoteSymbol = o.quoteSymbol ?? cexQuoteSymbol();
+  const lo = Math.min(...times);
+  const hi = Math.max(...times);
+  const [base, quote] = await Promise.all([
+    fetchKlines({ symbol, interval: o.interval ?? '1s', startMs: lo - (o.baseLookbackMs ?? 30_000), endMs: hi + 1_000, cacheDir: o.cacheDir }, o.fetch),
+    quoteSymbol
+      ? fetchKlines({ symbol: quoteSymbol, interval: '1m', startMs: lo - QUOTE_KLINE_MAX_AGE_MS, endMs: hi + 1_000, cacheDir: o.cacheDir }, o.fetch)
+      : undefined,
+  ]);
+  for (const t of times) {
+    const b = midAt(base, t);
+    const q = quote ? midAt(quote, t, QUOTE_KLINE_MAX_AGE_MS) : 1;
+    if (b && q) out.set(t, b / q);
+  }
+  return out;
 }
 
 /** Realized volatility of a price series in bps (stdev of log returns * 1e4). */

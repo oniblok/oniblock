@@ -298,8 +298,12 @@ export class TxSender {
     wait?: boolean;
     /** Called once the tx is broadcast (or failed to broadcast: null), before waiting for the receipt. */
     onBroadcast?: (hash: Hex | null) => void;
+    /** Called with the last error when the tx could not be broadcast (simulate / estimate / send failed); lets callers
+     *  tell a deterministic revert (e.g. a missing role) from transient RPC / nonce / gas trouble. */
+    onError?: (error: unknown) => void;
   }): Promise<{ hash: Hex; status: 'success' | 'reverted'; blockNumber: bigint; gasUsed: bigint; logs?: Log[] } | null> {
     const label = req.label ?? String(req.functionName);
+    let lastError: unknown;
     const broadcast = async (): Promise<Hex | null> => {
       const retries = req.retries ?? 2;
       for (let attempt = 0; attempt <= retries; attempt++) {
@@ -322,6 +326,7 @@ export class TxSender {
           this.nonce!++;
           return hash;
         } catch (e) {
+          lastError = e;
           const msg = (e as Error).message ?? String(e);
           const short = (e as { shortMessage?: string }).shortMessage ?? msg.split('\n')[0];
           const isRevert = /revert|ContractFunctionRevertedError/i.test(msg);
@@ -337,7 +342,10 @@ export class TxSender {
     this.queue = p.catch(() => undefined);
     const hash = await p;
     req.onBroadcast?.(hash);
-    if (!hash) return null;
+    if (!hash) {
+      req.onError?.(lastError);
+      return null;
+    }
     if (req.wait === false) return { hash, status: 'success', blockNumber: 0n, gasUsed: 0n };
     try {
       const rc = await this.pc.waitForTransactionReceipt({ hash, timeout: 60_000, pollingInterval: 200 });

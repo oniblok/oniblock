@@ -14,6 +14,7 @@ import { resolve } from 'node:path';
 import {
   concat,
   encodeFunctionData,
+  keccak256,
   parseAbi,
   stringToBytes,
   toHex,
@@ -54,11 +55,44 @@ export const JIT_CALIBRATION_KEYS = ['brier', 'hitRate', 'n', 'epoch', 'brierRaw
  */
 export const CHARGE_THRESHOLD_KEY = 'calibration.chargeThreshold';
 
+/**
+ * Why a text write did not land. 'unauthorized' = the resolver refused the settler (EACUnauthorizedAccountRoles: no
+ * per-key grant) and 'unknown_node' = the model has no name in the ENS deployment: both permanent for this process.
+ * 'failed' = anything else (RPC, nonce, gas, a mined revert after a passing simulation): worth retrying later.
+ */
+export interface TextWriteFailure {
+  ok: false;
+  reason: 'unauthorized' | 'unknown_node' | 'failed';
+  error?: string;
+}
+/** true = written; a bare false (e.g. the noop writer) = not written, reason unknown (treated as 'failed'). */
+export type TextWriteResult = boolean | TextWriteFailure;
+
 export interface CalibrationRecordWriter {
   readonly kind: string;
   write(modelNode: Hex, rec: CalibrationRecord, head?: CalibrationHead): Promise<boolean>;
-  /** Arbitrary text records on the model's name, one multicall (false if unknown node / refused / no ENS). */
-  writeText?(modelNode: Hex, records: [string, string][]): Promise<boolean>;
+  /** Arbitrary text records on the model's name, one multicall (see TextWriteResult). */
+  writeText?(modelNode: Hex, records: [string, string][]): Promise<TextWriteResult>;
+}
+
+/** 4-byte selector of the resolver's permission revert (ENSv2 EnhancedAccessControl). */
+export const EAC_UNAUTHORIZED_SELECTOR = keccak256(stringToBytes('EACUnauthorizedAccountRoles(uint256,uint256,address)')).slice(0, 10) as Hex;
+
+/**
+ * Is `e` (a viem error, as TxSender.send's onError sees it) the resolver refusing the caller's role? Walks the cause
+ * chain for a decoded errorName / raw selector, then falls back to the message text. Transient RPC / nonce / gas
+ * errors are not.
+ */
+export function isEnsAuthorizationError(e: unknown): boolean {
+  const sel = EAC_UNAUTHORIZED_SELECTOR.toLowerCase();
+  for (let x: unknown = e, depth = 0; x && typeof x === 'object' && depth < 10; x = (x as { cause?: unknown }).cause, depth++) {
+    const o = x as { errorName?: unknown; data?: unknown; signature?: unknown; raw?: unknown; shortMessage?: unknown; message?: unknown };
+    const data = o.data as { errorName?: unknown } | string | undefined;
+    if (o.errorName === 'EACUnauthorizedAccountRoles' || (typeof data === 'object' && data?.errorName === 'EACUnauthorizedAccountRoles')) return true;
+    for (const v of [o.signature, o.raw, typeof data === 'string' ? data : undefined]) if (typeof v === 'string' && v.toLowerCase().startsWith(sel)) return true;
+    for (const v of [o.shortMessage, o.message]) if (typeof v === 'string' && (v.includes('EACUnauthorizedAccountRoles') || v.toLowerCase().includes(sel))) return true;
+  }
+  return false;
 }
 
 export const resolverAbi = parseAbi([
@@ -137,7 +171,7 @@ export class NoopCalibrationWriter implements CalibrationRecordWriter {
     log('ens', 'would_write_text_records', { modelNode, head, records: Object.fromEntries(calibrationTextRecords(rec, true, head)) });
     return false;
   }
-  async writeText(modelNode: Hex, records: [string, string][]): Promise<boolean> {
+  async writeText(modelNode: Hex, records: [string, string][]): Promise<TextWriteResult> {
     log('ens', 'would_write_text_records', { modelNode, records: Object.fromEntries(records) });
     return false;
   }
@@ -182,23 +216,31 @@ export class EnsV2CalibrationWriter implements CalibrationRecordWriter {
     log('ens', ok ? 'text_records_written' : 'text_records_failed', { name, head, ...rec, detail: this.detail[head], tx: rc?.hash });
     return ok;
   }
-  /** One multicall of setText(name, key, value) for `records` (e.g. calibration.chargeThreshold); no fallback. */
-  async writeText(modelNode: Hex, records: [string, string][]): Promise<boolean> {
+  /**
+   * One multicall of setText(name, key, value) for `records` (e.g. calibration.chargeThreshold); no fallback. A failure
+   * says whether it was the resolver's permission revert ('unauthorized', isEnsAuthorizationError) or transient.
+   */
+  async writeText(modelNode: Hex, records: [string, string][]): Promise<TextWriteResult> {
     const name = this.nameOf.get(modelNode.toLowerCase());
     if (!name) {
       log('ens', 'unknown_model_node', { modelNode, keys: records.map(([k]) => k) });
-      return false;
+      return { ok: false, reason: 'unknown_node' };
     }
     const dns = dnsEncode(name);
+    let err: unknown;
     const rc = await this.sender.send({
       address: this.ens.resolver,
       abi: resolverAbi,
       functionName: 'multicall',
       args: [records.map(([k, v]) => encodeFunctionData({ abi: resolverAbi, functionName: 'setText', args: [dns, k, v] }))],
       label: `ens ${records.map(([k]) => k).join(',')} ${name}`,
+      onError: (e) => (err = e),
     });
     const ok = rc?.status === 'success';
-    log('ens', ok ? 'text_records_written' : 'text_records_failed', { name, records: Object.fromEntries(records), tx: rc?.hash });
-    return ok;
+    const unauthorized = !ok && err !== undefined && isEnsAuthorizationError(err);
+    log('ens', ok ? 'text_records_written' : 'text_records_failed', { name, records: Object.fromEntries(records), tx: rc?.hash, ...(ok ? {} : { unauthorized }) });
+    if (ok) return true;
+    const error = err === undefined ? (rc ? `tx ${rc.status}` : undefined) : String((err as { shortMessage?: string }).shortMessage ?? (err as Error).message ?? err).split('\n')[0];
+    return { ok: false, reason: unauthorized ? 'unauthorized' : 'failed', error };
   }
 }

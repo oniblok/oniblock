@@ -75,9 +75,14 @@
  * labelled (p, y) of the trailing CHARGE_WINDOW_BLOCKS (default 50400 = 7 days of 12 s blocks; 0 = all) give the
  * threshold t such that charging p >= t has FPR <= CHARGE_FPR_MAX (default 0.05) on those labels (null with fewer than
  * CHARGE_MIN_BENIGN benign labels, default 200). Published to CHARGE_THRESHOLD_FILE (default
- * <ROOT>/.runtime/charge-threshold.json, atomic; the keeper's CHARGE_THRESHOLD=auto reads it) and, when the resolver
- * grants the settler the key, as the ENS text record calibration.chargeThreshold (bps; a refusal is logged once and the
- * file keeps being written; the calibration.* write is a separate tx and unaffected). Log line: charge_threshold.
+ * <ROOT>/.runtime/charge-threshold.json, atomic, keyed <chainId>:<poolId>:<modelNode> with updatedAt in ms; the keeper's
+ * CHARGE_THRESHOLD=auto reads it) and, when the resolver grants the settler the key, as the ENS text record
+ * calibration.chargeThreshold (bps; rate-limited: only a move of >= CHARGE_ENS_MIN_DELTA_BPS (100) or, for smaller moves,
+ * at most every CHARGE_ENS_MIN_INTERVAL_BLOCKS (300); a permission refusal is logged once and the file keeps being
+ * written, a transient failure is retried next settle; the calibration.* write is a separate tx and unaffected).
+ * Log line: charge_threshold. Labels are grouped by the receipt's modelNode only: with the keeper's FALLBACK_SAME_NODE=1
+ * the heuristic fallback's answers are posted (and graded) under the primary node, so that node's window mixes both
+ * models' p (nothing on-chain says which model answered) — see the keeper header.
  *
  * Env: CALIB_WINDOW (30), JIT_CALIB_WINDOW (= CALIB_WINDOW), CALIB_MIN_N (3), CALIB_GATE (raw | skill), SETTLE_EVERY (10),
  *      SETTLER_LABEL_MID (cex | attested), MARKOUT_HORIZON (0 | 1), SETTLER_BINANCE_FALLBACK (1), SETTLER_LABEL_FEE
@@ -89,7 +94,7 @@
  */
 import { namehash, type Address, type Hex, type PublicClient } from 'viem';
 import { oniblockHookAbi, roleOracleAbi } from './abi/oniblockHook.js';
-import { fetchKlines, midAt } from './cex.js';
+import { historicalMids } from './cex.js';
 import {
   env,
   envInt,
@@ -442,7 +447,7 @@ export class Settler {
     this.replayMid = env('PRICE_SOURCE') === 'replay' ? lazyMidSource(this.d.startBlock ?? 0, 'settler') : undefined;
     const ensDep = env('ENS_WRITE', '1') === '1' ? loadEnsDeployment(sel.chain.id) : undefined;
     this.ens = o.ens ?? (ensDep ? new EnsV2CalibrationWriter(this.sender, ensDep) : new NoopCalibrationWriter());
-    this.charge = new ChargeThresholdPublisher({ ...chargeWindowOpts(), ...o.charge }, this.ens);
+    this.charge = new ChargeThresholdPublisher({ ...chargeWindowOpts(), scope: { chainId: this.d.chainId, poolId: this.pool.poolId }, ...o.charge }, this.ens);
   }
 
   /**
@@ -479,8 +484,8 @@ export class Settler {
         ts = Number(blk.timestamp) * 1000;
         this.tsCache.set(block + 1, ts);
       }
-      const ks = await fetchKlines({ interval: '1s', startMs: ts - 30_000, endMs: ts + 1_000, cacheDir: false });
-      const m = midAt(ks, ts);
+      // USDC per ETH = ETHUSDT 1s / USDCUSDT 1m (CEX_QUOTE_SYMBOL), the mid oniblock1 was trained on
+      const m = (await historicalMids([ts], { cacheDir: false })).get(ts);
       return m ? midToPriceX96(m.toFixed(8), this.meta) : undefined;
     } catch {
       return undefined;
@@ -516,11 +521,10 @@ export class Settler {
       try {
         const ts = new Map<number, number>();
         for (const b of need) ts.set(b, await this.blockTs(b));
-        const lo = Math.min(...ts.values());
-        const hi = Math.max(...ts.values());
-        const ks = await fetchKlines({ interval: '1s', startMs: lo - 30_000, endMs: hi + 1_000, cacheDir: false });
+        // USDC per ETH = ETHUSDT 1s / USDCUSDT 1m (CEX_QUOTE_SYMBOL), the mid oniblock1 was trained on
+        const mids = await historicalMids([...ts.values()], { cacheDir: false });
         for (const [b, t] of ts) {
-          const m = midAt(ks, t);
+          const m = mids.get(t);
           if (m) this.cexCache.set(b, midToPriceX96(m.toFixed(8), this.meta));
         }
         for (const b of ts.keys()) if (!this.cexCache.has(b)) failed.push(b);

@@ -4,8 +4,8 @@ import { resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Features } from '../src/features.js';
 import { KEV_QUESTIONS, parseKev } from '../src/model/kev.js';
-import { defaultTabularPath, loadTabularModel, predictTabular, tabularModelName, type TabularVersion } from '../src/model/tabular.js';
-import { handleSystemOne, startSystemOne } from '../src/systemone.js';
+import { defaultTabularPath, invalidTabularFields, loadTabularModel, predictTabular, TABULAR_FEATURE_INPUTS, TABULAR_FEATURES, tabularModelName, type TabularVersion } from '../src/model/tabular.js';
+import { handleSystemOne, startSystemOne, systemOneHealth } from '../src/systemone.js';
 
 const fixture = JSON.parse(readFileSync(resolve(__dirname, 'fixtures/kev2-state-parity.json'), 'utf8')) as { features: Features }[];
 const rows = fixture.map((r) => r.features).filter((f) => Number.isFinite(f.gapPips) && Number.isFinite(f.realizedVolBps)).slice(0, 200);
@@ -56,6 +56,57 @@ describe('System One endpoint for the tree models', () => {
     expect(handleSystemOne({ state: rows[0], questions: { informed: { type: 'boolean' } } }).status).toBe(400);
     expect(handleSystemOne('nope').status).toBe(400);
   });
+
+  it('every tabular input has its Features dependencies listed (TABULAR_FEATURE_INPUTS covers TABULAR_FEATURES)', () => {
+    expect(Object.keys(TABULAR_FEATURE_INPUTS).sort()).toEqual(Object.keys(TABULAR_FEATURES).sort());
+    // each listed dependency really feeds the input: a NaN there NaNs it, or (a sign branch) moving it changes it
+    // (optional overrides removed: edgeSigma / edgePips, when given, replace the formula)
+    const f = { ...rows.find((x) => x.imbalance !== 0 && x.gapPips > 0)!, edgeSigma: undefined, edgePips: undefined };
+    for (const [name, d] of Object.entries(TABULAR_FEATURE_INPUTS))
+      for (const k of d.required) {
+        const fn = TABULAR_FEATURES[name]!;
+        const used = Number.isNaN(fn({ ...f, [k]: Number.NaN })) || fn({ ...f, [k]: 5 }) !== fn({ ...f, [k]: -5 });
+        expect(used, `${name} <- ${k}`).toBe(true);
+      }
+  });
+
+  it('400 listing every missing / non-finite field the requested model needs (derived from its inputs)', () => {
+    const v1 = loadTabularModel(defaultTabularPath('v1'))!;
+    const f = rows[0]! as unknown as Record<string, unknown>;
+    const drop = (o: Record<string, unknown>, ...ks: string[]) => Object.fromEntries(Object.entries(o).filter(([k]) => !ks.includes(k)));
+    // imb_arb / abs_imbalance <- imbalance, log_size / sizeToDepth <- sizeToDepth (JSON NaN arrives as null)
+    const r = ask({ ...drop(f, 'imbalance'), sizeToDepth: null, nSwaps: 'many' }, 'tabular-v1');
+    expect(r.status).toBe(400);
+    expect((r.body as { fields: string[] }).fields).toEqual(['imbalance', 'nSwaps', 'sizeToDepth']);
+    expect((r.body as { error: string }).error).toMatch(/imbalance, nSwaps, sizeToDepth/);
+    expect(invalidTabularFields({ ...f, arbShare: Number.POSITIVE_INFINITY }, v1.features)).toEqual(['arbShare']);
+    // v2 fields are optional (absent = no mid history = 0) but must be finite when present, for a model that uses them
+    const users = versions.filter((v) => loadTabularModel(defaultTabularPath(v))!.features.includes('ret900Bps'));
+    for (const v of users) {
+      expect(ask(drop(f, 'ret900Bps', 'vol5mBps'), tabularModelName(v)).status).toBe(200);
+      const bad = ask({ ...f, ret900Bps: null }, tabularModelName(v));
+      expect(bad.status).toBe(400);
+      expect((bad.body as { fields: string[] }).fields).toEqual(['ret900Bps']);
+      // sgap <- gapSign & gapPips
+      expect((ask({ ...f, gapSign: 'x' }, tabularModelName(v)).body as { fields: string[] }).fields).toContain('gapSign');
+    }
+    // tabular-v1 does not read ret900Bps: a bad value there is not its business
+    expect(ask({ ...f, ret900Bps: null }, 'tabular-v1').status).toBe(200);
+  });
+
+  it('a model that fails to load is a 503 with the message, never an exception (request and /health)', () => {
+    const broken = () => {
+      throw new Error('tabular model x.json: unknown features mystery');
+    };
+    const r = handleSystemOne({ model: 'oniblock1', state: rows[0], questions: KEV_QUESTIONS }, 'oniblock1', broken);
+    expect(r.status).toBe(503);
+    expect((r.body as { error: string }).error).toMatch(/oniblock1 failed to load: tabular model x.json: unknown features mystery/);
+    expect(handleSystemOne({ state: rows[0], questions: KEV_QUESTIONS }, 'oniblock1', () => null).status).toBe(503); // no file
+    const h = systemOneHealth(['oniblock1', 'v1'], broken);
+    expect(h.status).toBe(503);
+    expect(h.body).toMatchObject({ ok: false, error: expect.stringMatching(/unknown features mystery/) });
+    expect(systemOneHealth().status).toBe(200);
+  });
 });
 
 describe('System One HTTP server', () => {
@@ -87,5 +138,23 @@ describe('System One HTTP server', () => {
 
   it('404 on other routes', async () => {
     expect((await fetch(`${url}/v1/other`, { method: 'POST', body: '{}' })).status).toBe(404);
+  });
+
+  it('a broken model file: 503 on both routes and the server keeps serving', async () => {
+    const s = startSystemOne(0, '127.0.0.1', () => {
+      throw new SyntaxError('Unexpected end of JSON input');
+    });
+    await new Promise<void>((ok) => s.on('listening', ok));
+    const u = `http://127.0.0.1:${(s.address() as AddressInfo).port}`;
+    try {
+      const h = await fetch(`${u}/health`);
+      expect(h.status).toBe(503);
+      expect(await h.json()).toMatchObject({ ok: false, error: expect.stringMatching(/Unexpected end of JSON input/) });
+      const p = await fetch(`${u}/v1/systemone`, { method: 'POST', body: JSON.stringify({ model: 'oniblock1', state: rows[0], questions: KEV_QUESTIONS }) });
+      expect(p.status).toBe(503);
+      expect((await fetch(`${u}/health`)).status).toBe(503); // still up
+    } finally {
+      s.close();
+    }
   });
 });

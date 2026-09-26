@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { KEEPER_POST_DEFAULTS, keeperPostPolicy, postedFromPoolState, predictedK } from '../src/keeper.js';
+import { KEEPER_POST_DEFAULTS, keeperHeartbeatDefault, keeperPostPolicy, postedFromPoolState, predictedK } from '../src/keeper.js';
 import { postDecision } from '../src/postPolicy.js';
 
 const envOf = (e: Record<string, string>) => (n: string) => e[n];
@@ -16,25 +16,28 @@ describe('keeperPostPolicy (KEEPER_POST* env)', () => {
     expect(r.policy.mode).toBe('every');
     expect(r.warnings.map((w) => w.code)).toEqual(['keeper_post_invalid']);
   });
-  it('change mode defaults: mid 2 bps, k 500 bps, jit 5 blocks, heartbeat staleBlocks - 1', () => {
+  it('change mode defaults: mid 2 bps, k 500 bps, jit 5 blocks, heartbeat staleBlocks - 2 (one block of slack)', () => {
     const r = keeperPostPolicy(5, fees, envOf({ KEEPER_POST: 'change' }));
-    expect(r.policy).toEqual({ mode: 'change', ...KEEPER_POST_DEFAULTS, heartbeatBlocks: 4 });
+    expect(r.policy).toEqual({ mode: 'change', ...KEEPER_POST_DEFAULTS, heartbeatBlocks: 3 });
     expect(KEEPER_POST_DEFAULTS).toEqual({ midBps: 2, kStepBps: 500, jitStepBlocks: 5, pStepBps: 1000 });
     expect(r.warnings).toEqual([]);
-    expect(keeperPostPolicy(20, fees, envOf({ KEEPER_POST: 'change' })).policy.heartbeatBlocks).toBe(19);
+    expect(keeperPostPolicy(20, fees, envOf({ KEEPER_POST: 'change' })).policy.heartbeatBlocks).toBe(18);
+    expect([1, 2, 3, 4, 5].map(keeperHeartbeatDefault)).toEqual([1, 1, 1, 2, 3]);
   });
   it('reads the knobs; invalid numbers fall back to the default with a warning', () => {
     const r = keeperPostPolicy(10, fees, envOf({ KEEPER_POST: 'change', KEEPER_POST_MID_BPS: '0.5', KEEPER_POST_K_BPS: '100', KEEPER_POST_JIT_BLOCKS: '-3', KEEPER_HEARTBEAT_BLOCKS: '3' }));
     expect(r.policy).toEqual({ mode: 'change', midBps: 0.5, kStepBps: 100, jitStepBlocks: 5, pStepBps: 1000, heartbeatBlocks: 3 });
     expect(r.warnings).toEqual([expect.objectContaining({ code: 'keeper_post_invalid', name: 'KEEPER_POST_JIT_BLOCKS' })]);
   });
-  it('heartbeat >= staleBlocks is clamped to staleBlocks - 1 with a warning', () => {
+  it('heartbeat >= staleBlocks is clamped to the default staleBlocks - 2 with a warning; an explicit staleBlocks - 1 is kept', () => {
     for (const hb of ['5', '6', '100']) {
       const r = keeperPostPolicy(5, fees, envOf({ KEEPER_POST: 'change', KEEPER_HEARTBEAT_BLOCKS: hb }));
-      expect(r.policy.heartbeatBlocks).toBe(4);
-      expect(r.warnings).toEqual([expect.objectContaining({ code: 'keeper_heartbeat_clamped', requested: Number(hb), staleBlocks: 5, using: 4 })]);
+      expect(r.policy.heartbeatBlocks).toBe(3);
+      expect(r.warnings).toEqual([expect.objectContaining({ code: 'keeper_heartbeat_clamped', requested: Number(hb), staleBlocks: 5, using: 3 })]);
     }
-    expect(keeperPostPolicy(5, fees, envOf({ KEEPER_POST: 'change', KEEPER_HEARTBEAT_BLOCKS: '4' })).warnings).toEqual([]);
+    const explicit = keeperPostPolicy(5, fees, envOf({ KEEPER_POST: 'change', KEEPER_HEARTBEAT_BLOCKS: '4' }));
+    expect(explicit.warnings).toEqual([]);
+    expect(explicit.policy.heartbeatBlocks).toBe(4);
   });
   it('heartbeat 0 = off; warned only when conservativeFee != baseFee', () => {
     const off = { KEEPER_POST: 'change', KEEPER_HEARTBEAT_BLOCKS: '0' };
@@ -102,9 +105,23 @@ describe('keeper change-mode decision (pure pieces composed as in Keeper.tick)',
   it('audit finding: the model is demoted while its k is stored => predicted kDefault => post (k)', () => {
     expect(decide(true, 0)).toEqual({ post: true, reason: 'k' });
   });
-  it('heartbeat at lastAttestBlock + staleBlocks - 1 keeps the next block fresh', () => {
-    expect(decide(false, 4000, 103).post).toBe(false);
-    expect(decide(false, 4000, 104)).toEqual({ post: true, reason: 'heartbeat' });
+  it('default heartbeat fires at observed block lastAttestBlock + staleBlocks - 2: attests L + s - 1, one block of slack', () => {
+    expect(decide(false, 4000, 102).post).toBe(false);
+    expect(decide(false, 4000, 103)).toEqual({ post: true, reason: 'heartbeat' });
+  });
+  it('slack: the heartbeat attestation (target N + 1) stays fresh-covering even when mined one block late', () => {
+    // Hook: stale at block B iff B - lastAttestBlock > staleBlocks; setAttestation accepts a.blockNumber in {B - 1, B}.
+    const s = 5;
+    const L = 100;
+    const hb = keeperHeartbeatDefault(s);
+    const target = L + hb + 1; // observed N = L + hb, attests N + 1
+    for (const minedAt of [target, target + 1]) {
+      // every block up to and including the one the tx lands in is fresh under the OLD attestation
+      for (let b = L + 1; b <= minedAt; b++) expect(b - L > s).toBe(false);
+    }
+    // with the old default (s - 1) a one-block delay made the landing block stale
+    const oldTarget = L + (s - 1) + 1;
+    expect(oldTarget + 1 - L > s).toBe(true);
   });
   it('unseasoned/demoted model (k pinned at kDefault): a 10-point pToxic move still posts, so the settler grades current answers', () => {
     expect(decide(true, 0, 101, 10, 5000).reason).toBe('k'); // demotion itself: k 4000 -> 0

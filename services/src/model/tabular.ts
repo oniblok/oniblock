@@ -28,7 +28,11 @@ export interface TabularModel {
   name: string;
   features: string[];
   trees: Node[];
-  /** Validation-chosen charge threshold (v2 export; informational — the keeper gate is CHARGE_THRESHOLD). */
+  /**
+   * Validation-chosen charge threshold (v2 export; JSON key `chargeThreshold` or `charge_threshold`). Used by the keeper
+   * as the last `CHARGE_THRESHOLD=auto` fallback for the primary tabular model (after the settler's rolling threshold and
+   * CHARGE_THRESHOLD_FALLBACK; keeper.ts resolveChargeThreshold), and reported by System One's /health.
+   */
   chargeThreshold?: number;
 }
 
@@ -58,6 +62,52 @@ export const TABULAR_FEATURES: Record<string, (f: Features) => number> = {
   sgap: (f) => f.gapSign * f.gapPips,
 };
 
+/**
+ * The Features fields each TABULAR_FEATURES input is computed from (keep in sync with the functions above). `required`
+ * must be finite numbers; `optional` may be absent (the documented default applies: no mid history) but, when present,
+ * must be finite too. Used to validate untrusted states (System One): a NaN / missing field would otherwise flow
+ * silently into the trees (NaN <= t is false: always the right branch).
+ */
+export const TABULAR_FEATURE_INPUTS: Record<string, { required: readonly (keyof Features)[]; optional?: readonly (keyof Features)[] }> = {
+  gapPips: { required: ['gapPips'] },
+  edgePips: { required: ['gapPips', 'baseFee'] },
+  baseFee: { required: ['baseFee'] },
+  imb_arb: { required: ['gapSign', 'imbalance'] },
+  abs_imbalance: { required: ['imbalance'] },
+  sizeToDepth: { required: ['sizeToDepth'] },
+  realizedVolBps: { required: ['realizedVolBps'] },
+  nSwaps: { required: ['nSwaps'] },
+  arbShare: { required: ['arbShare'] },
+  gap_over_fee: { required: ['gapPips', 'baseFee'] },
+  log_size: { required: ['sizeToDepth'] },
+  edgeSigma: { required: ['gapPips', 'baseFee', 'realizedVolBps'], optional: ['edgeSigma', 'edgePips'] },
+  vol5mBps: { required: [], optional: ['vol5mBps'] },
+  ret12Bps: { required: [], optional: ['ret12Bps'] },
+  ret36Bps: { required: [], optional: ['ret36Bps'] },
+  ret900Bps: { required: [], optional: ['ret900Bps'] },
+  sgap: { required: ['gapSign', 'gapPips'] },
+};
+
+/**
+ * Features fields of `state` that model inputs `names` need but that are missing / not finite numbers (sorted, unique).
+ * `gapSign` and `imbalance` are always checked (canonicalFeatures flips them).
+ */
+export function invalidTabularFields(state: Record<string, unknown>, names: readonly string[]): string[] {
+  const finite = (v: unknown) => typeof v === 'number' && Number.isFinite(v);
+  const bad = new Set<string>();
+  const req = new Set<string>(['gapSign', 'imbalance']);
+  const opt = new Set<string>();
+  for (const n of names) {
+    const d = TABULAR_FEATURE_INPUTS[n];
+    if (!d) continue; // unknown names are a load error already
+    for (const k of d.required) req.add(k);
+    for (const k of d.optional ?? []) opt.add(k);
+  }
+  for (const k of req) if (!finite(state[k])) bad.add(k);
+  for (const k of opt) if (k in state && state[k] !== undefined && !finite(state[k])) bad.add(k);
+  return [...bad].sort();
+}
+
 /** tabular-v1's input order (ml/models/tabular-v1.json). */
 export const TABULAR_V1_FEATURES = ['gapPips', 'edgePips', 'baseFee', 'imb_arb', 'abs_imbalance', 'sizeToDepth', 'realizedVolBps', 'nSwaps', 'arbShare', 'gap_over_fee', 'log_size'];
 
@@ -83,11 +133,12 @@ let cached: { path: string; model: TabularModel } | undefined;
 export function loadTabularModel(path = env('TABULAR_MODEL_PATH') ?? defaultTabularPath()): TabularModel | null {
   if (cached?.path === path) return cached.model;
   if (!existsSync(path)) return null;
-  const raw = JSON.parse(readFileSync(path, 'utf8')) as TabularModel & { charge_threshold?: number; threshold?: number };
+  const raw = JSON.parse(readFileSync(path, 'utf8')) as TabularModel & { charge_threshold?: number };
   if (!Array.isArray(raw.features) || !raw.features.length || !Array.isArray(raw.trees)) throw new Error(`tabular model ${path}: missing features/trees`);
   const unknown = raw.features.filter((n) => !(n in TABULAR_FEATURES));
   if (unknown.length) throw new Error(`tabular model ${path}: unknown features ${unknown.join(', ')}`);
-  const thr = raw.chargeThreshold ?? raw.charge_threshold ?? raw.threshold;
+  // Only the explicit keys: a generic `threshold` is ambiguous (e.g. a tree split) and must never gate charging.
+  const thr = raw.chargeThreshold ?? raw.charge_threshold;
   const m: TabularModel = { ...raw, ...(typeof thr === 'number' ? { chargeThreshold: thr } : {}) };
   cached = { path, model: m };
   return m;

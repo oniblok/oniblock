@@ -42,7 +42,7 @@
  *      KEEPER_POST (default `every` = setAttestation on every tick; `change` = only when it would price swaps
  *        differently, see `postDecision` in postPolicy.ts and "Posting policy" below),
  *      KEEPER_POST_MID_BPS (default 2), KEEPER_POST_K_BPS (default 500), KEEPER_POST_JIT_BLOCKS (default 5), KEEPER_POST_P_BPS (default 1000),
- *      KEEPER_HEARTBEAT_BLOCKS (default on-chain staleBlocks - 1, clamped to that; 0 = no heartbeat, only safe when
+ *      KEEPER_HEARTBEAT_BLOCKS (default on-chain staleBlocks - 2 = one block of slack, >= staleBlocks clamped to that; 0 = no heartbeat, only safe when
  *        conservativeFee == baseFee — warned once otherwise), all four `change` mode only,
  *      DEGRADED_FILE (touch file to toggle degraded mode live),
  *      KEEPER_FLAGS_FILE (default <root>/.runtime/keeper-flags.json), BACKUP_QUOTER_PK,
@@ -54,9 +54,18 @@
  *        tick's model node from CHARGE_THRESHOLD_FILE (default <ROOT>/.runtime/charge-threshold.json, re-read on mtime
  *        change; FPR <= CHARGE_FPR_MAX on the trailing CHARGE_WINDOW_BLOCKS of labels, see chargeThreshold.ts); absent or
  *        null -> CHARGE_THRESHOLD_FALLBACK (0..1), else for tabular models the model JSON's chargeThreshold, else source
- *        `none` = charge nothing (fail-safe: confidence 0 => k = 0, vanilla pool; pToxic unchanged).
+ *        `none` = charge nothing (fail-safe: confidence 0 => k = 0, vanilla pool; pToxic unchanged). The file is keyed
+ *        <chainId>:<poolId>:<modelNode> (legacy modelNode-only keys still read) and an entry older than
+ *        CHARGE_THRESHOLD_MAX_AGE_S (default 3600; <= 0 = no limit) is ignored (falls through the same chain).
+ *        Only the PRIMARY answer (the configured model under the primary node) uses a fixed / fallback / model-JSON
+ *        threshold: those are on the primary's p scale. A fallback answer under its own node (Jev failed -> heuristic-v1)
+ *        is gated only by that node's rolling entry, else charges nothing; under FALLBACK_SAME_NODE=1 (heuristic posted
+ *        under the primary node) it always charges nothing (chargeRole / resolveChargeThreshold). Caveat: the settler
+ *        cannot tell those shared-node answers apart (receipts / attestations carry only the node), so with
+ *        FALLBACK_SAME_NODE=1 the primary's rolling window also holds the heuristic's labels; the keeper warns at startup
+ *        (`charge_threshold_shared_node`) when that is combined with CHARGE_THRESHOLD=auto.
  *        Logged as p / chargeThreshold / chargeThresholdSource (fixed | rolling | fallback | none | off) / charged
- *        (+ modelConfidenceBps); a `charge_threshold` line whenever the threshold or its source changes.
+ *        (+ modelConfidenceBps); a `charge_threshold` line (with the role) whenever the threshold or its source changes.
  *      KEEPER_READ_LEAD_MS (slot clock, ms >= 0; unset = off = tick on block arrival): after block N arrives, the tick
  *        (CEX read, features, model, sign, send) is scheduled for ts_N + KEEPER_BLOCK_TIME_MS - lead, so the tx still lands
  *        in block N+1 but with a fresh mid (~blockTime + lead old at N+2's first swap instead of ~2 * blockTime - lag). A
@@ -130,7 +139,8 @@ import {
 } from './config.js';
 import { getAttestations, getJitPenalties, getModifyLiquidity, getReceipts, keyTuple, readPool, receiptToSwapObs, TxSender, virtualDepth0 } from './chain.js';
 import { computeFeatures, JIT_LABEL_BLOCKS_DEFAULT, type JitPenaltyObs, type LiquidityObs, type SwapObs } from './features.js';
-import { chargeThresholdPath, rollingThresholdFor } from './chargeThreshold.js';
+import { fetchKlineMids, klineMidFeaturesNeeded, type KlineMids } from './klinemids.js';
+import { chargeThresholdMaxAgeS, chargeThresholdPath, rollingThresholdFor, type ChargeScope } from './chargeThreshold.js';
 import { defaultTabularPath } from './model/tabular.js';
 import { defaultJevPrompt, kevStateFormat, loadTabularModel, score, tabularModelName, tabularVersion, type AttackHead, type AttackType, type ModelMode, type ModelScore } from './model/index.js';
 import { midToPriceX96, sqrtPriceX96ToPriceX96 } from './price.js';
@@ -233,9 +243,43 @@ export function chargeThresholdMode(raw = env('CHARGE_THRESHOLD')): 'off' | 'aut
 export type ChargeThresholdSource = 'off' | 'fixed' | 'rolling' | 'fallback' | 'none';
 
 /**
- * Threshold in force for one tick (header CHARGE_THRESHOLD): a fixed number wins; `auto` -> the rolling threshold
- * published for `modelNode` in `file` -> CHARGE_THRESHOLD_FALLBACK -> `modelThreshold()` (tabular JSON's chargeThreshold)
- * -> none = +Infinity (charge nothing: confidence 0, k = 0, vanilla pool); unset -> off. threshold undefined = no gate.
+ * Which model answered this tick, relative to the configured primary (header CHARGE_THRESHOLD):
+ *   'primary'  the primary model answered under the primary node: every threshold source applies;
+ *   'fallback' another model answered under its own node (e.g. Jev failed -> heuristic-v1): only that node's rolling
+ *              entry may gate it (a fixed / fallback / model-JSON threshold is on the primary's p scale), else none;
+ *   'shared'   a fallback model answered under the PRIMARY node (FALLBACK_SAME_NODE=1): no threshold of its own exists
+ *              (the node's rolling entry is the primary's), so it charges nothing.
+ */
+export type ChargeRole = 'primary' | 'fallback' | 'shared';
+
+/** ChargeRole of a tick: posted under `node`, answered by `model` (the heuristic is the only fallback model). */
+export function chargeRole(node: string, primaryNode: string, model: ModelScore['model']): ChargeRole {
+  const onPrimary = node.toLowerCase() === primaryNode.toLowerCase();
+  if (model !== 'heuristic') return onPrimary ? 'primary' : 'fallback';
+  return onPrimary ? 'shared' : 'fallback';
+}
+
+/**
+ * Startup warning (header): FALLBACK_SAME_NODE=1 with CHARGE_THRESHOLD=auto. The settler groups labels by the receipt's
+ * modelNode only, so the primary node's rolling window then mixes the fallback's p with the primary's (the threshold is
+ * chosen on a blend of two scales). The keeper itself never gates a shared-node fallback answer (role 'shared' = none).
+ */
+export function fallbackSameNodeWarning(get: (name: string) => string | undefined = (n) => env(n)): { code: 'charge_threshold_shared_node'; note: string } | undefined {
+  if (get('FALLBACK_SAME_NODE') !== '1') return undefined;
+  const raw = get('CHARGE_THRESHOLD');
+  if (raw === undefined || raw.trim().toLowerCase() !== 'auto') return undefined;
+  return {
+    code: 'charge_threshold_shared_node',
+    note: "FALLBACK_SAME_NODE=1: heuristic answers are posted and graded under the primary node, so the settler's rolling threshold for it is chosen on mixed p scales; fallback answers themselves charge nothing",
+  };
+}
+
+/**
+ * Threshold in force for one tick (header CHARGE_THRESHOLD). Unset -> off (for every role). Primary role: a fixed
+ * number wins; `auto` -> the rolling threshold published for `modelNode` in `scope` (legacy modelNode-only entries are
+ * still read; entries older than CHARGE_THRESHOLD_MAX_AGE_S are ignored) -> CHARGE_THRESHOLD_FALLBACK ->
+ * `modelThreshold()` (tabular JSON's chargeThreshold) -> none = +Infinity (charge nothing: confidence 0, k = 0, vanilla
+ * pool). Fallback role (fixed or auto): its own rolling entry, else none. Shared role: none. threshold undefined = no gate.
  */
 export function resolveChargeThreshold(o: {
   modelNode: Hex | string;
@@ -243,12 +287,27 @@ export function resolveChargeThreshold(o: {
   file?: string;
   fallbackRaw?: string;
   modelThreshold?: () => number | undefined;
+  /** default 'primary' */
+  role?: ChargeRole;
+  scope?: ChargeScope;
+  /** default CHARGE_THRESHOLD_MAX_AGE_S */
+  maxAgeS?: number;
+  nowMs?: number;
 }): { threshold: number | undefined; source: ChargeThresholdSource } {
   const mode = chargeThresholdMode('raw' in o ? o.raw : env('CHARGE_THRESHOLD'));
   if (mode === 'off') return { threshold: undefined, source: 'off' };
+  // Fail-safe: no trusted threshold charges nothing (c = 0 => k = 0, vanilla pool), never a premium everywhere.
+  const none = { threshold: Number.POSITIVE_INFINITY, source: 'none' as const };
+  const role = o.role ?? 'primary';
+  if (role === 'shared') return none;
+  const rolling = () => rollingThresholdFor(o.modelNode, o.file, { scope: o.scope, maxAgeS: o.maxAgeS, nowMs: o.nowMs });
+  if (role === 'fallback') {
+    const r = rolling();
+    return r ? { threshold: r.threshold, source: 'rolling' } : none;
+  }
   if (typeof mode === 'number') return { threshold: mode, source: 'fixed' };
-  const rolling = rollingThresholdFor(o.modelNode, o.file);
-  if (rolling) return { threshold: rolling.threshold, source: 'rolling' };
+  const r = rolling();
+  if (r) return { threshold: r.threshold, source: 'rolling' };
   const fb = chargeThreshold('fallbackRaw' in o ? o.fallbackRaw : env('CHARGE_THRESHOLD_FALLBACK'), 'CHARGE_THRESHOLD_FALLBACK');
   if (fb !== undefined) return { threshold: fb, source: 'fallback' };
   let mt: number | undefined;
@@ -258,8 +317,7 @@ export function resolveChargeThreshold(o: {
     mt = undefined; // unreadable model file: no fallback from it
   }
   if (typeof mt === 'number' && Number.isFinite(mt) && mt >= 0) return { threshold: mt, source: 'fallback' };
-  // Fail-safe: auto with no trusted threshold charges nothing (c = 0 => k = 0, vanilla pool), never a premium everywhere.
-  return { threshold: Number.POSITIVE_INFINITY, source: 'none' };
+  return none;
 }
 
 /**
@@ -316,11 +374,22 @@ export interface KeeperPostWarning {
   [k: string]: unknown;
 }
 
+/** Default KEEPER_HEARTBEAT_BLOCKS: staleBlocks - 2 (one block of slack, see keeperPostPolicy), at least 1 (never 0 = off). */
+export function keeperHeartbeatDefault(staleBlocks: number): number {
+  return Math.max(1, Math.floor(staleBlocks) - 2);
+}
+
 /**
  * KEEPER_POST* env -> PostPolicy for a pool with `staleBlocks` (warnings returned, not logged). `every` (default, or
  * an unknown value) ignores every other knob. In `change` mode: unset/invalid numbers => defaults; the heartbeat
- * defaults to staleBlocks - 1 (at least 1) and is clamped to that when >= staleBlocks; heartbeat 0 with
- * conservativeFee != baseFee is warned (a silent keeper pushes the pool stale at a HIGHER fee).
+ * defaults to staleBlocks - 2 (at least 1) and an explicit value >= staleBlocks is clamped to that default; heartbeat 0
+ * with conservativeFee != baseFee is warned (a silent keeper pushes the pool stale at a HIGHER fee).
+ *
+ * Why - 2, not - 1: the heartbeat fires on observed block N = L + hb (L = lastAttestBlock) and attests N + 1. With hb =
+ * s - 1 the new attestation lands in block L + s, the LAST fresh block, and setAttestation also accepts it one block
+ * late (a.blockNumber == block.number - 1): any one-block delay (late inclusion, a `busy`-dropped tick, KEEPER_EVERY=2,
+ * a slot re-arm) leaves block L + s + 1's first swap stale => conservativeFee both ways. hb = s - 2 lands in L + s - 1
+ * and tolerates one block of delay. An explicit s - 1 is still accepted (no slack; the operator's choice).
  */
 export function keeperPostPolicy(
   staleBlocks: number,
@@ -331,8 +400,8 @@ export function keeperPostPolicy(
   const raw = get('KEEPER_POST');
   const mode = raw === undefined || raw === 'every' ? 'every' : raw === 'change' ? 'change' : undefined;
   if (mode === undefined) warnings.push({ code: 'keeper_post_invalid', name: 'KEEPER_POST', value: raw, using: 'every' });
-  const maxHb = Math.max(1, Math.floor(staleBlocks) - 1);
-  if (mode !== 'change') return { policy: { mode: 'every', ...KEEPER_POST_DEFAULTS, heartbeatBlocks: maxHb }, warnings };
+  const defaultHb = keeperHeartbeatDefault(staleBlocks);
+  if (mode !== 'change') return { policy: { mode: 'every', ...KEEPER_POST_DEFAULTS, heartbeatBlocks: defaultHb }, warnings };
   const num = (name: string, dflt: number): number => {
     const v = get(name);
     if (v === undefined) return dflt;
@@ -341,10 +410,10 @@ export function keeperPostPolicy(
     warnings.push({ code: 'keeper_post_invalid', name, value: v, using: dflt });
     return dflt;
   };
-  let heartbeatBlocks = Math.floor(num('KEEPER_HEARTBEAT_BLOCKS', maxHb));
+  let heartbeatBlocks = Math.floor(num('KEEPER_HEARTBEAT_BLOCKS', defaultHb));
   if (heartbeatBlocks >= staleBlocks) {
-    warnings.push({ code: 'keeper_heartbeat_clamped', requested: heartbeatBlocks, staleBlocks, using: maxHb });
-    heartbeatBlocks = maxHb;
+    warnings.push({ code: 'keeper_heartbeat_clamped', requested: heartbeatBlocks, staleBlocks, using: defaultHb });
+    heartbeatBlocks = defaultHb;
   }
   if (heartbeatBlocks === 0 && fees?.conservativeFee !== undefined && fees.conservativeFee !== fees.baseFee)
     warnings.push({ code: 'keeper_heartbeat_off', conservativeFee: fees.conservativeFee, baseFee: fees.baseFee, note: 'a silent keeper lets the pool go stale and charge conservativeFee in both directions' });
@@ -607,16 +676,19 @@ export class Keeper {
    */
   private chargeThresholdFor(node: Hex, scored: ModelScore): { threshold: number | undefined; source: ChargeThresholdSource } {
     const mode = this.o.mode ?? (env('MODEL_MODE', 'auto') as ModelMode);
+    const role = chargeRole(node, this.nodes.primary, scored.model);
     const r = resolveChargeThreshold({
       modelNode: node,
+      role,
+      scope: { chainId: this.d.chainId, poolId: this.pool.poolId },
       file: env('CHARGE_THRESHOLD_FILE'),
       modelThreshold: () =>
         scored.model === 'tabular' ? (loadTabularModel(env('TABULAR_MODEL_PATH') ?? defaultTabularPath(tabularVersion(mode)))?.chargeThreshold ?? undefined) : undefined,
     });
-    const key = `${node}:${r.source}:${r.threshold}`;
+    const key = `${node}:${role}:${r.source}:${r.threshold}`;
     if (key !== this.lastCharge) {
       this.lastCharge = key;
-      log('keeper', 'charge_threshold', { modelNode: node, threshold: r.threshold ?? null, source: r.source, mode: chargeThresholdMode() });
+      log('keeper', 'charge_threshold', { modelNode: node, role, threshold: r.threshold ?? null, source: r.source, mode: chargeThresholdMode(), maxAgeS: chargeThresholdMaxAgeS() });
     }
     return r;
   }
@@ -784,8 +856,16 @@ export class Keeper {
     const t0 = performance.now();
     try {
       let tObs = Date.now();
+      // v2 models (kev2 / tabular-v2 / oniblock1) with a live mid: realizedVolBps + mid features from Binance klines at
+      // exact offsets from t_obs (training's common.py Mids), not the jittered per-tick history; a fetch error fails the tick.
+      const klineFeatures = klineMidFeaturesNeeded(this.o.mode ?? (env('MODEL_MODE', 'auto') as ModelMode), !this.o.midSource && env('PRICE_SOURCE', 'live') === 'live');
+      let klineMids: KlineMids | undefined;
       const [mid, pool, state, cfg] = await Promise.all([
-        this.mid(block).then((m) => ((tObs = Date.now()), m)), // t_obs = CEX read time (v2 features)
+        this.mid(block).then(async (m) => {
+          tObs = Date.now(); // t_obs = CEX read time (v2 features)
+          if (klineFeatures) klineMids = await fetchKlineMids(Math.floor(tObs / 1000));
+          return m;
+        }),
         readPool(this.pc, this.d.poolManager, this.pool.poolId),
         this.currentState(),
         this.refreshSwaps(block).then(() => this.poolCfg(block)), // a PoolConfigUpdated in range invalidates the cache first
@@ -809,6 +889,7 @@ export class Keeper {
         recentMids: this.mids.mids().slice(-RECENT_MIDS),
         midHistory: this.mids.entries(),
         tObsMs: tObs,
+        klineMids,
         currentBlock: block,
         lastAttestBlock: this.lastAttestBlock || block,
         baseFee: cfg.baseFee,
@@ -1077,6 +1158,8 @@ export class Keeper {
       priceSource: env('PRICE_SOURCE', 'live'),
       verdictsFile: this.verdicts.path,
     });
+    const shared = fallbackSameNodeWarning();
+    if (shared) log('keeper', shared.code, shared);
     const lead = readLeadMs();
     if (lead === undefined) {
       return this.pc.watchBlockNumber({

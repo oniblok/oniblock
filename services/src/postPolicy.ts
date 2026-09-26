@@ -13,7 +13,7 @@
  *       attestation in force, so they must stay current even while k is pinned (unseasoned/demoted model),
  *       or the model is graded on stale answers and can never season.
  *     - heartbeatBlocks > 0 and that many blocks have passed since the last post (keep it < staleBlocks, or the
- *       pool goes stale and charges conservativeFee). 0 = no heartbeat: only safe when conservativeFee == baseFee,
+ *       pool goes stale and charges conservativeFee; the keeper defaults to staleBlocks - 2 for one block of slack). 0 = no heartbeat: only safe when conservativeFee == baseFee,
  *       so a silent keeper leaves a vanilla pool.
  */
 export type PostMode = 'every' | 'change';
