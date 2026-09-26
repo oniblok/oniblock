@@ -28,6 +28,20 @@
  *       market; in each market an order is routed between the two pools by the best execution (quoted fee + price
  *       impact): optimal split, or the single better pool when the smaller leg would be < minSplitFrac.
  * All txs come from one EOA in nonce order, blocks are mined manually => deterministic.
+ *
+ * Mainnet block mode (cfg.blockMode, default off => the 1 s loop above, unchanged): time advances in 12 s blocks and
+ * everything of a block happens at its timestamp s (mid[s] for arbs, retail and the LP mark); nothing trades between
+ * blocks. Per block: K_b (settler; coop keeper post) and S_b (arbs, then retail in the SAME anvil block, so retail
+ * after an arb pays the hook's per-block high-water fee; realistic keeper post last). Keeper placement:
+ *   realistic: the post lands at the END of the previous block (no builder deal): it reads Binance at s - 13 and the
+ *              chain before that block is built (pool state and swaps up to block b-1), prices block b+1.
+ *   coop     : a cooperating builder puts the post FIRST in the block: Binance read at s - 2, chain after block b-1.
+ * Retail arrives at lambda per second (Poisson(12 lambda) per block), informedHorizon is in seconds. Staleness and
+ * the heartbeat count 2 anvil blocks per mainnet block. Tabular pools (cfg.tabularPools, block mode only) score with
+ * the in-process LightGBM (services/src/model/tabular.ts) on the features the live keeper computes: a MidHistory
+ * with one CEX read per block (pre-filled from cfg.warmupMids, the 1 s mids before the window), recentMids = its last
+ * 120 entries, the 20-block swap window, canonical orientation; then the keeper's charge gate at the model JSON's
+ * chargeThreshold (services/src/keeper.ts applyChargeThreshold).
  */
 import { decodeEventLog, decodeFunctionResult, encodeFunctionData, maxUint256, createPublicClient, http, type Address, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -44,6 +58,14 @@ import { HOOKED, MARKETS, MODEL_POOLS, NODES, POOLS, deployV4, type DeploymentV4
 import type { PathV2 } from '../v2/windows.js';
 import { ScorerV4, heuristicV4, type SourceV4 } from './scorer4.js';
 import { postDecision, type PostMode, type PostReason, type PostedState } from '../../../services/src/postPolicy.js';
+import { canonicalFeatures, type MidObs } from '../../../services/src/features.js';
+import { loadTabularModel, scoreTabular, type TabularModel } from '../../../services/src/model/tabular.js';
+import { applyChargeThreshold } from '../../../services/src/keeper.js';
+
+/** services/src/keeper.ts: MidHistory(1_000), RECENT_MIDS = 120, computeFeatures default windowBlocks = 20. */
+const KEEPER_MID_HISTORY = 1_000;
+const KEEPER_RECENT_MIDS = 120;
+const KEEPER_WINDOW_BLOCKS = 20;
 
 export interface ArbSpec {
   cexBps: number;
@@ -117,6 +139,36 @@ export interface RunConfigV4 {
   keeperGasGwei?: number;
   /** USD per ETH for keeper gas; unset = the window's mean mid for ETH windows, 2500 otherwise */
   ethUsd?: number;
+  /**
+   * Mainnet block mode (header). Unset = the 1 s loop. settleEvery and staleSteps are then in blocks, keeperLag /
+   * keeperEvery are unused, heartbeatBlocks is in anvil blocks (2 per mainnet block).
+   */
+  blockMode?: { placement: 'realistic' | 'coop'; blockSec?: number; midAgeSec?: number };
+  /** 1 s mids before the window (oldest first), for the keeper's MidHistory warm-up in block mode (not saved). */
+  warmupMids?: number[];
+  /** Model pools scored by a tabular LightGBM JSON (block mode only); gate = the keeper's charge gate at chargeThreshold. */
+  tabularPools?: Partial<Record<ModelPool, { path: string; gate: boolean }>>;
+}
+
+/** Per tabular pool: keeper decisions and the settler-graded selective metrics at the model's charge threshold. */
+export interface TabularDiag {
+  model: string;
+  path: string;
+  gate: boolean;
+  threshold: number;
+  decisions: number;
+  /** decisions with p >= threshold */
+  charged: number;
+  meanP: number;
+  edgePosShare: number;
+  meanGapPips: number;
+  meanEdgeSigma: number;
+  meanAbsRet12Bps: number;
+  meanRealizedVolBps: number;
+  meanNSwaps: number;
+  fallback: number;
+  /** settler labels (same labelBlocks call as the calibration) of the blocks graded for this pool: [p in force, y] */
+  pairs: [number, number][];
 }
 
 export interface PoolTotals {
@@ -185,6 +237,8 @@ export interface RunResultV4 {
   txCount: number;
   runtimeSec: number;
   /** keeper posts per hooked pool: setAttestation receipts (gasUsed is independent of the 0 gas price) */
+  blockMode?: { placement: 'realistic' | 'coop'; blockSec: number; midAgeSec: number; blocks: number; retailAfterArbQuotes: number; retailQuoteChangedByArb: number };
+  tabular?: Partial<Record<ModelPool, TabularDiag>>;
   keeper?: {
     policy: { mode: PostMode; midBps: number; kStepBps: number; jitStepBlocks: number; pStepBps: number; heartbeatBlocks: number };
     keeperEvery: number;
@@ -293,7 +347,7 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
       initMid: mids[0]!,
       liquidity,
       minSamples: cfg.minSamples,
-      staleBlocks: cfg.staleSteps * 3,
+      staleBlocks: cfg.staleSteps * (cfg.blockMode ? 2 : 3),
       baseFee: cfg.baseFee,
       thrPips: cfg.thrPips,
       aiKMax: cfg.aiKMax,
@@ -381,6 +435,19 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
     const kp = Object.fromEntries(HOOKED.map((n) => [n, { posts: 0, gas: 0, reverted: 0, reasons: {} as Partial<Record<PostReason, number>>, kPredictMiss: 0 }])) as NonNullable<
       RunResultV4['keeper']
     >['pools'];
+    const bm = cfg.blockMode;
+    if (cfg.tabularPools && !bm) throw new Error('tabularPools needs blockMode (the v2 features assume one CEX read per 12 s block)');
+    const tabular = {} as Partial<Record<ModelPool, { model: TabularModel; path: string; gate: boolean; threshold: number }>>;
+    const tabDiag = {} as Partial<Record<ModelPool, { decisions: number; charged: number; sumP: number; edgePos: number; sumGap: number; sumEdgeSigma: number; sumAbsRet12: number; sumVol: number; sumNSwaps: number; fallback: number }>>;
+    for (const [n, spec] of Object.entries(cfg.tabularPools ?? {}) as [ModelPool, { path: string; gate: boolean }][]) {
+      const m = loadTabularModel(spec.path);
+      if (!m) throw new Error(`tabular model not found: ${spec.path}`);
+      if (typeof m.chargeThreshold !== 'number') throw new Error(`tabular model ${spec.path} has no chargeThreshold`);
+      tabular[n] = { model: m, path: spec.path, gate: spec.gate, threshold: m.chargeThreshold };
+      tabDiag[n] = { decisions: 0, charged: 0, sumP: 0, edgePos: 0, sumGap: 0, sumEdgeSigma: 0, sumAbsRet12: 0, sumVol: 0, sumNSwaps: 0, fallback: 0 };
+    }
+    /** block mode: blocks, blocks with a post-arb retail quote (trial), of which a hooked pool's quote changed */
+    const blockStats = { blocks: 0, trials: 0, quoteChanged: 0 };
     let keeperTurns = 0;
     let keeperDecisions = 0;
     const predictedK = new Map<Hooked, number>();
@@ -434,11 +501,11 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
     };
 
     /** Fee each hooked pool would charge in each direction for the first swap of the NEXT block ('pending'). */
-    const quoteNext = async () => {
+    const quoteNext = async (tag: 'pending' | 'latest' = 'pending') => {
       const reqs: [string, unknown[]][] = [];
       for (const n of HOOKED)
         for (const zfo of [true, false])
-          reqs.push(['eth_call', [{ to: d.hook, data: encodeFunctionData({ abi: hookAbi, functionName: 'quoteFee', args: [pools[n].key, zfo] }) }, 'pending']]);
+          reqs.push(['eth_call', [{ to: d.hook, data: encodeFunctionData({ abi: hookAbi, functionName: 'quoteFee', args: [pools[n].key, zfo] }) }, tag]]);
       const res = await rpc.batch<Hex>(reqs);
       const q = {} as Record<Hooked, { t: number; f: number; stale: boolean }>;
       HOOKED.forEach((n, i) => {
@@ -598,97 +665,131 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
 
     log('run_start', { label: cfg.label, steps: T, split: cfg.split, jev: cfg.jevMode, degradeAt, tvlUsd: Math.round(initialTvlUsd), L: liquidity.toString() });
 
-    for (let t = 0; t < T; t++) {
-      const mid = mids[t]!;
-      const bIdx = Math.floor(t / cfg.bucketSteps);
-      const knownIdx = Math.max(0, t - cfg.keeperLag);
-      const knownMid = mids[knownIdx]!;
-      const Mk = X96(knownMid);
-      const recentMids = mids.slice(Math.max(0, knownIdx - 29), knownIdx + 1);
-      const uK = stream(cfg.seed, t, 1);
-      const missed = t > 0 && uK() < cfg.missProb;
-
-      // ================= block A: settler + keeper
-      const A = head + 1;
-      const txA: Tx[] = [];
-      if (t > 0 && t % cfg.settleEvery === 0) {
-        for (const n of MODEL_POOLS) {
-          const c = calibFor(pools[n], A);
-          if (!c || c.n < cfg.calibMinN) continue;
-          txA.push({
-            to: d.hook,
-            data: encodeFunctionData({ abi: hookAbi, functionName: 'setCalibration', args: [nodeOf(n), c.brierBps, c.hitRateBps, c.n] }),
-            gas: 200_000,
-            meta: { label: 'calib', pool: n },
-          });
-          calibrations.push({ step: t, pool: n, brierBps: c.brierBps, n: c.n, ok: true });
-          nodeCalib[nodeOf(n)] = { brier: c.brierBps, n: c.n };
-        }
+    // ------------------------------------------------------------------ step pieces shared by the 1 s loop and block mode
+    type Scores = Partial<Record<Hooked, { p: number; c: number; pRaw: number; source: string; node: Hex }>>;
+    /** Settler: setCalibration txs for the model nodes (labels of blocks < A). */
+    const calibTxs = (t: number, A: number): Tx[] => {
+      const txs: Tx[] = [];
+      for (const n of MODEL_POOLS) {
+        const c = calibFor(pools[n], A);
+        if (!c || c.n < cfg.calibMinN) continue;
+        txs.push({
+          to: d.hook,
+          data: encodeFunctionData({ abi: hookAbi, functionName: 'setCalibration', args: [nodeOf(n), c.brierBps, c.hitRateBps, c.n] }),
+          gas: 200_000,
+          meta: { label: 'calib', pool: n },
+        });
+        calibrations.push({ step: t, pool: n, brierBps: c.brierBps, n: c.n, ok: true });
+        nodeCalib[nodeOf(n)] = { brier: c.brierBps, n: c.n };
       }
-      const scores: Partial<Record<Hooked, { p: number; c: number; pRaw: number; source: SourceV4 | ''; node: Hex }>> = {};
-      const turn = t % keeperEvery === 0; // keeperEvery 1 (default): a keeper turn every step, as before
-      if (turn) keeperTurns++;
-      if (turn && missed) missedPosts++;
-      else if (turn) {
-        keeperDecisions++;
-        for (const n of HOOKED) {
-          const p = pools[n];
-          if (!isModel(n)) {
-            scores[n] = { p: 10_000, c: 10_000, pRaw: 10_000, source: '', node: nodeOf(n) };
-            continue;
-          }
-          // v4: no gate — the model is asked on every step, with k-free features (edge vs the base fee)
+      return txs;
+    };
+    /**
+     * One keeper decision on every hooked pool: score (model pools), then the post policy; returns the signed
+     * setAttestation txs (attestation blockNumber A = the block they are mined in). `mf` (block mode): the keeper's
+     * time-stamped CEX history + read time for the v2 features of the tabular pools (as services/src/keeper.ts).
+     */
+    const keeperTurn = async (A: number, t: number, Mk: bigint, recentMids: number[], mf?: { hist: MidObs[]; tObsMs: number; windowBlocks: number }) => {
+      const scores: Scores = {};
+      const txs: Tx[] = [];
+      for (const n of HOOKED) {
+        const p = pools[n];
+        if (!isModel(n)) {
+          scores[n] = { p: 10_000, c: 10_000, pRaw: 10_000, source: '', node: nodeOf(n) };
+          continue;
+        }
+        const tab = tabular[n];
+        if (tab && mf) {
+          // model v2 (in-process LightGBM): features exactly as the live keeper computes them (MidHistory of one read
+          // per block, recentMids = its last 120 mids, 20-block swap window), canonicalised to the training
+          // orientation (model/index.ts score() for MODEL_MODE=tabular), then the charge gate (keeper.ts).
           const f = computeFeatures({
             swaps: p.hist,
             oracleX96: Mk,
             poolX96: (p.sqrtP * p.sqrtP) / Q96,
             depth0: p.sqrtP > 0n ? (p.L * Q96) / p.sqrtP : 0n,
-            recentMids,
-            currentBlock: A,
-            lastAttestBlock: p.lastAttestBlock || A - 3,
+            recentMids: mf.hist.slice(-KEEPER_RECENT_MIDS).map((x) => x.mid),
+            midHistory: mf.hist,
+            tObsMs: mf.tObsMs,
+            currentBlock: A - 1,
+            lastAttestBlock: p.lastAttestBlock || A - 1,
             baseFee: cfg.baseFee,
-            windowBlocks: 120,
+            windowBlocks: mf.windowBlocks,
             baseIsToken0,
           });
-          const { s, source } = n === 'aiheur' ? { s: heuristicV4(f), source: 'heuristic' as SourceV4 } : await jevScorer.score(f, t, n === 'aigated' && t >= degradeAt);
+          const raw = scoreTabular(canonicalFeatures(f, baseIsToken0), tab.model) ?? heuristicV4(f);
+          const s = applyChargeThreshold(raw, tab.gate ? tab.threshold : undefined);
+          const td = tabDiag[n]!;
+          td.decisions++;
+          td.sumP += s.pToxicBps / 1e4;
+          if (s.pToxicBps / 1e4 >= tab.threshold) td.charged++;
+          if (f.gapPips > cfg.baseFee) td.edgePos++;
+          td.sumGap += f.gapPips;
+          td.sumEdgeSigma += f.edgeSigma ?? 0;
+          td.sumAbsRet12 += Math.abs(f.ret12Bps ?? 0);
+          td.sumVol += f.realizedVolBps;
+          td.sumNSwaps += f.nSwaps;
+          if (raw.model !== 'tabular') td.fallback++;
           const pc = (s.pToxicBps * s.confidenceBps) / 1e4;
           const se = scoreByEdge[n];
           if (f.gapPips > cfg.baseFee) (se.posPc += pc), se.posN++;
           else (se.negPc += pc), se.negN++;
-          if (n === 'aidz') {
-            // emulated contract dead-zone: the hook would compute k = kMax * max(0, p*c - z) / (1 - z) from the raw
-            // (p, c); the keeper reproduces that k by posting p' with c' = 1. The settler still grades the raw p.
-            const z = cfg.dzBps;
-            const pDz = Math.max(0, Math.round(((pc - z) * 10_000) / (10_000 - z)));
-            scores[n] = { p: pDz, c: 10_000, pRaw: s.pToxicBps, source, node: nodeOf(n) };
-          } else scores[n] = { p: s.pToxicBps, c: s.confidenceBps, pRaw: s.pToxicBps, source, node: nodeOf(n) };
+          scores[n] = { p: s.pToxicBps, c: s.confidenceBps, pRaw: s.pToxicBps, source: 'tabular', node: nodeOf(n) };
+          continue;
         }
-        predictedK.clear();
-        for (const n of HOOKED) {
-          const sc = scores[n]!;
-          // post policy: `last` = what is in force on-chain, `now` = what this post would put in force
-          const now: PostedState = { block: A, kBps: hookK(n, sc.p, sc.c), jitWindow: hookJit(n), midX96: Mk, pToxicBps: sc.p, pJitBps: 0 };
-          const dec = postDecision(pools[n].posted, now, policy);
-          kp[n].reasons[dec.reason] = (kp[n].reasons[dec.reason] ?? 0) + 1;
-          if (!dec.post) continue;
-          predictedK.set(n, now.kBps);
-          const att = await signAttestation(
-            attestor,
-            31337,
-            d.hook,
-            { poolId: pools[n].id, blockNumber: BigInt(A), oracleMidX96: Mk, pToxicBps: sc.p, confidenceBps: sc.c, pJitBps: 0 /* v5: no JIT head in the benchmark */, modelNode: sc.node },
-            domain,
-          );
-          txA.push({
-            to: d.hook,
-            data: encodeFunctionData({ abi: hookAbi, functionName: 'setAttestation', args: [pools[n].key, att] }),
-            gas: 400_000,
-            meta: { label: 'attest', pool: n },
-          });
-        }
+        // v4: no gate — the model is asked on every step, with k-free features (edge vs the base fee)
+        const f = computeFeatures({
+          swaps: p.hist,
+          oracleX96: Mk,
+          poolX96: (p.sqrtP * p.sqrtP) / Q96,
+          depth0: p.sqrtP > 0n ? (p.L * Q96) / p.sqrtP : 0n,
+          recentMids,
+          currentBlock: A,
+          lastAttestBlock: p.lastAttestBlock || A - 3,
+          baseFee: cfg.baseFee,
+          windowBlocks: 120,
+          baseIsToken0,
+        });
+        const { s, source } = n === 'aiheur' ? { s: heuristicV4(f), source: 'heuristic' as SourceV4 } : await jevScorer.score(f, t, n === 'aigated' && t >= degradeAt);
+        const pc = (s.pToxicBps * s.confidenceBps) / 1e4;
+        const se = scoreByEdge[n];
+        if (f.gapPips > cfg.baseFee) (se.posPc += pc), se.posN++;
+        else (se.negPc += pc), se.negN++;
+        if (n === 'aidz') {
+          // emulated contract dead-zone: the hook would compute k = kMax * max(0, p*c - z) / (1 - z) from the raw
+          // (p, c); the keeper reproduces that k by posting p' with c' = 1. The settler still grades the raw p.
+          const z = cfg.dzBps;
+          const pDz = Math.max(0, Math.round(((pc - z) * 10_000) / (10_000 - z)));
+          scores[n] = { p: pDz, c: 10_000, pRaw: s.pToxicBps, source, node: nodeOf(n) };
+        } else scores[n] = { p: s.pToxicBps, c: s.confidenceBps, pRaw: s.pToxicBps, source, node: nodeOf(n) };
       }
-      const ra = await sendAndMine(txA, t);
-      for (const c of calibrations) if (c.step === t && reverts.some((x) => x.step === t && x.label === 'calib' && x.pool === c.pool)) c.ok = false;
+      predictedK.clear();
+      for (const n of HOOKED) {
+        const sc = scores[n]!;
+        // post policy: `last` = what is in force on-chain, `now` = what this post would put in force
+        const now: PostedState = { block: A, kBps: hookK(n, sc.p, sc.c), jitWindow: hookJit(n), midX96: Mk, pToxicBps: sc.p, pJitBps: 0 };
+        const dec = postDecision(pools[n].posted, now, policy);
+        kp[n].reasons[dec.reason] = (kp[n].reasons[dec.reason] ?? 0) + 1;
+        if (!dec.post) continue;
+        predictedK.set(n, now.kBps);
+        const att = await signAttestation(
+          attestor,
+          31337,
+          d.hook,
+          { poolId: pools[n].id, blockNumber: BigInt(A), oracleMidX96: Mk, pToxicBps: sc.p, confidenceBps: sc.c, pJitBps: 0 /* v5: no JIT head in the benchmark */, modelNode: sc.node },
+          domain,
+        );
+        txs.push({
+          to: d.hook,
+          data: encodeFunctionData({ abi: hookAbi, functionName: 'setAttestation', args: [pools[n].key, att] }),
+          gas: 400_000,
+          meta: { label: 'attest', pool: n },
+        });
+      }
+      return { scores, txs };
+    };
+    /** After the block holding a keeper turn's txs (mined as block A): keeper gas + the AttestationPosted state in force. */
+    const afterKeeper = (ra: { rcs: any[]; byHash: Map<string, TxMeta> }, scores: Scores, Mk: bigint, A: number) => {
       for (const rc of ra.rcs) {
         const m = ra.byHash.get(String(rc.transactionHash).toLowerCase());
         if (m?.label === 'attest' && m.pool) {
@@ -717,6 +818,9 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
           }
         }
       }
+    };
+    /** Per-step k / demotion bookkeeping (the k in force for this step's swaps). */
+    const recordK = (t: number, bIdx: number) => {
       for (const n of MODEL_POOLS) {
         const dm = isDemoted(n);
         if (t < degradeAt) demCount[n].a += dm ? 1 : 0;
@@ -731,25 +835,21 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
         pools[n].kSum += pools[n].kBps;
         pools[n].kN++;
       }
-
-      // ================= block B: competing arbitrageurs vs the TRUE mid
-      const B = head + 1;
-      stepOfBlock.set(B, t);
-      bBlocks.add(B);
-      if (attMidInForce !== undefined) attMidAtBlock.set(B, attMidInForce);
-      const qB = await quoteNext();
+    };
+    /** Competing arbitrageurs vs the TRUE mid at the fee quote q: at most one arb per pool. */
+    const planArbs = (t: number, mid: number, q: Record<Hooked, { t: number; f: number; stale: boolean }>) => {
       const M = X96(mid);
       const uA = stream(cfg.seed, t, 2);
       const order = cfg.arbs.map((_, i) => ({ i, r: uA() })).sort((a, b) => a.r - b.r).map((x) => x.i);
       const late = cfg.arbs.map(() => uA() < cfg.arbLateProb);
-      const txB: Tx[] = [];
+      const txs: Tx[] = [];
       const arbOf = new Map<Pool, number>();
       for (const n of POOLS) {
         const p = pools[n];
-        if (p.hooked && qB[n as Hooked].stale) p.tot.staleSteps++;
+        if (p.hooked && q[n as Hooked].stale) p.tot.staleSteps++;
         const P = (p.sqrtP * p.sqrtP) / Q96;
         const zfo = P > M;
-        const fee = feeFor(n, zfo, qB);
+        const fee = feeFor(n, zfo, q);
         for (const ai of order) {
           if (late[ai]) continue;
           const a = cfg.arbs[ai]!;
@@ -764,49 +864,55 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
             cfg.split > 1
               ? encodeFunctionData({ abi: routerAbi, functionName: 'swapSplit', args: [p.key, plan.zeroForOne, amt, BigInt(cfg.split), plan.sqrtTargetX96, ACTOR] })
               : encodeFunctionData({ abi: routerAbi, functionName: 'swap', args: [p.key, plan.zeroForOne, amt, plan.sqrtTargetX96, ACTOR] });
-          txB.push({ to: d.splitSwapRouter, data, gas: 600_000 * Math.max(1, cfg.split), meta: { label: 'arb', pool: n } });
+          txs.push({ to: d.splitSwapRouter, data, gas: 600_000 * Math.max(1, cfg.split), meta: { label: 'arb', pool: n } });
           arbOf.set(n, ai);
           arbWins[ai]++;
           break;
         }
       }
-      const rb = await sendAndMine(txB, t);
+      return { txs, arbOf };
+    };
+    /** Arb and retail swap accounting of one mined block (marked at `mid`). */
+    const accountSwaps = (rb: { rcs: any[]; byHash: Map<string, TxMeta> }, mid: number, bIdx: number, arbOf: Map<Pool, number>) => {
       const arbCounted = new Set<Pool>();
       const arbFeeSeen = new Map<Pool, number>();
       parseBlock(rb, mid, (n, label, h, feePips) => {
-        if (label !== 'arb') return;
         const p = pools[n];
         const value = h.base * mid + h.quote;
         const inUsd = h.base < 0 ? -h.base * mid : h.quote < 0 ? -h.quote : 0;
-        const a = cfg.arbs[arbOf.get(n) ?? 0]!;
-        p.tot.arbProfit += value;
-        p.bk.arbProfit[bIdx] += value;
-        p.tot.arbNet += value - Math.abs(h.quote) * (a.cexBps / 1e4);
-        p.tot.arbFees += (inUsd * feePips) / 1e6;
-        p.tot.arbVol += Math.abs(h.quote);
-        p.tot.arbSubSwaps++;
-        if (!arbCounted.has(n)) {
-          arbCounted.add(n);
-          p.tot.nArb++;
-          if (p.hooked) {
-            arbAtBase[n as Hooked].n++;
-            if (feePips === cfg.baseFee) arbAtBase[n as Hooked].atBase++;
+        if (label === 'arb') {
+          const a = cfg.arbs[arbOf.get(n) ?? 0]!;
+          p.tot.arbProfit += value;
+          p.bk.arbProfit[bIdx] += value;
+          p.tot.arbNet += value - Math.abs(h.quote) * (a.cexBps / 1e4);
+          p.tot.arbFees += (inUsd * feePips) / 1e6;
+          p.tot.arbVol += Math.abs(h.quote);
+          p.tot.arbSubSwaps++;
+          if (!arbCounted.has(n)) {
+            arbCounted.add(n);
+            p.tot.nArb++;
+            if (p.hooked) {
+              arbAtBase[n as Hooked].n++;
+              if (feePips === cfg.baseFee) arbAtBase[n as Hooked].atBase++;
+            }
+            p.tot.arbNet -= a.gasUsd;
+            arbFeeSeen.set(n, feePips);
           }
-          p.tot.arbNet -= a.gasUsd;
-          arbFeeSeen.set(n, feePips);
+        } else if (label === 'retail') {
+          p.tot.retailCost -= value;
+          p.bk.retailCost[bIdx] -= value;
+          p.tot.retailFees += (inUsd * feePips) / 1e6;
+          p.tot.retailVol += Math.abs(h.quote);
+          p.bk.retailVol[bIdx] += Math.abs(h.quote);
+          p.retailFeeW += Math.abs(h.quote) * feePips;
         }
       });
       for (const [n, f] of arbFeeSeen) pools[n].arbFeeSum += f;
-      for (const n of HOOKED) if (pools[n].pInForce !== undefined) pools[n].pAtBlock.set(B, pools[n].pInForce!);
-      await readStates();
-
-      // ================= block C: retail, routed per market by best execution
-      const C = head + 1;
-      stepOfBlock.set(C, t);
-      if (attMidInForce !== undefined) attMidAtBlock.set(C, attMidInForce);
-      const qC = await quoteNext();
+    };
+    /** Seeded retail orders of step t (Poisson(lambda) count, lognormal size, autocorrelated / informed direction). */
+    const makeOrders = (t: number, mid: number, lambda: number) => {
       const uR = stream(cfg.seed, t, 3);
-      const k = poisson(cfg.lambda, uR);
+      const k = poisson(lambda, uR);
       const orders: { usd: number; buyBase: boolean }[] = [];
       for (let i = 0; i < k; i++) {
         const usd = Math.min(cfg.retailCapUsd, lognormal(cfg.retailMedianUsd, uR, cfg.retailSigma));
@@ -822,70 +928,60 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
         retailOrders++;
         retailUsd += usd;
       }
+      return orders;
+    };
+    /** Route the orders per market between its two pools by best execution at the fee quote q (current pool state). */
+    const routeRetail = (orders: { usd: number; buyBase: boolean }[], mid: number, q: Record<Hooked, { t: number; f: number }>): Tx[] => {
       const txC: Tx[] = [];
-      if (orders.length) {
-        for (const mk of MARKETS) {
-          const pair = [mk.vanilla, mk.comp] as Pool[];
-          // virtual reserves (raw) of each pool, updated after every routed order of this block
-          const R = pair.map((n) => {
-            const s = Number(pools[n].sqrtP) / 2 ** 96;
-            const L = Number(pools[n].L);
-            return { x: L / s, y: L * s };
-          });
-          for (const o of orders) {
-            const payToken0 = o.buyBase ? !baseIsToken0 : baseIsToken0;
-            const payIsBase = !o.buyBase;
-            const X = payIsBase ? (o.usd / mid) * 1e18 : o.usd * 1e6;
-            const side = pair.map((n, i) => ({
-              rin: payToken0 ? R[i]!.x : R[i]!.y,
-              rout: payToken0 ? R[i]!.y : R[i]!.x,
-              f: feeFor(n, payToken0, qC) / 1e6,
-            }));
-            let x0: number;
-            const out0 = cpOut(X, side[0]!.rin, side[0]!.rout, side[0]!.f);
-            const out1 = cpOut(X, side[1]!.rin, side[1]!.rout, side[1]!.f);
-            if (cfg.routing === 'best') x0 = out0 >= out1 ? X : 0;
-            else {
-              x0 = optimalSplit(X, side[0]!, side[1]!);
-              if (Math.min(x0, X - x0) < cfg.minSplitFrac * X) x0 = out0 >= out1 ? X : 0;
-            }
-            const legs = [x0, X - x0];
-            legs.forEach((a, i) => {
-              if (a < 1) return;
-              const s = side[i]!;
-              const out = cpOut(a, s.rin, s.rout, s.f);
-              const ain = a * (1 - s.f);
-              if (payToken0) (R[i]!.x += ain), (R[i]!.y -= out);
-              else (R[i]!.y += ain), (R[i]!.x -= out);
-              const amountIn = payIsBase ? BigInt(Math.floor(a / 1e6)) * 10n ** 6n : BigInt(Math.floor(a));
-              if (amountIn <= 0n) return;
-              txC.push({
-                to: d.splitSwapRouter,
-                data: encodeFunctionData({ abi: routerAbi, functionName: 'swap', args: [pools[pair[i]!].key, payToken0, -amountIn, payToken0 ? MIN_SQRT : MAX_SQRT, ACTOR] }),
-                gas: 600_000,
-                meta: { label: 'retail', pool: pair[i]! },
-              });
-            });
+      if (!orders.length) return txC;
+      for (const mk of MARKETS) {
+        const pair = [mk.vanilla, mk.comp] as Pool[];
+        // virtual reserves (raw) of each pool, updated after every routed order of this block
+        const R = pair.map((n) => {
+          const s = Number(pools[n].sqrtP) / 2 ** 96;
+          const L = Number(pools[n].L);
+          return { x: L / s, y: L * s };
+        });
+        for (const o of orders) {
+          const payToken0 = o.buyBase ? !baseIsToken0 : baseIsToken0;
+          const payIsBase = !o.buyBase;
+          const X = payIsBase ? (o.usd / mid) * 1e18 : o.usd * 1e6;
+          const side = pair.map((n, i) => ({
+            rin: payToken0 ? R[i]!.x : R[i]!.y,
+            rout: payToken0 ? R[i]!.y : R[i]!.x,
+            f: feeFor(n, payToken0, q) / 1e6,
+          }));
+          let x0: number;
+          const out0 = cpOut(X, side[0]!.rin, side[0]!.rout, side[0]!.f);
+          const out1 = cpOut(X, side[1]!.rin, side[1]!.rout, side[1]!.f);
+          if (cfg.routing === 'best') x0 = out0 >= out1 ? X : 0;
+          else {
+            x0 = optimalSplit(X, side[0]!, side[1]!);
+            if (Math.min(x0, X - x0) < cfg.minSplitFrac * X) x0 = out0 >= out1 ? X : 0;
           }
+          const legs = [x0, X - x0];
+          legs.forEach((a, i) => {
+            if (a < 1) return;
+            const s = side[i]!;
+            const out = cpOut(a, s.rin, s.rout, s.f);
+            const ain = a * (1 - s.f);
+            if (payToken0) (R[i]!.x += ain), (R[i]!.y -= out);
+            else (R[i]!.y += ain), (R[i]!.x -= out);
+            const amountIn = payIsBase ? BigInt(Math.floor(a / 1e6)) * 10n ** 6n : BigInt(Math.floor(a));
+            if (amountIn <= 0n) return;
+            txC.push({
+              to: d.splitSwapRouter,
+              data: encodeFunctionData({ abi: routerAbi, functionName: 'swap', args: [pools[pair[i]!].key, payToken0, -amountIn, payToken0 ? MIN_SQRT : MAX_SQRT, ACTOR] }),
+              gas: 600_000,
+              meta: { label: 'retail', pool: pair[i]! },
+            });
+          });
         }
       }
-      const rc = await sendAndMine(txC, t);
-      parseBlock(rc, mid, (n, label, h, feePips) => {
-        if (label !== 'retail') return;
-        const p = pools[n];
-        const value = h.base * mid + h.quote;
-        const inUsd = h.base < 0 ? -h.base * mid : h.quote < 0 ? -h.quote : 0;
-        p.tot.retailCost -= value;
-        p.bk.retailCost[bIdx] -= value;
-        p.tot.retailFees += (inUsd * feePips) / 1e6;
-        p.tot.retailVol += Math.abs(h.quote);
-        p.bk.retailVol[bIdx] += Math.abs(h.quote);
-        p.retailFeeW += Math.abs(h.quote) * feePips;
-      });
-      for (const n of HOOKED) if (pools[n].pInForce !== undefined) pools[n].pAtBlock.set(C, pools[n].pInForce!);
-      if (txC.length) await readStates();
-
-      // ---- per-step LP accounting (marked at the true mid)
+      return txC;
+    };
+    /** LP accounting marked at the true mid. */
+    const markLp = (mid: number, bIdx: number) => {
       for (const n of POOLS) {
         const p = pools[n];
         if (p.hist.length > 400) p.hist.splice(0, p.hist.length - 400);
@@ -896,24 +992,189 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
         p.tot.lpFees += (fees.base - p.prevFees.base) * mid + (fees.quote - p.prevFees.quote);
         p.prevFees = { base: fees.base, quote: fees.quote };
       }
+    };
+    const markCalibReverts = (t: number) => {
+      for (const c of calibrations) if (c.step === t && reverts.some((x) => x.step === t && x.label === 'calib' && x.pool === c.pool)) c.ok = false;
+    };
+    const progress = (t: number, mid: number) =>
+      log('progress', {
+        label: cfg.label,
+        step: t,
+        of: T,
+        mid,
+        sec: Math.round((Date.now() - t0) / 1000),
+        lmh: Object.fromEntries(POOLS.filter((n) => !n.startsWith('v_') || n === 'v_control_a').map((n) => [n, Math.round(pools[n].prevLmh)])),
+        k: Object.fromEntries(HOOKED.map((n) => [n, pools[n].kBps])),
+        jev: jevScorer.counts,
+      });
 
-      if (t > 0 && t % 300 === 0) jevScorer.save(); // do not lose live Jev answers if the run is killed
-      if (t % 600 === 0 || t === T - 1) {
-        log('progress', {
-          label: cfg.label,
-          step: t,
-          of: T,
-          mid,
-          sec: Math.round((Date.now() - t0) / 1000),
-          lmh: Object.fromEntries(POOLS.filter((n) => !n.startsWith('v_') || n === 'v_control_a').map((n) => [n, Math.round(pools[n].prevLmh)])),
-          k: Object.fromEntries(HOOKED.map((n) => [n, pools[n].kBps])),
-          jev: jevScorer.counts,
-        });
+    if (!bm) {
+      for (let t = 0; t < T; t++) {
+        const mid = mids[t]!;
+        const bIdx = Math.floor(t / cfg.bucketSteps);
+        const knownIdx = Math.max(0, t - cfg.keeperLag);
+        const knownMid = mids[knownIdx]!;
+        const Mk = X96(knownMid);
+        const recentMids = mids.slice(Math.max(0, knownIdx - 29), knownIdx + 1);
+        const uK = stream(cfg.seed, t, 1);
+        const missed = t > 0 && uK() < cfg.missProb;
+
+        // ================= block A: settler + keeper
+        const A = head + 1;
+        const txA: Tx[] = t > 0 && t % cfg.settleEvery === 0 ? calibTxs(t, A) : [];
+        let scores: Scores = {};
+        const turn = t % keeperEvery === 0; // keeperEvery 1 (default): a keeper turn every step, as before
+        if (turn) keeperTurns++;
+        if (turn && missed) missedPosts++;
+        else if (turn) {
+          keeperDecisions++;
+          const kt = await keeperTurn(A, t, Mk, recentMids);
+          scores = kt.scores;
+          txA.push(...kt.txs);
+        }
+        const ra = await sendAndMine(txA, t);
+        markCalibReverts(t);
+        afterKeeper(ra, scores, Mk, A);
+        recordK(t, bIdx);
+
+        // ================= block B: competing arbitrageurs vs the TRUE mid
+        const B = head + 1;
+        stepOfBlock.set(B, t);
+        bBlocks.add(B);
+        if (attMidInForce !== undefined) attMidAtBlock.set(B, attMidInForce);
+        const qB = await quoteNext();
+        const arb = planArbs(t, mid, qB);
+        const rb = await sendAndMine(arb.txs, t);
+        accountSwaps(rb, mid, bIdx, arb.arbOf);
+        for (const n of HOOKED) if (pools[n].pInForce !== undefined) pools[n].pAtBlock.set(B, pools[n].pInForce!);
+        await readStates();
+
+        // ================= block C: retail, routed per market by best execution
+        const C = head + 1;
+        stepOfBlock.set(C, t);
+        if (attMidInForce !== undefined) attMidAtBlock.set(C, attMidInForce);
+        const qC = await quoteNext();
+        const orders = makeOrders(t, mid, cfg.lambda);
+        const txC = routeRetail(orders, mid, qC);
+        const rc = await sendAndMine(txC, t);
+        accountSwaps(rc, mid, bIdx, new Map());
+        for (const n of HOOKED) if (pools[n].pInForce !== undefined) pools[n].pAtBlock.set(C, pools[n].pInForce!);
+        if (txC.length) await readStates();
+
+        // ---- per-step LP accounting (marked at the true mid)
+        markLp(mid, bIdx);
+
+        if (t > 0 && t % 300 === 0) jevScorer.save(); // do not lose live Jev answers if the run is killed
+        if (t % 600 === 0 || t === T - 1) progress(t, mid);
+      }
+    } else {
+      // ================= mainnet block mode: one 12 s block per iteration, everything at the block timestamp s
+      //   K_b (anvil block): settler setCalibration; coop: the keeper's post (first in the block; mid read at s - 2)
+      //   S_b (anvil block): arbitrageurs vs mid[s], then retail (same block: the hook's per-block high-water gap
+      //        applies to retail after an arb); realistic: the keeper's post for block b+1 lands LAST (mid read at
+      //        s_{b+1} - 13 = s - 1, pool state after block b-1: block b is not built yet at read time)
+      // K_b holds no swaps, so a coop post in K_b prices S_b exactly as a first-in-block tx would (the anchor is created
+      // by the first swap); staleness / heartbeat count 2 anvil blocks per mainnet block.
+      const BS = bm.blockSec ?? 12;
+      const age = bm.midAgeSec ?? (bm.placement === 'coop' ? 2 : 13);
+      const warm = cfg.warmupMids ?? [];
+      const W = warm.length;
+      const midAtSec = (s: number) => (s >= 0 ? mids[Math.min(T - 1, s)]! : (warm[W + s] ?? mids[0]!));
+      const msOf = (s: number) => path.window.startMs + s * 1000;
+      const nBlk = Math.floor((T - 1) / BS) + 1;
+      blockStats.blocks = nBlk;
+      const hist: MidObs[] = []; // the keeper's MidHistory: one CEX read per keeper tick (services/src/keeper.ts)
+      // A read at time x sees the close of the 1 s kline that opened at x - 1: mid age `age` at the block = the kline
+      // that opened at s - age - 1 (ml build_v2 convention: tabular-v2 reads mid(ts - 12) = age 11 s, tabular-v2-fresh
+      // mid(ts - 3) = age 2 s; mids[s] = the kline that opened at s, the arbs' and the settler's mid).
+      const readAt = (x: number) => midAtSec(x - 1);
+      const pushMid = (s: number) => {
+        hist.push({ t: msOf(s), mid: readAt(s) });
+        if (hist.length > KEEPER_MID_HISTORY) hist.shift();
+      };
+      // a keeper that has been running before the window: one read per block, as far back as the warm-up mids go
+      for (let s = -age - BS * Math.floor(Math.max(0, W - age - 1) / BS); s < -age; s += BS) pushMid(s);
+      const tick = async (A: number, obs: number, t: number) => {
+        pushMid(obs);
+        const Mk = X96(readAt(obs));
+        const rm: number[] = [];
+        for (let i = obs - 29; i <= obs; i++) rm.push(readAt(i));
+        const kt = await keeperTurn(A, t, Mk, rm, { hist: hist.slice(), tObsMs: msOf(obs), windowBlocks: 2 * KEEPER_WINDOW_BLOCKS });
+        return { ...kt, Mk };
+      };
+      for (let b = 0; b < nBlk; b++) {
+        const s = b * BS;
+        const mid = mids[s]!;
+        const bIdx = Math.floor(s / cfg.bucketSteps);
+        const u = stream(cfg.seed, s, 1)();
+        // ---- K_b
+        const K = head + 1;
+        stepOfBlock.set(K, s);
+        const txK: Tx[] = b > 0 && b % cfg.settleEvery === 0 ? calibTxs(s, K) : [];
+        let kt: Awaited<ReturnType<typeof tick>> | undefined;
+        if (bm.placement === 'coop' || b === 0) {
+          // coop: every block; realistic: only the post for block 0 (it would have landed at the end of block -1)
+          keeperTurns++;
+          if (bm.placement === 'coop' && b > 0 && u < cfg.missProb) (missedPosts++, pushMid(s - age));
+          else {
+            keeperDecisions++;
+            kt = await tick(K, s - age, s);
+            txK.push(...kt.txs);
+          }
+        }
+        const rk = await sendAndMine(txK, s);
+        markCalibReverts(s);
+        if (kt) afterKeeper(rk, kt.scores, kt.Mk, K);
+        recordK(s, bIdx);
+        // ---- S_b
+        const S = head + 1;
+        stepOfBlock.set(S, s);
+        bBlocks.add(S);
+        if (attMidInForce !== undefined) attMidAtBlock.set(S, attMidInForce);
+        let rt: Awaited<ReturnType<typeof tick>> | undefined;
+        if (bm.placement === 'realistic' && b < nBlk - 1) {
+          keeperTurns++;
+          if (u < cfg.missProb) (missedPosts++, pushMid(s + BS - age));
+          else {
+            keeperDecisions++;
+            rt = await tick(S, s + BS - age, s);
+          }
+        }
+        const qA = await quoteNext();
+        const arb = planArbs(s, mid, qA);
+        const orders = makeOrders(s, mid, cfg.lambda * BS);
+        let qR = qA;
+        if (orders.length && arb.txs.length) {
+          // retail follows the arbs in the same block: quote the hook after them (anchor + high-water gap of this
+          // block) on a throw-away copy of the chain, then revert and mine the real block
+          const snap = await rpc.call<Hex>('evm_snapshot');
+          const n0 = nonce;
+          await rpc.batchSettled<Hex>(
+            arb.txs.map((tx) => ['eth_sendTransaction', [{ from: ACTOR, to: tx.to, data: tx.data, gas: hex(tx.gas), gasPrice: '0x0', nonce: hex(nonce++) }]]),
+          );
+          await rpc.call('evm_mine');
+          await readStates();
+          qR = await quoteNext('latest');
+          blockStats.trials++;
+          if (HOOKED.some((n) => qR[n].t !== qA[n].t || qR[n].f !== qA[n].f)) blockStats.quoteChanged++;
+          const ok = await rpc.call<boolean>('evm_revert', [snap]);
+          if (!ok) throw new Error('evm_revert failed');
+          nonce = n0;
+        }
+        const txR = routeRetail(orders, mid, qR);
+        const rs = await sendAndMine([...arb.txs, ...txR, ...(rt?.txs ?? [])], s);
+        accountSwaps(rs, mid, bIdx, arb.arbOf);
+        for (const n of HOOKED) if (pools[n].pInForce !== undefined) pools[n].pAtBlock.set(S, pools[n].pInForce!);
+        if (rt) afterKeeper(rs, rt.scores, rt.Mk, S);
+        await readStates();
+        markLp(mid, bIdx);
+        if (b % 50 === 0 || b === nBlk - 1) progress(s, mid);
       }
     }
     jevScorer.save();
     // whole-window label diagnostics per model pool (same labelling as the settler, all labelled blocks)
     const labelDiag = {} as RunResultV4['labelDiag'];
+    const tabOut = {} as NonNullable<RunResultV4['tabular']>;
     for (const n of MODEL_POOLS) {
       const p = pools[n];
       const labels = labelBlocks(
@@ -927,6 +1188,28 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
       const nL = labels.length;
       const br = nL ? ps.reduce((a, x, i) => a + (x - ys[i]!) ** 2, 0) / nL : NaN;
       const arbL = labels.filter((l) => bBlocks.has(l.block));
+      const tab = tabular[n];
+      const td = tabDiag[n];
+      if (tab && td) {
+        const k = Math.max(1, td.decisions);
+        tabOut[n] = {
+          model: tab.model.name,
+          path: tab.path,
+          gate: tab.gate,
+          threshold: tab.threshold,
+          decisions: td.decisions,
+          charged: td.charged,
+          meanP: td.sumP / k,
+          edgePosShare: td.edgePos / k,
+          meanGapPips: td.sumGap / k,
+          meanEdgeSigma: td.sumEdgeSigma / k,
+          meanAbsRet12Bps: td.sumAbsRet12 / k,
+          meanRealizedVolBps: td.sumVol / k,
+          meanNSwaps: td.sumNSwaps / k,
+          fallback: td.fallback,
+          pairs: labels.map((l) => [Math.round(l.p * 1e4) / 1e4, l.y] as [number, number]),
+        };
+      }
       labelDiag[n] = {
         n: nL,
         baseRate: nL ? ys.reduce((a: number, b) => a + b, 0) / nL : NaN,
@@ -951,7 +1234,7 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
     const lat = [...jevScorer.latencies].sort((a, b) => a - b);
     const cnt = jevScorer.counts;
     const nScores = Object.values(cnt).reduce((a, b) => a + b, 0);
-    const { path: _p, ...rest } = cfg;
+    const { path: _p, warmupMids: _w, ...rest } = cfg;
     const h1 = degradeAt;
     const h2 = T - degradeAt;
     return {
@@ -991,6 +1274,8 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
       reverts,
       txCount,
       runtimeSec: Math.round((Date.now() - t0) / 1000),
+      ...(bm ? { blockMode: { placement: bm.placement, blockSec: bm.blockSec ?? 12, midAgeSec: bm.midAgeSec ?? (bm.placement === 'coop' ? 2 : 13), blocks: blockStats.blocks, retailAfterArbQuotes: blockStats.trials, retailQuoteChangedByArb: blockStats.quoteChanged } } : {}),
+      ...(Object.keys(tabOut).length ? { tabular: tabOut } : {}),
       keeper: { policy, keeperEvery, gasGwei: cfg.keeperGasGwei ?? 1, ethUsd, decisions: keeperDecisions, turns: keeperTurns, pools: kp },
     };
   } finally {
