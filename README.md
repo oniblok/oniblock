@@ -101,6 +101,10 @@ oniblock.eth                    our own UserRegistry (VerifiableFactory proxy) +
 - **Calibration records only the settler can write.** PermissionedResolver text permissions are per key. The settler is granted exactly the seven `calibration.*` keys. The owner holds only `ROLE_SET_TEXT_ADMIN` for text, so it cannot quietly edit a model's scorecard: it would first have to grant itself the key, and that grant is visible on-chain (`EACRolesChanged`).
 - **Reads go through UniversalResolverV2.** The app and the settler resolve `calibration.brier`, `quoter.oniblock.eth` and the rest through the UR, and the receipt page checks that the ENS address of `quoter` matches the transaction's sender. No names are hard-coded in the UI.
 - **Rotate a model by changing a record, not by redeploying.** Model identity is an ENS namehash. The hook allowlists namehashes per pool, and new names start on probation.
+- **Live state as wildcard names (ENSIP-10).** `jev-v1.live.oniblock.eth`, `current.live.oniblock.eth` and `weth-usdc.live.oniblock.eth` are never registered: `OniblockLiveResolver`, set on `live.oniblock.eth`, answers them from hook storage (calibration, gate status, k, JIT window, fees). `current` is an alias of the model in force.
+- **Primary names (ENSIP-19).** The quoter and settler keys name themselves `quoter.oniblock.eth` / `settler.oniblock.eth` through the Sepolia `DefaultReverseRegistrar` (`pnpm -C services ens:primary`); the app shows the forward-verified name from `UniversalResolverV2.reverse` next to each address.
+
+**ENSv2 features** used, partly used and not used, with the file and function for each: the coverage table at the top of [`docs/ENS_INTEGRATION.md`](docs/ENS_INTEGRATION.md#0-ensv2-feature-coverage) (§0), followed by the mechanism of every piece we add and the commands (`ENS_PHASE=add-live|add-model|set-endpoints`, `pnpm -C services ens:primary`).
 
 Why it is central: take ENS away and you lose the kill switch, the only place a model's track record is published under a stable name, and the separation between "the team" and "the scorer". The hook would still price swaps, but nobody outside could verify who is allowed to move `k` or why.
 
@@ -132,7 +136,10 @@ Line numbers refer to the files as shipped.
 | Timelock on config / attestor / role oracle, config validation (incl. `1 <= jitWindowMin <= jitWindowDefault <= jitWindowMax`) | [`OniblockHook.sol:831-844`](contracts/src/OniblockHook.sol#L831-L844), [`1008-1017`](contracts/src/OniblockHook.sol#L1008-L1017) |
 | `EnsV2RoleOracle` (`isQuoter` / `isSettler`, fail-closed `hasRoles`) | [`contracts/src/roles/EnsV2RoleOracle.sol:55-72`](contracts/src/roles/EnsV2RoleOracle.sol#L55-L72) |
 | Custom EAC role bits | [`contracts/src/roles/EnsV2Lib.sol:19-22`](contracts/src/roles/EnsV2Lib.sol#L19-L22) |
-| `EnsSetup`: commit (171), finish (183), subnames (209-228), role grants (230-234), role oracle (239-246), settler-only text keys incl. `calibration.jit.*` (336-356; idempotent `_grantKeys` 290-299), `ENS_PHASE=grant-jit` upgrade phase (254-270) | [`contracts/script/EnsSetup.s.sol`](contracts/script/EnsSetup.s.sol) |
+| `EnsSetup`: commit (171), finish (183), subnames (209-228), role grants (230-234), role oracle (239-246), settler-only text keys incl. `calibration.jit.*` (336-356; idempotent `_grantKeys` 290-299), `ENS_PHASE=grant-jit` upgrade phase (254-270); later phases `add-live` (OniblockLiveResolver on `live.<root>`), `add-model` (a model name owned by its author), `set-endpoints` (ENSIP-26 `agent-endpoint[...]`) | [`contracts/script/EnsSetup.s.sol`](contracts/script/EnsSetup.s.sol) |
+| ENSIP-10 wildcard resolver for `live.<root>` (`resolve(bytes,bytes)`, model / pool / `current` records from hook storage) | [`contracts/src/ens/OniblockLiveResolver.sol`](contracts/src/ens/OniblockLiveResolver.sol) |
+| ENSIP-19 primary names of the quoter and settler (`DefaultReverseRegistrar.setName`, idempotent via `nameForAddr`, forward check through the UR) | [`services/src/ens-primary.ts`](services/src/ens-primary.ts) |
+| App: wildcard `live.*` records and primary names through UniversalResolverV2 (`/api/ens`, `ensReverse`) | [`app/src/lib/server/ens.ts`](app/src/lib/server/ens.ts), [`app/src/lib/server/chain.ts`](app/src/lib/server/chain.ts) |
 | Hook deploy: allocation-free CREATE2 salt miner (141-167); v5 `JIT_WINDOW_MIN/MAX/DEFAULT` env → `PoolConfig` (124-128) | [`contracts/script/DeployBase.s.sol:141-167`](contracts/script/DeployBase.s.sol#L141-L167) |
 | Sepolia deploy (real PoolManager, EnsV2RoleOracle, Chainlink) | [`contracts/script/DeploySepolia.s.sol:32-63`](contracts/script/DeploySepolia.s.sol#L32-L63) |
 | Keeper tick: features → model → sign → `setAttestation` | [`services/src/keeper.ts:208-285`](services/src/keeper.ts#L208-L285) |
@@ -294,6 +301,12 @@ QUOTER=<keeper> SETTLER=<settler> ATTESTOR=<attestor> \
 #    → deployments/11155111.json. Then write the hook / pool-id records (owner setText, or rerun EnsSetup's
 #      record step with ENS_HOOK / ENS_POOL_ID) and transfer hook ownership to a Safe (Ownable2Step).
 
+# 2b. Later ENS phases (owner key, each idempotent): the live wildcard resolver, a model name owned by its author,
+#     ENSIP-26 endpoints. Then the ENSIP-19 primary names, signed by the quoter and settler keys themselves.
+ENS_PHASE=add-live      forge script script/EnsSetup.s.sol --rpc-url $SEPOLIA_RPC_HTTPS --private-key $DEPLOYER_PK --broadcast
+ENS_MODEL_LABEL=kev-oniblock ENS_MODEL_OWNER=<author> ENS_PHASE=add-model forge script script/EnsSetup.s.sol --rpc-url $SEPOLIA_RPC_HTTPS --private-key $DEPLOYER_PK --broadcast
+ENS_PHASE=set-endpoints forge script script/EnsSetup.s.sol --rpc-url $SEPOLIA_RPC_HTTPS --private-key $DEPLOYER_PK --broadcast
+CHAIN=sepolia pnpm -C services ens:primary --dry-run   # then without --dry-run: setName from QUOTER_PK and SETTLER_PK
 # 3. Only if the hook was deployed before EnsSetup: point it at the ENS role oracle.
 #    Timelocked: the first call queues, the same call after CONFIG_DELAY (default 1 h) executes.
 cast send <hook> "setRoleOracle(address)" <roleOracle> --rpc-url $SEPOLIA_RPC_HTTPS --private-key $DEPLOYER_PK
