@@ -210,7 +210,8 @@ Reproduce: `pnpm -C benchmark bench` (about 8 minutes). `pnpm -C benchmark run:q
 - Foundry (`forge`, `anvil`, `cast`; tested with forge 1.3.x), Node 20+ with `pnpm`, `python3`, `curl`, and `jq` for `contracts/smoke-local.sh`.
 - Contract dependencies are in `contracts/lib` (forge-std, OpenZeppelin uniswap-hooks with v4-core / v4-periphery).
 - A root `.env`, used by the fork and Sepolia flows. Keys:
-  - `SEPOLIA_RPC_HTTPS`
+  - `SEPOLIA_RPC_HTTPS` (public endpoint; used for wide `eth_getLogs`)
+  - `SEPOLIA_RPC_ALCHEMY` (optional, keyed endpoint for everything else; its free tier caps `eth_getLogs` at `SEPOLIA_LOGS_SPAN` = 10 blocks, so wider queries are split; see `rpcTransport` in `services/src/config.ts`)
   - `V4_POOL_MANAGER`
   - `CHAINLINK_ETH_USD`
   - the `ENS_*` contract addresses from [`docs/ENS_INTEGRATION.md` §1](docs/ENS_INTEGRATION.md)
@@ -270,6 +271,8 @@ REHEARSE=1 scripts/deploy-sepolia.sh   # dry run on a fork (uses the real ENS st
 scripts/deploy-sepolia.sh              # real broadcast; keeps the previous deployment as 11155111.prev.json
 CHAIN=sepolia pnpm -C services keeper  # both services preflight the ENS roles and refuse to start on a mismatch
 CHAIN=sepolia pnpm -C services settler
+scripts/sepolia-live.sh                # or the whole Sepolia stack in one command: keeper (posting for the current
+                                       # block), settler, arb + retail bots, app on :3001; SEPOLIA_JIT=1 adds the jit bot
 ```
 
 Manual equivalent (the owner must be a plain EOA or an ERC1155 receiver such as a Safe, see ENS Gotcha 1; keep `ENS_SECRET`, `ENS_OWNER` and `ENS_DURATION` identical across both phases):

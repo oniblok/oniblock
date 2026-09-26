@@ -20,3 +20,6 @@ ml/data/kev/
 ml/train_kev4b/data/
 ml/**/__pycache__/
 deployments/*.rehearsal*.json
+.cache/
+benchmark/results/quick/
+deployments/*.e2e.json

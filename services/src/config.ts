@@ -94,6 +94,10 @@ export interface ChainSelection {
   name: ChainName;
   chain: Chain;
   rpcUrl: string;
+  /** Max eth_getLogs block range of the provider (Alchemy free tier: 10); wider queries are split. */
+  logsSpan?: number;
+  /** Public endpoint tried first for eth_getLogs (wide ranges), before splitting on the main provider. */
+  logsRpcUrl?: string;
   /** True for anvil (local or fork): dev keys are allowed. */
   isDev: boolean;
 }
@@ -108,9 +112,11 @@ export function selectChain(name: ChainName = (env('CHAIN', 'local') as ChainNam
       return { name, chain, rpcUrl: env('FORK_RPC', env('LOCAL_RPC', 'http://127.0.0.1:8545'))!, isDev: true };
     }
     case 'sepolia': {
-      const rpc = env('SEPOLIA_RPC_HTTPS');
-      if (!rpc) throw new Error('SEPOLIA_RPC_HTTPS missing in .env');
-      return { name, chain: sepolia, rpcUrl: rpc, isDev: false };
+      // SEPOLIA_RPC_ALCHEMY (if set) is preferred; its free tier caps eth_getLogs at 10 blocks, so split wider ranges.
+      const alchemy = env('SEPOLIA_RPC_ALCHEMY');
+      const main = alchemy ?? env('SEPOLIA_RPC_HTTPS');
+      if (!main) throw new Error('SEPOLIA_RPC_HTTPS missing in .env');
+      return { name, chain: sepolia, rpcUrl: main, logsSpan: alchemy ? envInt('SEPOLIA_LOGS_SPAN', 10) : undefined, logsRpcUrl: alchemy ? env('SEPOLIA_RPC_HTTPS') : undefined, isDev: false };
     }
     default:
       throw new Error(`unknown chain "${name}" (expected local|fork|sepolia)`);
@@ -136,11 +142,62 @@ export function roleAccount(role: Role, sel: ChainSelection) {
   return privateKeyToAccount(roleKey(role, sel));
 }
 
+/** http transport for the chain. With `logsSpan` set (SEPOLIA_LOGS_SPAN, e.g. 10 on Alchemy free tier), wide eth_getLogs are split. */
+export function rpcTransport(sel: ChainSelection): Transport {
+  const main = http(sel.rpcUrl, { retryCount: 5, retryDelay: 500 });
+  if (!sel.logsSpan) return main;
+  const span = sel.logsSpan;
+  // eth_getLogs: the public endpoint first (wide ranges allowed); if it refuses (rate limit), split on the main provider.
+  const pub = sel.logsRpcUrl ? http(sel.logsRpcUrl, { retryCount: 1, retryDelay: 300, timeout: 15_000 }) : undefined;
+  return ((args: Parameters<Transport>[0]) => {
+    const m = main(args);
+    const request = m.request as unknown as (r: { method: string; params?: unknown }) => Promise<unknown>;
+    const pubReq = pub ? (pub(args).request as unknown as (r: { method: string; params?: unknown }) => Promise<unknown>) : undefined;
+    const getLogs = async (req: { method: string; params?: unknown }) => {
+      const q = (req.params as [Record<string, unknown>] | undefined)?.[0];
+      const lo = typeof q?.fromBlock === 'string' && q.fromBlock.startsWith('0x') ? BigInt(q.fromBlock) : undefined;
+      const hi = typeof q?.toBlock === 'string' && q.toBlock.startsWith('0x') ? BigInt(q.toBlock) : undefined;
+      if (lo !== undefined && hi !== undefined && hi - lo < BigInt(span)) return request(req); // narrow: main provider directly
+      if (pubReq) {
+        try {
+          return await pubReq(req);
+        } catch {
+          /* fall through to the split query on the main provider */
+        }
+      }
+      return chunkedGetLogs(request, req, span);
+    };
+    return { ...m, request: ((req: { method: string; params?: unknown }) => (req.method === 'eth_getLogs' ? getLogs(req) : request(req))) as unknown as typeof m.request };
+  }) as Transport;
+}
+
+/** eth_getLogs over [from, to] split into `span`-block pieces (Alchemy free tier: 10), a few in flight at a time. */
+async function chunkedGetLogs(request: (r: { method: string; params?: unknown }) => Promise<unknown>, req: { method: string; params?: unknown }, span: number): Promise<unknown> {
+  const p = (req.params as [Record<string, unknown>])?.[0];
+  const hex = (v: unknown) => (typeof v === 'string' && /^0x[0-9a-f]+$/i.test(v) ? BigInt(v) : undefined);
+  const from = hex(p?.fromBlock);
+  const to = hex(p?.toBlock);
+  if (!p || from === undefined || to === undefined || to - from < BigInt(span) || p.blockHash) return request(req);
+  const parts: [bigint, bigint][] = [];
+  for (let a = from; a <= to; a += BigInt(span)) parts.push([a, a + BigInt(span) - 1n > to ? to : a + BigInt(span) - 1n]);
+  const out: unknown[][] = new Array(parts.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < parts.length) {
+      const i = next++;
+      const [a, b] = parts[i]!;
+      out[i] = (await request({ method: 'eth_getLogs', params: [{ ...p, fromBlock: `0x${a.toString(16)}`, toBlock: `0x${b.toString(16)}` }] })) as unknown[];
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(2, parts.length) }, worker));
+  return out.flat();
+}
+
 export function makePublicClient(sel: ChainSelection): PublicClient {
   return createPublicClient({
     chain: sel.chain,
-    transport: http(sel.rpcUrl, { retryCount: 3, retryDelay: 250 }),
-    pollingInterval: sel.isDev ? 250 : 4_000,
+    transport: rpcTransport(sel),
+    pollingInterval: sel.isDev ? 250 : sel.logsSpan ? 1_000 : 4_000, // paid/keyed RPC (Alchemy): poll every second
   }) as PublicClient;
 }
 
@@ -148,7 +205,7 @@ export function makeWalletClient(sel: ChainSelection, role: Role): WalletClient<
   return createWalletClient({
     chain: sel.chain,
     account: roleAccount(role, sel),
-    transport: http(sel.rpcUrl, { retryCount: 3, retryDelay: 250 }),
+    transport: rpcTransport(sel),
   });
 }
 

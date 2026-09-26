@@ -89,12 +89,13 @@ import {
   type Deployment,
   type PairMeta,
   type PoolEntry,
+  rpcTransport,
 } from './config.js';
 import { getAttestations, getJitPenalties, getModifyLiquidity, getReceipts, keyTuple, readPool, receiptToSwapObs, TxSender, virtualDepth0 } from './chain.js';
 import { computeFeatures, JIT_LABEL_BLOCKS_DEFAULT, type JitPenaltyObs, type LiquidityObs, type SwapObs } from './features.js';
 import { defaultJevPrompt, score, type AttackHead, type AttackType, type ModelMode, type ModelScore } from './model/index.js';
 import { midToPriceX96, sqrtPriceX96ToPriceX96 } from './price.js';
-import { createWalletClient, http, type Chain, type Transport, type Account, type WalletClient } from 'viem';
+import { createWalletClient, type Chain, type Transport, type Account, type WalletClient } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
 export interface KeeperFlags {
@@ -375,7 +376,7 @@ export class Keeper {
       const wc: WalletClient<Transport, Chain, Account> = createWalletClient({
         chain: sel.chain,
         account: privateKeyToAccount((backupPk.startsWith('0x') ? backupPk : `0x${backupPk}`) as `0x${string}`),
-        transport: http(sel.rpcUrl, { retryCount: 3, retryDelay: 250 }),
+        transport: rpcTransport(sel),
       });
       this.backupSender = new TxSender(this.pc, wc, 'keeper-backup');
     }

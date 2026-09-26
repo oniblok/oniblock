@@ -312,7 +312,10 @@ export class TxSender {
             value: req.value,
             blockTag: 'pending',
           } as any);
-          const hash = await this.wc.writeContract({ ...(request as any), nonce: this.nonce });
+          // Estimates are tight (warm/cold slots differ between the estimate and the mined block): 1.5x headroom,
+          // else attestations can die with ReentrancySentryOOG. Unused gas is not charged.
+          const est = await this.pc.estimateContractGas({ ...(request as any), account: this.wc.account });
+          const hash = await this.wc.writeContract({ ...(request as any), nonce: this.nonce, gas: (est * 3n) / 2n });
           this.nonce!++;
           return hash;
         } catch (e) {
