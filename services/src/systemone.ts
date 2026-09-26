@@ -1,9 +1,9 @@
 /**
- * TypeSafe System One endpoint for the tree models (oniblock1, tabular-v1), so they, Kev and Jev sit behind one interface.
+ * TypeSafe System One endpoint for the tree model (oniblock1, the production model), so it, Kev and Jev sit behind one interface.
  * The keeper still calls tabular in-process (services/src/model/tabular.ts); this is the same prediction over HTTP.
  *
  *   POST /v1/systemone
- *   body   { model?: "oniblock1" | "tabular-v1" | "tabular-latest" (= the default),
+ *   body   { model?: "oniblock1" | "tabular-latest" (= the default; any other name is 400 unknown model),
  *            state: { ...Features, baseIsToken0?: boolean },
  *            questions: { informed: { type: "noul", instructions?, criteria? } } }
  *   answer { model, answers: { informed: { type: "noul", noul: <P(true)> } }, latency_ms }
@@ -13,8 +13,8 @@
  *
  * `state` must be the numeric Features object (System One allows an object state): trees need exact numbers, not
  * the rounded text. It is canonicalised to the training orientation with `baseIsToken0`, like the keeper does.
- * Env: SYSTEMONE_PORT (8010), SYSTEMONE_HOST (127.0.0.1), SYSTEMONE_API_KEY (optional bearer), TABULAR_MODEL (default model;
- * unset = oniblock1).
+ * Env: SYSTEMONE_PORT (8010), SYSTEMONE_HOST (127.0.0.1), SYSTEMONE_API_KEY (optional bearer), TABULAR_MODEL (default model:
+ * oniblock1, the only one).
  * CLI: tsx src/systemone.ts
  */
 import { createHash } from 'node:crypto';
@@ -44,10 +44,10 @@ function tryLoad(v: TabularVersion, load: SystemOneLoader): { model: TabularMode
   }
 }
 
-/** Listed by /health (tabular-v2 is still accepted in a request). */
-const HEALTH_MODELS: readonly TabularVersion[] = ['oniblock1', 'v1'];
+/** Listed by /health. */
+const HEALTH_MODELS: readonly TabularVersion[] = ['oniblock1'];
 
-/** The server's default model: TABULAR_MODEL if set, else oniblock1 (the keeper's own default stays tabular-v1). */
+/** The server's default model: TABULAR_MODEL if it names a served model, else oniblock1 (the keeper's default too). */
 export const systemOneDefault = (): TabularVersion => parseTabularVersion(env('TABULAR_MODEL')) ?? 'oniblock1';
 
 export function modelSha256(v: TabularVersion): string {

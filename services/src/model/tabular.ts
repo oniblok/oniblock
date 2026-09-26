@@ -1,24 +1,24 @@
 /**
- * oniblock1 (and the older tabular-v1 / tabular-v2): gradient-boosted trees (LightGBM, trained in ml/src/train_tabular.py on real mainnet blocks,
- * early-stopped on the validation split; see ml/RESULTS.md) evaluated in pure TypeScript from the exported JSON
- * (ml/src/export_tabular.py). No native deps, ~0.1 ms per prediction, deterministic.
+ * oniblock1, the production model: gradient-boosted trees (LightGBM, trained in ml/src/train_tabular_v2.py on real mainnet
+ * blocks with a Binance read ~2 s before the block, early-stopped on the validation split; see docs/RESULTS_ONIBLOCK1.md)
+ * evaluated in pure TypeScript from the exported JSON (ml/models/oniblock1.json). No native deps, ~0.1 ms per prediction,
+ * deterministic.
  *
  * The JSON carries its own ordered feature list; every name must be one of TABULAR_FEATURES below (unknown names are a
- * load error). v1 inputs, all orientation-free functions of the keeper's Features:
+ * load error). Pool inputs, all orientation-free functions of the keeper's Features:
  *   gapPips, edgePips = gap - baseFee, baseFee, imb_arb (imbalance signed so + = recent flow in the arb direction),
  *   abs_imbalance, sizeToDepth, realizedVolBps, nSwaps, arbShare, gap_over_fee = gap / baseFee, log_size = log10(sizeToDepth + 1e-9)
- * v2 adds (SPEC_v2 "Tabular v2"): edgeSigma, vol5mBps, ret12Bps, ret36Bps, ret900Bps and sgap = gapSign * gapPips
+ * Mid inputs (SPEC_v2 "Tabular v2"): edgeSigma, vol5mBps, ret12Bps, ret36Bps, ret900Bps and sgap = gapSign * gapPips
  * (orientation-dependent: the caller passes canonical features, features.ts canonicalFeatures; index.ts score() does).
  * The fee is always the BASE fee (what the training pools charged, and k-free: the hook's arb fee depends on the k that
  * this model's own answer sets, which would feed back into its input).
  * Confidence is 10000 (one calibrated probability, like Kev): k = kMax * p * c stays monotonic in p.
- * Env: MODEL_MODE=oniblock1 (= tabular with the oniblock1 model), TABULAR_MODEL (v1 default | oniblock1 | v2),
- * TABULAR_MODEL_PATH (explicit file; default services/models/<name>.json, else ml/models/<name>.json;
- * name = tabularModelName: tabular-v1, oniblock1, tabular-v2).
+ * Env: MODEL_MODE=tabular or MODEL_MODE=oniblock1 (both load oniblock1), TABULAR_MODEL (oniblock1, the only and default
+ * model; anything else is ignored), TABULAR_MODEL_PATH (explicit file; default ml/models/oniblock1.json).
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { ROOT, SERVICES_DIR, env } from '../config.js';
+import { ROOT, env } from '../config.js';
 import { edgeSigmaOf, type Features } from '../features.js';
 import { clampBps, type ModelScore } from './types.js';
 
@@ -108,23 +108,18 @@ export function invalidTabularFields(state: Record<string, unknown>, names: read
   return [...bad].sort();
 }
 
-/** tabular-v1's input order (ml/models/tabular-v1.json). */
-export const TABULAR_V1_FEATURES = ['gapPips', 'edgePips', 'baseFee', 'imb_arb', 'abs_imbalance', 'sizeToDepth', 'realizedVolBps', 'nSwaps', 'arbShare', 'gap_over_fee', 'log_size'];
-
-/** oniblock1 = the production model (trained on a Binance read ~2 s before the block: for a keeper whose post lands first in the block). */
-export type TabularVersion = 'v1' | 'v2' | 'oniblock1';
-export const TABULAR_VERSIONS: readonly TabularVersion[] = ['v1', 'v2', 'oniblock1'];
+/** oniblock1 = the production model (trained on a Binance read ~2 s before the block: for a keeper whose post lands first
+ *  in the block). It is the only tabular model; the type stays so callers and System One name it explicitly. */
+export type TabularVersion = 'oniblock1';
+export const TABULAR_VERSIONS: readonly TabularVersion[] = ['oniblock1'];
 /** Model name = file stem = ENS label (<name>.models.oniblock.eth). */
-export const tabularModelName = (v: TabularVersion): string => (v === 'oniblock1' ? v : `tabular-${v}`);
+export const tabularModelName = (v: TabularVersion): string => v;
 export const parseTabularVersion = (v: string | undefined): TabularVersion | undefined =>
   TABULAR_VERSIONS.find((x) => x === v || tabularModelName(x) === v);
-/** MODEL_MODE=oniblock1 selects oniblock1; otherwise TABULAR_MODEL (default v1). */
-export const tabularVersion = (mode = env('MODEL_MODE', 'auto')): TabularVersion =>
-  mode === 'oniblock1' ? 'oniblock1' : (parseTabularVersion(env('TABULAR_MODEL', 'v1')) ?? 'v1');
+/** Always oniblock1 (MODEL_MODE=tabular and MODEL_MODE=oniblock1 alike); kept as a function so call sites stay mode-keyed. */
+export const tabularVersion = (_mode?: string): TabularVersion => 'oniblock1';
 
 export function defaultTabularPath(v: TabularVersion = tabularVersion()): string {
-  const svc = resolve(SERVICES_DIR, 'models', `${tabularModelName(v)}.json`);
-  if (v === 'v1' || existsSync(svc)) return svc;
   return resolve(ROOT, 'ml', 'models', `${tabularModelName(v)}.json`);
 }
 
@@ -144,8 +139,8 @@ export function loadTabularModel(path = env('TABULAR_MODEL_PATH') ?? defaultTabu
   return m;
 }
 
-/** Model input vector in the order of `names` (default: tabular-v1's). */
-export function tabularInputs(f: Features, names: readonly string[] = TABULAR_V1_FEATURES): number[] {
+/** Model input vector in the order of `names` (a model's `features`). */
+export function tabularInputs(f: Features, names: readonly string[]): number[] {
   return names.map((n) => TABULAR_FEATURES[n]!(f));
 }
 

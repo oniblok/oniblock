@@ -1,7 +1,7 @@
 /**
  * Training-exact CEX mids for the v2 mid features (realizedVolBps, vol5mBps, ret12/36/900Bps).
  *
- * oniblock1 / tabular-v2 / kev2 were trained (ml/src/build_v2.py) on ml/src/common.py `Mids`, which reads Binance
+ * oniblock1 / kev2 were trained (ml/src/build_v2.py) on ml/src/common.py `Mids`, which reads Binance
  * klines at EXACT offsets from t_obs (unix seconds):
  *   eth_usdt(t)  = close of the latest ETHUSDT 1s kline with openTime <= t, NaN if it opened > 5 s before t
  *   usdc_usdt(t) = close of the latest USDCUSDT 1m kline with openTime <= t, NaN if it opened > 180 s before t
@@ -122,8 +122,8 @@ const V2_MID_INPUTS = ['edgeSigma', 'vol5mBps', 'ret12Bps', 'ret36Bps', 'ret900B
 
 /**
  * Whether this keeper's model reads the v2 mid features and so must get them from klines: MODEL_MODE=kev with
- * KEV_STATE_FORMAT=kev2, or tabular / oniblock1 whose model file has a v2 mid input (tabular-v2, oniblock1,
- * TABULAR_MODEL_PATH to such a file). v1 / Jev / heuristic keep the per-tick path. A replay or injected mid source
+ * KEV_STATE_FORMAT=kev2, or tabular / oniblock1 whose model file has a v2 mid input (oniblock1, or TABULAR_MODEL_PATH
+ * to such a file). The v1 Kev text / Jev / heuristic keep the per-tick path. A replay or injected mid source
  * (`liveMid` false) has no Binance history to match, so it keeps the per-tick path too.
  */
 export function klineMidFeaturesNeeded(mode: ModelMode, liveMid: boolean): boolean {

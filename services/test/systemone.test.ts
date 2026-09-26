@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -9,10 +9,10 @@ import { handleSystemOne, startSystemOne, systemOneHealth } from '../src/systemo
 
 const fixture = JSON.parse(readFileSync(resolve(__dirname, 'fixtures/kev2-state-parity.json'), 'utf8')) as { features: Features }[];
 const rows = fixture.map((r) => r.features).filter((f) => Number.isFinite(f.gapPips) && Number.isFinite(f.realizedVolBps)).slice(0, 200);
-const versions: TabularVersion[] = (['oniblock1', 'v1', 'v2'] as const).filter((v) => existsSync(defaultTabularPath(v)));
+const versions: TabularVersion[] = ['oniblock1'];
 const ask = (state: unknown, model?: string) => handleSystemOne({ model, state, questions: KEV_QUESTIONS });
 
-describe('System One endpoint for the tree models', () => {
+describe('System One endpoint for the tree model (oniblock1)', () => {
   it.each(versions)('%s: noul equals the in-process prediction exactly', (v) => {
     const m = loadTabularModel(defaultTabularPath(v))!;
     for (const f of rows) {
@@ -51,6 +51,11 @@ describe('System One endpoint for the tree models', () => {
   it('rejects what tree models cannot answer', () => {
     expect(ask('price_gap: ...', 'oniblock1').status).toBe(400); // text state
     expect(ask(rows[0], 'kev-latest').status).toBe(400); // unknown model
+    for (const gone of ['tabular-v1', 'tabular-v2', 'v1', 'v2']) {
+      const r = ask(rows[0], gone); // removed models: unknown, not a silent oniblock1 answer
+      expect(r.status).toBe(400);
+      expect((r.body as { error: string }).error).toBe(`unknown model ${gone}`);
+    }
     expect(ask({ gapSign: 1 }, 'oniblock1').status).toBe(400); // missing fields
     expect(handleSystemOne({ state: rows[0], questions: { regime: { type: 'choice' } } }).status).toBe(400);
     expect(handleSystemOne({ state: rows[0], questions: { informed: { type: 'boolean' } } }).status).toBe(400);
@@ -71,15 +76,15 @@ describe('System One endpoint for the tree models', () => {
   });
 
   it('400 listing every missing / non-finite field the requested model needs (derived from its inputs)', () => {
-    const v1 = loadTabularModel(defaultTabularPath('v1'))!;
+    const m = loadTabularModel(defaultTabularPath('oniblock1'))!;
     const f = rows[0]! as unknown as Record<string, unknown>;
     const drop = (o: Record<string, unknown>, ...ks: string[]) => Object.fromEntries(Object.entries(o).filter(([k]) => !ks.includes(k)));
     // imb_arb / abs_imbalance <- imbalance, log_size / sizeToDepth <- sizeToDepth (JSON NaN arrives as null)
-    const r = ask({ ...drop(f, 'imbalance'), sizeToDepth: null, nSwaps: 'many' }, 'tabular-v1');
+    const r = ask({ ...drop(f, 'imbalance'), sizeToDepth: null, nSwaps: 'many' }, 'oniblock1');
     expect(r.status).toBe(400);
     expect((r.body as { fields: string[] }).fields).toEqual(['imbalance', 'nSwaps', 'sizeToDepth']);
     expect((r.body as { error: string }).error).toMatch(/imbalance, nSwaps, sizeToDepth/);
-    expect(invalidTabularFields({ ...f, arbShare: Number.POSITIVE_INFINITY }, v1.features)).toEqual(['arbShare']);
+    expect(invalidTabularFields({ ...f, arbShare: Number.POSITIVE_INFINITY }, m.features)).toEqual(['arbShare']);
     // v2 fields are optional (absent = no mid history = 0) but must be finite when present, for a model that uses them
     const users = versions.filter((v) => loadTabularModel(defaultTabularPath(v))!.features.includes('ret900Bps'));
     for (const v of users) {
@@ -90,8 +95,8 @@ describe('System One endpoint for the tree models', () => {
       // sgap <- gapSign & gapPips
       expect((ask({ ...f, gapSign: 'x' }, tabularModelName(v)).body as { fields: string[] }).fields).toContain('gapSign');
     }
-    // tabular-v1 does not read ret900Bps: a bad value there is not its business
-    expect(ask({ ...f, ret900Bps: null }, 'tabular-v1').status).toBe(200);
+    // a model without ret900Bps among its inputs does not check it: a bad value there is not its business
+    expect(invalidTabularFields({ ...f, ret900Bps: null }, m.features.filter((n) => n !== 'ret900Bps'))).toEqual([]);
   });
 
   it('a model that fails to load is a 503 with the message, never an exception (request and /health)', () => {
@@ -102,7 +107,7 @@ describe('System One endpoint for the tree models', () => {
     expect(r.status).toBe(503);
     expect((r.body as { error: string }).error).toMatch(/oniblock1 failed to load: tabular model x.json: unknown features mystery/);
     expect(handleSystemOne({ state: rows[0], questions: KEV_QUESTIONS }, 'oniblock1', () => null).status).toBe(503); // no file
-    const h = systemOneHealth(['oniblock1', 'v1'], broken);
+    const h = systemOneHealth(['oniblock1'], broken);
     expect(h.status).toBe(503);
     expect(h.body).toMatchObject({ ok: false, error: expect.stringMatching(/unknown features mystery/) });
     expect(systemOneHealth().status).toBe(200);
@@ -131,7 +136,7 @@ describe('System One HTTP server', () => {
   it('GET /health lists the models with their sha256 (ENS model-hash)', async () => {
     const h = (await (await fetch(`${url}/health`)).json()) as { ok: boolean; default: string; models: { name: string; sha256: string }[] };
     expect(h.ok).toBe(true);
-    expect(h.models.map((m) => m.name)).toEqual(['oniblock1', 'tabular-v1']);
+    expect(h.models.map((m) => m.name)).toEqual(['oniblock1']);
     if (!process.env.TABULAR_MODEL) expect(h.default).toBe('oniblock1');
     for (const m of h.models) expect(m.sha256).toMatch(/^[0-9a-f]{64}$/);
   });

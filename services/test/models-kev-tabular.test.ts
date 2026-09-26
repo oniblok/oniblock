@@ -9,25 +9,39 @@ import { defaultModelName } from '../src/keeper.js';
 
 const base: Features = { gapPips: 0, gapSign: 0, imbalance: 0, sizeToDepth: 0, realizedVolBps: 0, attestationAge: 1, nSwaps: 5, arbShare: 0, baseFee: 500 };
 
-describe('tabular-v1 (LightGBM JSON, pure TS)', () => {
+describe('oniblock1 (LightGBM JSON, pure TS)', () => {
   const m = loadTabularModel()!;
   it('loads the exported model', () => {
     expect(m).not.toBeNull();
+    expect(m.name).toBe('oniblock1');
+    expect(m.features).toHaveLength(17);
     expect(m.trees.length).toBeGreaterThan(10);
   });
-  it('matches LightGBM predictions on real test rows (ml/src/export_tabular.py fixtures)', () => {
-    const fx = JSON.parse(readFileSync(resolve(__dirname, 'fixtures', 'tabular-v1-parity.json'), 'utf8')) as { features: Features; p: number }[];
-    expect(fx.length).toBe(50);
-    for (const { features, p } of fx) expect(predictTabular(m, features)).toBeCloseTo(p, 6);
+  it('matches the Python evaluator on real rows (ml/src/oniblock1_parity_fixture.py) to 1e-9', () => {
+    const fx = JSON.parse(readFileSync(resolve(__dirname, 'fixtures', 'oniblock1-parity.json'), 'utf8')) as {
+      model: string; inputs: string[]; rows: { features: Features; x: number[]; p: number }[];
+    };
+    expect(fx.model).toBe(m.name);
+    expect(fx.inputs).toEqual(m.features);
+    expect(fx.rows.length).toBe(100);
+    for (const { features, x, p } of fx.rows) {
+      const tx = tabularInputs(features, m.features);
+      tx.forEach((v, i) => expect(Math.abs(v - x[i]!)).toBeLessThanOrEqual(1e-9));
+      expect(Math.abs(predictTabular(m, features) - p)).toBeLessThanOrEqual(1e-9);
+    }
+    // the fixture covers both sides of the charge threshold
+    expect(fx.rows.some((r) => r.p >= m.chargeThreshold!)).toBe(true);
+    expect(fx.rows.some((r) => r.p < m.chargeThreshold!)).toBe(true);
   });
-  it('is orientation-free: flipping gapSign and imbalance together leaves p unchanged', () => {
+  it('the orientation-free inputs are unchanged when gapSign and imbalance flip together (sgap and the returns are not)', () => {
     const f = { ...base, gapPips: 700, gapSign: 1, imbalance: -0.4, nSwaps: 12, arbShare: 0.6, realizedVolBps: 2, sizeToDepth: 3e-5 };
-    expect(tabularInputs(f)).toEqual(tabularInputs({ ...f, gapSign: -1, imbalance: 0.4 }));
+    const free = m.features.filter((n) => n !== 'sgap');
+    expect(tabularInputs(f, free)).toEqual(tabularInputs({ ...f, gapSign: -1, imbalance: 0.4 }, free));
   });
   it('is k-free (the base fee is the cost, as in training), has confidence 1, and rises with the edge', () => {
     const f = { ...base, gapPips: 900, gapSign: 1, nSwaps: 15, arbShare: 0.7, realizedVolBps: 2, sizeToDepth: 3e-5 };
-    expect(tabularInputs({ ...f, arbFeePips: 800, kBps: 4000 })).toEqual(tabularInputs(f));
-    expect(tabularInputs(f)[1]).toBe(400);
+    expect(tabularInputs({ ...f, arbFeePips: 800, kBps: 4000 }, m.features)).toEqual(tabularInputs(f, m.features));
+    expect(tabularInputs(f, ['edgePips'])[0]).toBe(400);
     expect(scoreTabular({ ...f, arbFeePips: 800, kBps: 4000 })).toMatchObject({ pToxicBps: scoreTabular(f)!.pToxicBps, confidenceBps: 10_000 });
     const lo = scoreTabular({ ...f, gapPips: 50 })!;
     const hi = scoreTabular({ ...f, gapPips: 2500 })!;
@@ -73,7 +87,7 @@ describe('kev client (System One noul)', () => {
   it('model node names', () => {
     expect(kevModelName('0.8b')).toBe('kev-v1.models.oniblock.eth');
     expect(kevModelName('4b')).toBe('kev4b-v1.models.oniblock.eth');
-    expect(defaultModelName('tabular')).toBe('tabular-v1.models.oniblock.eth');
+    expect(defaultModelName('tabular')).toBe('oniblock1.models.oniblock.eth');
     expect(defaultModelName('oniblock1')).toBe('oniblock1.models.oniblock.eth');
     expect(defaultModelName('auto')).toBe('jev-v1.models.oniblock.eth');
   });

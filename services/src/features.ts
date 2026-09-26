@@ -120,7 +120,7 @@ export interface FeatureInput {
   tObsMs?: number;
   /** Training-exact Binance klines around t_obs (klinemids.ts fetchKlineMids; needs `tObsMs`). When given,
    *  realizedVolBps and the MidFeatures come from them (computeKlineMidFeatures, ml/src/common.py Mids semantics)
-   *  instead of recentMids / midHistory. Only the v2 models (kev2, tabular-v2, oniblock1) get it. */
+   *  instead of recentMids / midHistory. Only the v2 models (kev2, oniblock1) get it. */
   klineMids?: KlineMids;
 }
 

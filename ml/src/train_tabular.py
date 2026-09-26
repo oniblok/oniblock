@@ -1,6 +1,9 @@
 """Tabular baselines on dataset B: base rate, services heuristic (port), logistic regression, LightGBM, XGBoost, TabPFN.
-Model selection / early stopping on val only; writes test (and val) predictions to ml/models/preds_<name>.parquet and
-the fitted models to ml/models/. Latency = single-row predict wall time (median over 200 rows).
+Model selection / early stopping on val only. Latency = single-row predict wall time (median over 200 rows).
+This is the v1 pipeline, kept for reproducibility: a re-run writes the test (and val) predictions preds_<name>_<split>.parquet,
+the fitted models <name>.pkl and tabular_results.json to ml/runs/tabular-v1/ (gitignored), never over the stored results
+in ml/models/ (which ml/src/evaluate.py reads). The repo ships no v1 weights; the production model is oniblock1
+(ml/src/train_tabular_v2.py).
 
 usage: python train_tabular.py [--no-tabpfn] [--train-extra o23]
 """
@@ -11,9 +14,12 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import make_pipeline
 import lightgbm as lgb
 import xgboost as xgb
-from common import DATA, MODELS
+from common import DATA, ML
 from make_splits import FEATURES
 from metrics import all_metrics
+
+
+OUT = ML / "runs" / "tabular-v1"
 
 
 def X(df):
@@ -32,10 +38,11 @@ def latency(fn, df, n=200):
 
 
 def save(name, split, df, p, lat):
-    pd.DataFrame({"pool": df.pool.values, "block": df.block.values, "y": df.y.values, "p": np.asarray(p, float), "latency_ms": lat}).to_parquet(MODELS / f"preds_{name}_{split}.parquet", index=False)
+    pd.DataFrame({"pool": df.pool.values, "block": df.block.values, "y": df.y.values, "p": np.asarray(p, float), "latency_ms": lat}).to_parquet(OUT / f"preds_{name}_{split}.parquet", index=False)
 
 
 def main(argv):
+    OUT.mkdir(parents=True, exist_ok=True)
     tr, va, te = (pd.read_parquet(DATA / f"{s}.parquet") for s in ("train", "val", "test"))
     tag = ""
     if "--train-extra" in argv:
@@ -53,7 +60,7 @@ def main(argv):
             res[f"{name}{tag}/{split}"] = {**all_metrics(np.asarray(p), df.y.values.astype(float), rate), "latency_ms": lat}
         print(name + tag, json.dumps(res[f"{name}{tag}/val"]), flush=True)
         if fitted is not None:
-            pickle.dump(fitted, open(MODELS / f"{name}{tag}.pkl", "wb"))
+            pickle.dump(fitted, open(OUT / f"{name}{tag}.pkl", "wb"))
 
     if not tag:
         run("baserate", lambda d: np.full(len(d), rate))
@@ -92,7 +99,7 @@ def main(argv):
             res[f"tabpfn/{split}"] = {**all_metrics(p, df.y.values.astype(float), rate), "latency_ms": lat}
         print("tabpfn", json.dumps(res["tabpfn/val"]), "device", dev, "secs", round(time.time() - t0), flush=True)
         res["tabpfn_info"] = {"device": dev, "context_rows": len(sub), "n_estimators": 4}
-    json.dump(res, open(MODELS / f"tabular_results{tag}.json", "w"), indent=1)
+    json.dump(res, open(OUT / f"tabular_results{tag}.json", "w"), indent=1)
 
 
 if __name__ == "__main__":
