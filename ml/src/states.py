@@ -71,3 +71,22 @@ def heuristic_p(f):
     z = (-1.0 + 2.2 * max(-1.5, min(3, edge)) + 0.9 * abs(f["imbalance"]) * (1 if f["gapPips"] > base / 2 else -0.5)
          + 0.8 * min(1, f["realizedVolBps"] / 5) + 0.6 * f["arbShare"] + 3.0 * min(0.2, f["sizeToDepth"]))
     return round(sig(z) * 10_000) / 10_000  # pToxicBps resolution
+
+
+def _sg(x, d):
+    s = _fx(x, d)
+    return s if s.startswith("-") else "+" + s
+
+
+def features_to_state_kev2(f, base_is_token0=False):
+    """State text format 'kev2' (services/src/features.ts featuresToState(f, {format: 'kev2'})): the 8 base-fee lines of
+    features_to_state (hook fee fields ignored, byte-identical to the v1 training text) + 3 lines from the past-only
+    CEX features edgeSigma, vol5mBps, ret12Bps, ret36Bps, ret900Bps (read as given; not recomputed)."""
+    base = {k: v for k, v in f.items() if k not in ("arbFeePips", "kBps", "arbThresholdPips")}
+    lines = [
+        features_to_state(base, base_is_token0),
+        f"edge_in_volatility: arb edge at the base fee is {_sg(f['edgeSigma'], 2)} typical 12 s Binance moves.",
+        f"cex_volatility_5m: {_fx(f['vol5mBps'], 2)} bps per interval over the last 5 minutes.",
+        f"cex_trend: Binance moved {_sg(f['ret12Bps'], 2)} bps over 12 s, {_sg(f['ret36Bps'], 2)} bps over 36 s and {_sg(f['ret900Bps'], 2)} bps over 15 min in the arbitrage direction (positive = the gap is widening).",
+    ]
+    return "\n".join(lines)

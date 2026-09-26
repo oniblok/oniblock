@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # One-shot Sepolia deploy: ENSv2 (commit -> wait 61 s -> finish), hook + pools, pool records, the live wildcard
 # resolver (add-live) + ENSIP-26 endpoints (set-endpoints), wiring checks, and an ENSIP-10 wildcard check through the
-# UniversalResolverV2. Writes deployments/11155111.ens.json and deployments/11155111.json (what CHAIN=sepolia
-# services/app read).
+# UniversalResolverV2. On an existing ENS setup it also registers the default model names the setup predates (add-model
+# for kev-v1 / oniblock1) and prints (never sends) the setModelAllowed txs a hook would still need. Writes
+# deployments/11155111.ens.json and deployments/11155111.json (what CHAIN=sepolia services/app read).
 #
 #   scripts/deploy-sepolia.sh                 real broadcast to Sepolia (needs funded DEPLOYER)
 #   REHEARSE=1 scripts/deploy-sepolia.sh      same steps on a local anvil fork of Sepolia with the real keys
@@ -50,11 +51,8 @@ echo "[sepolia] rpc $([ "$REHEARSE" = 1 ] && echo "fork $RPC" || echo sepolia), 
 # 1-3. ENSv2 ---------------------------------------------------------------------------------------
 SECRET_FILE="$ROOT/.runtime/ens-secret"; [ "$REHEARSE" = 1 ] && SECRET_FILE="$SECRET_FILE.rehearsal"
 [ -s "$SECRET_FILE" ] || cast keccak "$(openssl rand -hex 32)" >"$SECRET_FILE" # reuse on retry: commit must match finish
-ens_phase() {
-  ( cd "$ROOT/contracts" && env ENS_PHASE="$1" ENS_OWNER="$DEPLOYER_ADDR" ENS_QUOTER="$QUOTER_ADDR" ENS_SETTLER="$SETTLER_ADDR" \
-      ENS_SECRET="$(cat "$SECRET_FILE")" ENS_OUT="$ENS_OUT" ENS_DEPLOYMENT_JSON="$DEP_OUT" \
-      forge script script/EnsSetup.s.sol --rpc-url "$RPC" --private-key "$DEPLOYER_PK" --broadcast --slow --non-interactive ) >>"$LOGS/ens.log" 2>&1
-}
+# ens_phase / dns_encode / ur_text / lower and the default model records (KEV_* / ONI_*): scripts/sepolia-ens.sh
+source "$ROOT/scripts/sepolia-ens.sh"
 if [ -s "$ENS_OUT" ] && [ "${FORCE_ENS:-0}" != 1 ]; then
   echo "[sepolia] ENS already set up ($(basename "$ENS_OUT")), skipping (FORCE_ENS=1 to redo)"
 else
@@ -63,9 +61,29 @@ else
   echo "[sepolia] ENS finish (register $ENS_NAME, subregistries, roles, resolver, EnsV2RoleOracle)..."
   ens_phase finish || { tail -20 "$LOGS/ens.log"; exit 1; }
 fi
-# v5: the settler also writes calibration.jit.* records; grant those setter roles on an existing setup (no-op if held).
-echo "[sepolia] ENS grant-jit (calibration.jit.* setter roles for the settler)..."
+# the settler also writes calibration.jit.* (v5) and calibration.chargeThreshold records; grant every settler key on an
+# existing setup (no-op for keys already held).
+echo "[sepolia] ENS grant-jit (calibration.* + calibration.jit.* setter roles for the settler)..."
 ens_phase grant-jit || { tail -20 "$LOGS/ens.log"; exit 1; }
+
+# 3b. default model names an existing setup predates (idempotent) -----------------------------------
+# A setup registered before kev-v1 / oniblock1 existed skips `finish` above, so they are added here with add-model and
+# the same records `finish` writes (EnsSetup._writeRecords; keep these strings in sync). The ens json cannot tell
+# whether a name exists (its namehashes list always includes the default names), so the check is on chain: a name is
+# up to date when the UR resolves its model-hash to the expected value. add-model is idempotent itself (registration
+# skipped when the name exists, records rewritten only when they differ, grants only when missing).
+add_model() { # label hash description context
+  local name="$1.models.$ENS_NAME"
+  if model_hash_ok "$1" "$2"; then
+    echo "[sepolia] ENS $name up to date (model-hash $2)"; return 0
+  fi
+  echo "[sepolia] ENS add-model $1 (model-hash $2)..."
+  ens_phase add-model ENS_MODEL_LABEL="$1" ENS_MODEL_OWNER="$DEPLOYER_ADDR" ENS_MODEL_HASH="$2" \
+    ENS_MODEL_DESCRIPTION="$3" ENS_MODEL_CONTEXT="$4" || { tail -20 "$LOGS/ens.log"; exit 1; }
+}
+add_model kev-v1 "$KEV_HASH" "$KEV_DESC" "$KEV_CTX"
+add_model oniblock1 "$ONI_HASH" "$ONI_DESC" "$ONI_CTX"
+
 ROLE_ORACLE=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["roleOracle"])' "$ENS_OUT")
 RESOLVER=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["resolver"])' "$ENS_OUT")
 echo "[sepolia] roleOracle $ROLE_ORACLE"
@@ -82,6 +100,21 @@ echo "[sepolia] DeploySepolia (init price $INIT_PRICE_USD_E8 e8)..."
 HOOK=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["hook"])' "$DEP_OUT")
 POOL_ID=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["pools"]["oniblock"]["poolId"])' "$DEP_OUT")
 
+# 4b. model allowlist on the hook -------------------------------------------------------------------
+# DeployBase allowlists jev-v1 / heuristic-v1 / oniblock1 on a new hook (unless MODEL_NODES overrides it). kev-v1 is
+# registered in ENS (above) but deliberately not allowlisted: an allowlisted node has fee power from its first attestation.
+# Anything still missing is an owner tx on a live hook: printed for the owner to run, never sent from here.
+MISSING_ALLOW=0
+for m in jev-v1 heuristic-v1 oniblock1; do
+  node=$(cast namehash "$m.models.$ENS_NAME")
+  if [ "$(cast call --rpc-url "$RPC" "$HOOK" 'modelAllowed(bytes32,bytes32)(bool)' "$POOL_ID" "$node")" != true ]; then
+    [ "$MISSING_ALLOW" = 1 ] || echo "[sepolia] hook $HOOK does not allowlist every default model; as the hook owner run:"
+    MISSING_ALLOW=1
+    echo "  cast send --rpc-url \"\$SEPOLIA_RPC_HTTPS\" --private-key \"\$DEPLOYER_PK\" $HOOK \"setModelAllowed(bytes32,bytes32,bool)\" $POOL_ID $node true  # $m"
+  fi
+done
+[ "$MISSING_ALLOW" = 1 ] || echo "[sepolia] hook allowlists jev-v1, heuristic-v1, oniblock1"
+
 # 5. pool records ------------------------------------------------------------------------------------
 POOL_DNS=$(cd "$ROOT/services" && pnpm -s exec tsx -e "import {dnsEncode} from './src/ens.ts'; console.log(dnsEncode('weth-usdc.pools.$ENS_NAME'))")
 cast send --rpc-url "$RPC" --private-key "$DEPLOYER_PK" "$RESOLVER" "multicall(bytes[])" \
@@ -91,7 +124,7 @@ cast send --rpc-url "$RPC" --private-key "$DEPLOYER_PK" "$RESOLVER" "multicall(b
 # 5b. live wildcard resolver + ENSIP-26 endpoints (both idempotent) ---------------------------------
 # add-live deploys OniblockLiveResolver for this hook/pool (reused on re-runs), registers `live.$ENS_NAME` with it (or
 # repoints an existing `live`), sets the known model labels. set-endpoints writes agent-endpoint[web] on jev-v1 and
-# heuristic-v1 (and kev-v1 when ENS_ENDPOINT_KEV is set) if they differ.
+# heuristic-v1 (and kev-v1 / oniblock1 when ENS_ENDPOINT_KEV / ENS_ENDPOINT_ONIBLOCK1 is set) if they differ.
 echo "[sepolia] ENS add-live (OniblockLiveResolver: *.live.$ENS_NAME wildcard-resolved from the hook)..."
 ens_phase add-live || { tail -20 "$LOGS/ens.log"; exit 1; }
 echo "[sepolia] ENS set-endpoints (ENSIP-26 agent-endpoint[web] on jev-v1 / heuristic-v1)..."
@@ -111,16 +144,7 @@ echo "[sepolia] isQuoter=$Q isSettler=$S hook.roleOracle==roleOracle: $([ "$(ech
 # `<label>.live.$ENS_NAME` has no resolver of its own: the UR must walk up to `live`, see IExtendedResolver on
 # OniblockLiveResolver and call resolve(fullName, data) there. Plain eth_calls (the resolver is ERC-7996, so the UR
 # calls it directly, no CCIP batch gateway); decoded values are printed. Fails loudly if the UR does not wildcard.
-dns_encode() { (cd "$ROOT/services" && pnpm -s exec tsx -e "import {dnsEncode} from './src/ens.ts'; console.log(dnsEncode('$1'))"); }
-ur_text() { # name key -> "<value>\t<resolver>", non-zero if the UR call fails
-  local out
-  out=$(cast call --rpc-url "$RPC" "$ENS_UNIVERSAL_RESOLVER" "resolve(bytes,bytes)(bytes,address)" \
-        "$(dns_encode "$1")" "$(cast calldata 'text(bytes32,string)' "$(cast namehash "$1")" "$2")" 2>&1) || { printf '%s\n' "$out"; return 1; }
-  local data resolver
-  data=$(printf '%s\n' "$out" | sed -n 1p); resolver=$(printf '%s\n' "$out" | sed -n 2p)
-  printf '%s\t%s\n' "$(cast abi-decode 'r()(string)' "$data" | sed -e 's/^"//' -e 's/"$//')" "$resolver"
-}
-lower() { tr 'A-F' 'a-f' <<<"$1"; }
+# (dns_encode / ur_text / lower: scripts/sepolia-ens.sh)
 WILDCARD_OK=1
 for spec in "jev-v1.live.$ENS_NAME status" "weth-usdc.live.$ENS_NAME k" "weth-usdc.live.$ENS_NAME fee-zero-for-one" \
             "current.live.$ENS_NAME model-node" "live.$ENS_NAME pool"; do

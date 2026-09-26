@@ -19,6 +19,7 @@
 #                            historical price would fall outside it) | replay (sets CHAINLINK_ETH_USD=0 -> band off)
 #   SETTLE_EVERY=5 CALIB_WINDOW=8 CALIB_MIN_N=3 RETAIL_LAMBDA=1 MODEL_MODE=auto APP_CMD=<start if built, else dev>
 #   SKIP_APP=1 (headless kill switch then uses the same ENS calls with cast)
+#   APP_HOST=127.0.0.1 (app bind address; loopback keeps LAN peers off /api/dev/*, 0.0.0.0 exposes them)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

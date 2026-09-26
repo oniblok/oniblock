@@ -18,7 +18,9 @@
  *     `--degrade-at B` switches the keeper to the degraded model after B blocks to exercise the
  *     calibration gate (default: 60% of the run; 0 disables).
  *  5. After N blocks: final settle, then assertions over the emitted events:
- *     - attestations posted in >= 70% of blocks
+ *     - attestations posted in >= 70% of blocks (KEEPER_POST=change: instead, no gap between consecutive attestations
+ *       longer than staleBlocks: the default heartbeat staleBlocks - 2 lands a post staleBlocks - 1 blocks after the
+ *       last one, so one missed / late tick still fits and the pool stays fresh)
  *     - swaps happened; every Receipt obeys the fee law given its anchored (gap, k):
  *         arbDir && !stale -> fee == min(base + max(0, gap - arbThresholdPips)*k/1e4, feeMax) (v3 threshold law;
  *         threshold read from hook.poolConfig); !arbDir && !stale -> fee == base
@@ -220,7 +222,13 @@ async function main() {
   // v4: Jev is asked every block (~0.5-1 s live), so on 1 s test blocks the keeper can miss ~40% of blocks (harmless:
   // staleBlocks >= 5). Require 70% coverage on >= 2 s blocks, 55% on faster ones.
   const minCoverage = BLOCK_TIME >= 2 ? 0.7 : 0.55;
-  if (attBlocks.size < minCoverage * BLOCKS) failures.push(`attestations in only ${attBlocks.size}/${BLOCKS} blocks (< ${minCoverage * 100}%)`);
+  const postChange = process.env.KEEPER_POST === 'change';
+  const staleBlocks = Number(((await pc.readContract({ address: d.hook, abi: oniblockHookAbi, functionName: 'poolConfig', args: [pool.poolId] })) as { staleBlocks: number }).staleBlocks);
+  const mined = [...attBlocks].sort((x, y) => x - y);
+  const maxAttestGap = mined.reduce((m, b, i) => (i ? Math.max(m, b - mined[i - 1]!) : m), 0);
+  if (!postChange && attBlocks.size < minCoverage * BLOCKS) failures.push(`attestations in only ${attBlocks.size}/${BLOCKS} blocks (< ${minCoverage * 100}%)`);
+  // Heartbeat default staleBlocks - 2 (keeperPostPolicy): nominal mined gap staleBlocks - 1, one missed/late tick = staleBlocks.
+  if (postChange && (atts.length === 0 || maxAttestGap > staleBlocks)) failures.push(`KEEPER_POST=change: ${atts.length} attestations, max gap ${maxAttestGap} blocks (> staleBlocks ${staleBlocks})`);
   if (receipts.length === 0) failures.push('no swaps (Receipt events) on the Oniblock pool');
   let lawViolations = 0;
   let belowThrArb = 0;
@@ -257,6 +265,9 @@ async function main() {
     blocks: endBlock - startBlock,
     attestations: atts.length,
     attestedBlocks: attBlocks.size,
+    keeperPost: postChange ? 'change' : 'every',
+    maxAttestGap,
+    staleBlocks,
     receipts: receipts.length,
     arbReceipts: receipts.filter((r) => r.arbDir).length,
     arbThresholdPips: thr,

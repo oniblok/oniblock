@@ -37,6 +37,74 @@ export class DevError extends Error {
   }
 }
 
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+function hostnameOf(hostHeader: string | null): string | undefined {
+  if (!hostHeader) return undefined;
+  try {
+    return new URL(`http://${hostHeader}`).hostname.toLowerCase();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Request checks for /api/dev/*: these routes sign owner/swapper txs server-side, so a page on another site must not
+ * be able to drive them through the viewer's browser. What these checks protect against is browser-borne requests:
+ *  - Host must be loopback (or listed in APP_DEV_HOSTS, comma-separated): blocks DNS rebinding (an attacker's name
+ *    re-pointed at 127.0.0.1 still sends its own Host).
+ *  - Writes: content-type must be application/json (a cross-site JSON POST needs a CORS preflight, which is never
+ *    granted), and a browser's Origin / Sec-Fetch-Site must say same-origin. Non-browser local clients (curl) send
+ *    neither header and pass.
+ * They do NOT keep out other machines: Host is chosen by the client, so a LAN peer with curl can send
+ * `Host: localhost:3000` and pass. What keeps LAN peers out is the loopback bind: `pnpm dev` / `pnpm start` listen on
+ * APP_HOST, default 127.0.0.1 (app/package.json). Binding elsewhere (APP_HOST=0.0.0.0) exposes these routes to the
+ * network.
+ */
+export function assertDevRequest(req: Request, opts: { write: boolean }): void {
+  const host = hostnameOf(req.headers.get('host'));
+  const extra = (process.env.APP_DEV_HOSTS ?? '')
+    .split(',')
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean);
+  if (!host || !(LOOPBACK_HOSTS.has(host) || extra.includes(host))) {
+    throw new DevError('dev controls only answer on localhost (set APP_DEV_HOSTS to allow another host name)', 403);
+  }
+  if (!opts.write) return;
+  const ct = (req.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase();
+  if (ct !== 'application/json') throw new DevError('content-type must be application/json', 415);
+  const site = req.headers.get('sec-fetch-site');
+  if (site && site !== 'same-origin') throw new DevError('cross-site request refused', 403);
+  const origin = req.headers.get('origin');
+  if (origin) {
+    let o: URL | undefined;
+    try {
+      o = new URL(origin);
+    } catch {
+      o = undefined;
+    }
+    if (!o || o.host.toLowerCase() !== (req.headers.get('host') ?? '').toLowerCase()) throw new DevError('cross-origin request refused', 403);
+  }
+}
+
+/** Parse a JSON body; malformed JSON is a 400, not a 500. */
+export async function devJson<T>(req: Request): Promise<T> {
+  let v: unknown;
+  try {
+    v = await req.json();
+  } catch {
+    throw new DevError('body must be valid JSON');
+  }
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) throw new DevError('body must be a JSON object');
+  return v as T;
+}
+
+/** Largest dev swap, in base-token units (APP_DEV_SWAP_MAX, default 100). */
+function devSwapMax(): number {
+  const v = Number(process.env.APP_DEV_SWAP_MAX ?? 100);
+  return Number.isFinite(v) && v > 0 ? v : 100;
+}
+
 export async function devCtx(): Promise<Ctx> {
   if (process.env.APP_DEV_CONTROLS === '0') throw new DevError('dev controls disabled (APP_DEV_CONTROLS=0)', 403);
   const c = await ctx();
@@ -71,6 +139,7 @@ export async function devSwap(req: SwapReq) {
   const c = await devCtx();
   if (!c.d.splitSwapRouter) throw new DevError('deployment has no splitSwapRouter');
   if (!(req.size > 0) || !Number.isFinite(req.size)) throw new DevError('size must be > 0');
+  if (req.size > devSwapMax()) throw new DevError(`size must be <= ${devSwapMax()} (APP_DEV_SWAP_MAX)`);
   const o = order(c);
   const id = c.d.oniblock.poolId;
   const ps = await tryRead<readonly [Record<string, unknown>, Record<string, unknown>, boolean]>(c, 'poolState', [id]);

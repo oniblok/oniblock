@@ -9,6 +9,10 @@
  *   --base-fee P (3000) --thr P (base + 300; arm b only) --b500 true|false (true) --ai-kmax BPS (8000)
  *   --ai-kstep BPS (8000) --ai-kdefault BPS (0) --dz BPS (500; arm f) --budget N (250 live Jev calls per run, hard cap)
  *   --steps N (1200) --jev jev|heuristic --deadband-usd USD (0) --deadband-bps BPS (0) --out DIR (results_v4)
+ * Keeper (services/src/postPolicy.ts rule + cost accounting; the defaults reproduce the earlier results):
+ *   --post every|change (every) --post-mid-bps BPS (2) --post-k-bps BPS (500) --post-jit-blocks N (5) --post-p-bps BPS (1000)
+ *   --heartbeat BLOCKS (staleBlocks - 1) --keeper-lag STEPS (1) --keeper-every STEPS (1; 12 = one keeper turn per
+ *   12 s mainnet block) --keeper-gas-gwei G (1) --eth-usd USD (window mean mid for ETH, else 2500)
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -84,7 +88,17 @@ const base: Omit<RunConfigV4, 'label' | 'path' | 'port'> = {
   // 0/0 reproduces results_v4 (sign-only labels); the live settler defaults to $1 / 1 bp (DESIGN §12)
   deadbandUsd: num('deadband-usd', 0),
   deadbandBps: num('deadband-bps', 0),
+  postMode: (a.post as 'every' | 'change') ?? 'every',
+  postMidBps: num('post-mid-bps', 2),
+  postKBps: num('post-k-bps', 500),
+  postJitBlocks: num('post-jit-blocks', 5),
+  postPBps: num('post-p-bps', 1000),
+  heartbeatBlocks: a.heartbeat !== undefined ? Number(a.heartbeat) : undefined,
+  keeperEvery: num('keeper-every', 1),
+  keeperGasGwei: num('keeper-gas-gwei', 1),
+  ethUsd: a['eth-usd'] !== undefined ? Number(a['eth-usd']) : undefined,
 };
+if (base.postMode !== 'every' && base.postMode !== 'change') throw new Error(`--post must be every|change, got ${String(base.postMode)}`);
 
 const t0 = Date.now();
 const round = (_k: string, v: unknown) => (typeof v === 'number' ? (Number.isFinite(v) ? Math.round(v * 1e4) / 1e4 : null) : v);

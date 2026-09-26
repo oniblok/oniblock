@@ -29,10 +29,20 @@ const idx = attestationIndex(atts);
 
 const rows: Record<string, unknown>[] = [];
 for (const horizon of [0, 1]) {
+  // Same attestation matching as the settler: each receipt's own attestation (model + k + log order).
   const labels = labelBlocks(
     receipts.filter((r) => r.blockNumber < head),
-    (b) => (horizon === 0 ? idx.midInForce(b) : idx.midAfter(b)),
-    (r) => idx.pAt(r.blockNumber, r.modelNode),
+    (b, r) => (horizon === 0 ? idx.forReceipt(r)?.oracleMidX96 : idx.midAfter(b)),
+    (r) => {
+      const at = idx.forReceipt(r);
+      return at ? at.pToxicBps / 10_000 : undefined;
+    },
+    {
+      groupKey: (r) => {
+        const at = idx.forReceipt(r);
+        return at ? `${r.blockNumber}:${at.txHash}:${at.logIndex}` : `${r.blockNumber}:${r.modelNode}:unmatched`;
+      },
+    },
   );
   // Single node view (the keeper's primary model; others would be scored separately).
   const node = d.modelNode ?? labels[0]?.modelNode;
