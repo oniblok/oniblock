@@ -1,0 +1,31 @@
+{
+  "name": "@oniblock/app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev -p ${APP_PORT:-3000}",
+    "build": "tsc --noEmit && eslint . && next build",
+    "start": "next start -p ${APP_PORT:-3000}",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "next": "16.3.6",
+    "react": "^19",
+    "react-dom": "^19",
+    "server-only": "^0.0.1",
+    "viem": "^2.56.9"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.6",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
