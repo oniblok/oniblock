@@ -99,7 +99,6 @@ export interface RunConfigV4 {
   settleEvery: number;
   calibWindow: number;
   calibMinN: number;
-  minSamples: number;
   staleSteps: number;
   labelMid: 'attested' | 'true';
   bucketSteps: number;
@@ -218,10 +217,12 @@ export interface RunResultV4 {
   totals: Record<Pool, PoolTotals>;
   buckets: Record<Pool, PoolBuckets>;
   /**
-   * Model pools: share of k records (steps in the 1 s loop, blocks in block mode) with k forced to kDefault by
-   * demotion/probation, by half (t < degradeAtStep vs after).
+   * Model pools: share of k records (steps in the 1 s loop, blocks in block mode) with k forced to kDefault by Brier
+   * demotion, by half (t < degradeAt vs after); activeAtStep = first record with the node not demoted.
+   * seasonedAtStep: runs saved before PR #5 (probation removed) carry this instead of activeAtStep: the first record
+   * with the node past probation (n >= minSamples) and not demoted.
    */
-  demoted: Record<ModelPool, { firstHalf: number; secondHalf: number; seasonedAtStep: number | null }>;
+  demoted: Record<ModelPool, { firstHalf: number; secondHalf: number; activeAtStep: number | null; seasonedAtStep?: number | null }>;
   /**
    * 'records': demoted.* is divided by the number of k records in each half. Absent (block-mode runs saved before this
    * field existed): divided by the half's length in seconds, i.e. blockSec x too small in block mode.
@@ -354,7 +355,6 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
     const d: DeploymentV4 = await deployV4(anvil, {
       initMid: mids[0]!,
       liquidity,
-      minSamples: cfg.minSamples,
       staleBlocks: cfg.staleSteps * (cfg.blockMode ? 2 : 3),
       baseFee: cfg.baseFee,
       thrPips: cfg.thrPips,
@@ -414,7 +414,7 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
 
     // ---- keeper post policy: replicate the hook's setAttestation k / JIT window from the on-chain pool config, so
     // `now` in postDecision is exactly what a post would put in force (checked against every AttestationPosted k).
-    const hcfg = {} as Record<Hooked, { kMin: number; kMax: number; kDefault: number; maxKStep: number; staleBlocks: number; minSamples: number; brierDemote: number; jitMin: number; jitDefault: number }>;
+    const hcfg = {} as Record<Hooked, { kMin: number; kMax: number; kDefault: number; maxKStep: number; staleBlocks: number; brierDemote: number; jitMin: number; jitDefault: number }>;
     for (const n of HOOKED) {
       const c = (await pc.readContract({ address: d.hook, abi: hookAbi, functionName: 'poolConfig', args: [pools[n].id] })) as Record<string, number | bigint>;
       hcfg[n] = {
@@ -423,7 +423,6 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
         kDefault: Number(c.kDefaultBps),
         maxKStep: Number(c.maxKStepBps),
         staleBlocks: Number(c.staleBlocks),
-        minSamples: Number(c.minSamples),
         brierDemote: Number(c.brierDemoteBps),
         jitMin: Number(c.jitWindowMin),
         jitDefault: Number(c.jitWindowDefault),
@@ -569,13 +568,16 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
     const arbAtBase = Object.fromEntries(HOOKED.map((n) => [n, { atBase: 0, n: 0 }])) as Record<Hooked, { atBase: number; n: number }>;
     const isDemoted = (n: Hooked) => {
       const c = nodeCalib[nodeOf(n)];
-      return !c || c.n < cfg.minSamples || (demoteBps > 0 && c.brier > demoteBps);
+      return c !== undefined && c.n > 0 && demoteBps > 0 && c.brier > demoteBps; // allowlist + Brier only: no record => active
     };
-    /** OniblockHook._demoted(id, node, node) with the calibration the settler has posted (all models allowlisted). */
+    /**
+     * OniblockHook._demoted(id, node, node) with the calibration the settler has posted (all models allowlisted):
+     * demoted iff brierDemoteBps > 0 AND a record exists (n > 0) AND its Brier exceeds the threshold. No record =>
+     * active (no probation since PR #5).
+     */
     const hookDemoted = (n: Hooked) => {
       const c = nodeCalib[nodeOf(n)];
       const nn = c?.n ?? 0;
-      if (nn < hcfg[n].minSamples) return true;
       return hcfg[n].brierDemote !== 0 && nn !== 0 && c!.brier > hcfg[n].brierDemote;
     };
     /** The k setAttestation would store for score (p, c): kDefault if demoted, else step-limited toward kFromScore. */
@@ -586,9 +588,12 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
       const cur = pools[n].kBps;
       return target > cur ? Math.min(target, cur + h.maxKStep) : Math.max(target, cur - h.maxKStep);
     };
-    /** jitWindowFromScore with pJit = 0 (no JIT head in the benchmark; the JIT calibration key is never written). */
-    const hookJit = (n: Hooked) => (0 < hcfg[n].minSamples ? hcfg[n].jitDefault : hcfg[n].jitMin);
-    const demCount = Object.fromEntries(MODEL_POOLS.map((n) => [n, { a: 0, b: 0, seasoned: null as number | null }])) as Record<(typeof MODEL_POOLS)[number], { a: number; b: number; seasoned: number | null }>;
+    /**
+     * jitWindowFromScore with pJit = 0: no JIT head in the benchmark, so the JIT calibration key is never written
+     * (n = 0) and, the parent being allowlisted, isJitDemoted is false => window = jitWindowMin + span * 0 = jitWindowMin.
+     */
+    const hookJit = (n: Hooked) => hcfg[n].jitMin;
+    const demCount = Object.fromEntries(MODEL_POOLS.map((n) => [n, { a: 0, b: 0, active: null as number | null }])) as Record<(typeof MODEL_POOLS)[number], { a: number; b: number; active: number | null }>;
     const demRecords = { a: 0, b: 0 }; // k records per half: one per step (1 s loop) or per block (block mode)
     const kBk = Object.fromEntries(HOOKED.map((n) => [n, new Array(nB).fill(0)])) as Record<Hooked, number[]>;
     let missedPosts = 0;
@@ -840,7 +845,7 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
         const dm = isDemoted(n);
         if (t < degradeAt) demCount[n].a += dm ? 1 : 0;
         else demCount[n].b += dm ? 1 : 0;
-        if (!dm && demCount[n].seasoned === null) demCount[n].seasoned = t;
+        if (!dm && demCount[n].active === null) demCount[n].active = t;
       }
       for (const n of HOOKED) {
         kZero[n].steps++;
@@ -1266,7 +1271,7 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
       totals,
       buckets: Object.fromEntries(POOLS.map((n) => [n, pools[n].bk])) as Record<Pool, PoolBuckets>,
       demoted: Object.fromEntries(
-        MODEL_POOLS.map((n) => [n, { firstHalf: demCount[n].a / Math.max(1, h1), secondHalf: demCount[n].b / Math.max(1, h2), seasonedAtStep: demCount[n].seasoned }]),
+        MODEL_POOLS.map((n) => [n, { firstHalf: demCount[n].a / Math.max(1, h1), secondHalf: demCount[n].b / Math.max(1, h2), activeAtStep: demCount[n].active }]),
       ) as RunResultV4['demoted'],
       demotedDenom: 'records',
       kZero,

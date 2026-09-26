@@ -17,7 +17,7 @@
 #   DEMO_DURATION=0 (0 = interactive until Ctrl-C)   FORK_WARMUP_BLOCKS=30 (blocks before the kill-switch test)
 #   DEMO_PRICE_SOURCE=live   live Binance mid (default: the hook's Chainlink sanity band is ON, and a replayed
 #                            historical price would fall outside it) | replay (sets CHAINLINK_ETH_USD=0 -> band off)
-#   MIN_SAMPLES=3 SETTLE_EVERY=5 CALIB_WINDOW=8 RETAIL_LAMBDA=1 MODEL_MODE=auto APP_CMD=<start if built, else dev>
+#   SETTLE_EVERY=5 CALIB_WINDOW=8 CALIB_MIN_N=3 RETAIL_LAMBDA=1 MODEL_MODE=auto APP_CMD=<start if built, else dev>
 #   SKIP_APP=1 (headless kill switch then uses the same ENS calls with cast)
 #   APP_HOST=127.0.0.1 (app bind address; loopback keeps LAN peers off /api/dev/*, 0.0.0.0 exposes them)
 set -euo pipefail
@@ -31,7 +31,6 @@ BLOCK_TIME="${BLOCK_TIME:-3}"
 RPC="http://127.0.0.1:${FORK_PORT}"
 DEMO_DURATION="${DEMO_DURATION:-0}"
 PRICE_SOURCE="${DEMO_PRICE_SOURCE:-live}"
-MIN_SAMPLES="${MIN_SAMPLES:-3}"
 DEP_OUT="$ROOT/deployments/11155111.anvil-fork.json"
 ENS_OUT="$ROOT/deployments/11155111.anvil-fork.ens.json"
 # anvil default dev keys (PUBLIC; valid only on the fork). 0 owner/deployer, 1 quoter, 2 settler, 3 attestor,
@@ -130,7 +129,7 @@ PRE_DEPLOY_BLOCK="$(block_number)"
 deploy_hook() {
   ( cd "$ROOT/contracts" && env DEPLOYER_PK="$ANVIL0_PK" ROLE_ORACLE="$ROLE_ORACLE" V4_POOL_MANAGER="$V4_POOL_MANAGER" \
       CHAINLINK_ETH_USD="$CHAINLINK_ETH_USD" STATE_VIEW="$STATE_VIEW" QUOTER="${ANVIL_ADDRS[1]}" SETTLER="${ANVIL_ADDRS[2]}" \
-      ATTESTOR="${ANVIL_ADDRS[3]}" MIN_SAMPLES="$MIN_SAMPLES" LIQUIDITY="${LIQUIDITY:-50000000000000000}" \
+      ATTESTOR="${ANVIL_ADDRS[3]}" LIQUIDITY="${LIQUIDITY:-50000000000000000}" \
       INIT_PRICE_USD_E8="$INIT_PRICE_USD_E8" DEPLOYMENTS_OUT="$DEP_OUT" \
       forge script script/DeploySepolia.s.sol --rpc-url "$RPC" --broadcast --slow --non-interactive ) >"$LOGS/deploy.log" 2>&1
 }
@@ -156,7 +155,7 @@ export REPLAY_ORIGIN_BLOCK="$(block_number)"
 RUNTIME_FLAGS="$RUNTIME/keeper-flags.fork.json"
 printf '{\n  "degraded": false,\n  "useBackupQuoter": false\n}\n' >"$RUNTIME_FLAGS"
 export CHAIN=fork FORK_RPC="$RPC" DEPLOYMENTS_FILE="$DEP_OUT" ENS_DEPLOYMENT_FILE="$ENS_OUT" KEEPER_FLAGS_FILE="$RUNTIME_FLAGS"
-export MODEL_MODE="${MODEL_MODE:-auto}" SETTLE_EVERY="${SETTLE_EVERY:-5}" CALIB_WINDOW="${CALIB_WINDOW:-8}" CALIB_MIN_N="${CALIB_MIN_N:-$MIN_SAMPLES}"
+export MODEL_MODE="${MODEL_MODE:-auto}" SETTLE_EVERY="${SETTLE_EVERY:-5}" CALIB_WINDOW="${CALIB_WINDOW:-8}" CALIB_MIN_N="${CALIB_MIN_N:-3}"
 export RETAIL_LAMBDA="${RETAIL_LAMBDA:-1}"
 start keeper  pnpm -C services keeper
 start settler pnpm -C services settler

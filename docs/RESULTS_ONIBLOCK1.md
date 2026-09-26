@@ -53,6 +53,7 @@ Source: `benchmark/results_v4/coop-builder/results.md` (`benchmark/src/v4/coop4.
 - 6 one-hour windows: the 3 most volatile and 3 calm hours of Jul 28 – Sep 26 2026 (`benchmark/data/windows_v2.json`).
 - Results are per hour, net of keeper gas at 1 gwei, before any payment to the builder, with 95% Student-t intervals over the 6 windows (3 of them are calm hours at ≈ −0.01 bps/h by construction, so a bootstrap over 6 windows would be too narrow).
 - The benchmark hours (Aug 1 – Sep 11) fall inside oniblock1's train and validation dates, so section 1, not this section, is the out-of-sample test of the model.
+- These runs predate PR #5, which removed the hook's sample-minimum probation. In them the model pool had no fee power (k = kDefault = 0, the base fee) until the settler had graded 10 blocks: the first 7–21 minutes of each window ("seasoned at" 432–1248 s in the source report). Under the current hook an allowlisted model is active from its first attestation, so a re-run will differ.
 
 | pool | conditions | 0.05% tier, net LP − HODL vs vanilla | 0.30% tier, net LP − HODL vs vanilla |
 |---|---|---|---|

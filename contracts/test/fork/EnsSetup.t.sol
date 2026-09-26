@@ -349,8 +349,8 @@ contract EnsSetupForkTest is Test {
         assertEq(node, EnsV2Lib.namehash("jev-v1.live.oniblock.eth"));
         assertEq(offset, 7);
 
-        // model records: allowlisted + unseasoned => probation; unknown label => unknown
-        assertEq(_urText("jev-v1.live.oniblock.eth", "status"), "probation");
+        // model records: allowlisted, no record yet => active; unknown label => unknown
+        assertEq(_urText("jev-v1.live.oniblock.eth", "status"), "active");
         assertEq(_urText("jev-v1.live.oniblock.eth", "allowed"), "true");
         assertEq(_urText("jev-v1.live.oniblock.eth", "calibration.n"), "0");
         assertEq(_urText("jev-v1.live.oniblock.eth", "model-node"), Strings.toHexString(uint256(jev), 32));
@@ -580,7 +580,6 @@ contract EnsSetupForkTest is Test {
         c.maxKStepBps = 1000;
         c.staleBlocks = 5;
         c.brierDemoteBps = 2500;
-        c.minSamples = 10;
         c.chainlinkMaxAge = 2 hours;
         c.arbThresholdPips = 3300;
         c.jitWindowMin = 10;

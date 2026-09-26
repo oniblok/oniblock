@@ -194,7 +194,7 @@ contract ThresholdLawTest is OniblockTestBase {
         vm.prank(quoter);
         h.setAttestation(k, a);
         (uint24 f0,, uint32 g,) = h.quoteFee(k, true);
-        assertEq(f0, _lawFee(g, 5000)); // unseasoned => kDefault
+        assertEq(f0, _lawFee(g, 4000)); // no record => active: p = c = 0 targets kMin, one step (1000) down from kDefault
 
         OniblockHook.PoolConfig memory c = defaultConfig();
         c.arbThresholdPips = 8000; // raise the threshold above the gap

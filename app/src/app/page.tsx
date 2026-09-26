@@ -69,27 +69,27 @@ export default function Live() {
 
   const edge = feed ? feed.chart.oniTotal - feed.chart.vanTotal : 0;
   const chainLabel = !feed ? '' : feed.chain.name === 'sepolia' ? 'Ethereum Sepolia' : feed.chain.name === 'fork' ? 'Sepolia fork' : 'Local chain';
-  const minutes = feed ? Math.round((feed.chart.windowBlocks * (feed.chain.name === 'sepolia' ? 12 : 3)) / 60) : 0;
 
   return (
     <div className="mx-auto flex h-screen max-w-[1240px] flex-col gap-4 px-5 py-4">
       {/* header */}
-      <header className="flex items-center gap-4">
-        <div className="flex items-center gap-2.5">
+      {/* wraps / shrinks on narrow screens (390 px) so the Swap button never causes a horizontal scroll */}
+      <header className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
+        <div className="flex shrink-0 items-center gap-2.5">
           <Logo />
-          <span className="text-[17px] font-semibold tracking-tight">Oniblock</span>
+          <span className="font-display text-[19px] uppercase leading-none">Oniblock</span>
         </div>
         {feed && (
-          <div className="flex items-center gap-2 rounded-full border border-line bg-surface px-3 py-1 text-xs text-ink-2">
-            <span className={`live-dot h-1.5 w-1.5 rounded-full ${error ? 'bg-warn' : 'bg-oni'}`} />
-            {chainLabel}
-            <span className="mono text-muted">#{feed.chain.block.toLocaleString()}</span>
+          <div className="flex min-w-0 max-w-full items-center gap-2 rounded-md border border-line bg-surface px-3 py-1 text-xs text-ink-2">
+            <span className={`live-dot h-1.5 w-1.5 shrink-0 rounded-full ${error ? 'bg-warn' : 'bg-good'}`} />
+            <span className="min-w-0 truncate">{chainLabel}</span>
+            <span className="mono shrink-0 text-muted">#{feed.chain.block.toLocaleString()}</span>
           </div>
         )}
         {feed && (
           <button
             onClick={() => setSwapOpen(true)}
-            className="ml-auto flex h-10 items-center gap-2 rounded-[10px] bg-oni pl-4 pr-5 text-sm font-semibold text-[#04120d] shadow-[0_8px_30px_-8px_rgba(62,230,176,0.55)] transition hover:scale-[1.03] hover:brightness-110 active:scale-100"
+            className="ml-auto flex h-10 shrink-0 items-center gap-2 rounded-md bg-primary pl-4 pr-5 text-xs font-bold uppercase text-white transition-colors hover:bg-primary-hover"
           >
             <span className="text-base leading-none">⇅</span> Swap
           </button>
@@ -102,15 +102,13 @@ export default function Live() {
           <Figure color="var(--oni)" label="LPs with Oniblock" value={feed?.chart.oniTotal} solid />
           <Figure color="var(--vanilla)" label="LPs without (plain pool)" value={feed?.chart.vanTotal} />
           {feed && (
-            <div className={`rounded-full px-3 py-1 text-xs font-medium ${edge >= 0 ? 'bg-oni/12 text-oni' : 'bg-[rgba(255,77,94,0.12)] text-[#ff8a95]'}`}>
+            <div className={`rounded-md px-3 py-1 text-xs font-medium ${edge >= 0 ? 'bg-oni/12 text-oni' : 'bg-bad/12 text-bad-soft'}`}>
               Oniblock edge {edge >= 0 ? '+' : '−'}
               {usd(Math.abs(edge), 2)}
             </div>
           )}
           <div className="ml-auto text-right text-[11px] leading-tight text-muted">
             LP profit vs Binance
-            <br />
-            last ~{minutes} min · bars = edge per interval
           </div>
         </div>
         <div className="min-h-0 flex-1">{feed ? <Chart buckets={feed.chart.buckets} quote={feed.pair.quote} /> : <Skeleton />}</div>
@@ -119,11 +117,10 @@ export default function Live() {
       {/* swaps */}
       <section className="glass relative flex min-h-0 flex-1 flex-col pt-3">
         <div className="flex items-center gap-3 px-5 pb-2">
-          <div className="text-sm font-medium">Live swaps</div>
-          <div className="text-xs text-muted">newest at the bottom · click a swap for the judgement</div>
+          <div className="text-sm font-bold">Live swaps</div>
           <div className="ml-auto flex items-center gap-2 text-[11px] text-muted">
             clean
-            <span className="h-1.5 w-20 rounded-full" style={{ background: 'linear-gradient(90deg, rgba(255,255,255,0.08), rgba(255,77,94,0.45), rgb(255,77,94))' }} />
+            <span className="h-1.5 w-20 rounded-full" style={{ background: 'linear-gradient(90deg, rgba(255,255,255,0.08), rgba(239,83,80,0.45), rgb(239,83,80))' }} />
             toxic
           </div>
         </div>
@@ -139,8 +136,8 @@ export default function Live() {
         </div>
       </section>
 
-      {error && !feed && <div className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-[rgba(255,77,94,0.15)] px-4 py-2 text-xs text-[#ff8a95]">{error}</div>}
-      {toast && <div className="pop-in fixed bottom-6 left-1/2 z-40 -translate-x-1/2 rounded-full border border-oni/30 bg-[#0c1511] px-4 py-2 text-xs text-oni shadow-xl">{toast}</div>}
+      {error && !feed && <div className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-md border border-bad/40 bg-surface px-4 py-2 text-xs text-bad-soft">{error}</div>}
+      {toast && <div className="pop-in fixed bottom-6 left-1/2 z-40 -translate-x-1/2 rounded-md border border-oni/40 bg-surface px-4 py-2 text-xs text-oni shadow-xl">{toast}</div>}
 
       {feed && <SwapModal open={swapOpen} onClose={() => setSwapOpen(false)} feed={feed} onSubmitted={onSubmitted} />}
       {feed && open && <JudgementModal key={`${open.tx}:${open.logIndex}`} row={open} feed={feed} you={mineSet.has(open.tx.toLowerCase())} onClose={closeJudgement} />}
@@ -163,7 +160,7 @@ function Figure({ color, label, value, solid }: { color: string; label: string; 
 }
 
 function Skeleton() {
-  return <div className="h-full w-full animate-pulse rounded-xl bg-white/[0.02]" />;
+  return <div className="h-full w-full animate-pulse rounded-lg bg-white/[0.02]" />;
 }
 
 function Logo() {
@@ -171,12 +168,12 @@ function Logo() {
     <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden>
       <defs>
         <linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#3ee6b0" />
-          <stop offset="1" stopColor="#1f8f6e" />
+          <stop offset="0" stopColor="#3b6cf5" />
+          <stop offset="1" stopColor="#0344dc" />
         </linearGradient>
       </defs>
       <path d="M12 2l8.66 5v10L12 22l-8.66-5V7z" fill="url(#lg)" />
-      <path d="M12 7.2l4.16 2.4v4.8L12 16.8l-4.16-2.4V9.6z" fill="#07080b" />
+      <path d="M12 7.2l4.16 2.4v4.8L12 16.8l-4.16-2.4V9.6z" fill="#141314" />
     </svg>
   );
 }

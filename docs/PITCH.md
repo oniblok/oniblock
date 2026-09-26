@@ -17,9 +17,9 @@ Setup before going on stage: `./scripts/demo-local.sh` on http://localhost:3000.
 | time | screen | say |
 |---|---|---|
 | 0:00–0:20 | `/` split screen: Vanilla v4 vs Oniblock, same bot, same flow | "Two identical pools with the same arbitrageur and the same retail flow. Left is a static 0.30% fee; right is our hook. Watch LP value minus HODL." |
-| 0:20–0:45 | Regime map + status strip. Model is **unseasoned**, k = kDefault (0.5) | "Each cell is a block, colored by the attested k. Right now the model is on probation. It has fewer than `minSamples` scored samples, so it has no power, and k sits at the default. A new model name can't skip this." |
+| 0:20–0:45 | Regime map + status strip. Model is **active**, k follows its score | "Each cell is a block, colored by the attested k. The model is allowlisted for this pool, so it has power from its first attestation, bounded by kMax and the step limit. Only names the pool owner allowlisted can post at all." |
 | 0:45–1:15 | Press **Execute swap** (arb direction), then open its `/receipt/<tx>` | "The fee is this block's gap times k, in the arb direction only. The receipt shows gap, k, fee, the model resolved from ENS, the verified attestor signature, and the running calibration." |
-| 1:15–1:40 | Model turns **seasoned** (settler posted n ≥ 3); k starts following the model | "The settler has scored enough blocks against the CEX mid. The model has earned power, and k now moves within bounds, step-limited." |
+| 1:15–1:40 | `/models`: the settler posts the model's first calibration record (Brier below 0.25) | "The settler scores every block against the CEX mid and writes the Brier score on-chain and to ENS. Below the 0.25 line the model keeps its power; above it, it loses it." |
 | 1:40–2:10 | Press **Degrade model**; `/models` shows the Brier climbing toward the 0.25 line | "Now I make the model lie by inverting its predictions. Watch: it briefly grabs power and k jumps. Then the settler's Brier score crosses 0.25, and the model is **demoted**: k snaps back to the default. Nobody touched the contract." |
 | 2:10–2:45 | Fork app (:3001): press **Revoke quoter** (ENS `revokeRoles`) → status turns stale, fee = 0.50% → **Grant backup** | "This is real ENSv2 on a Sepolia fork. The quoter's power is an EAC role on `quoter.oniblock.eth`. I revoke it: the next attestation fails, the pool goes stale and charges the conservative fee. It doesn't revert and doesn't drop the fee. Grant a backup keeper, and attestations resume." |
 | 2:45–3:00 | README benchmark table | "We benchmarked this against a vanilla pool next door with real Binance ticks and routing competition. Honest answer: the LP effect is small, tens of dollars an hour on a $20M pool, and we publish the CIs. What we ship is the loop: the AI decides the premium every block, bounded power, public receipts, automatic demotion to a plain vanilla pool, instant revocation, so any model can be plugged in safely." |
@@ -27,7 +27,7 @@ Setup before going on stage: `./scripts/demo-local.sh` on http://localhost:3000.
 Fallbacks:
 - If arbs are sparse (live price source), use **Execute swap** to open a gap.
 - If Jev is slow, the keeper falls back to the heuristic model, and the receipt shows which model node posted.
-- `pnpm -C services story` prints the unseasoned → seasoned → demoted timeline from chain events if the UI is not cooperating.
+- `pnpm -C services story` prints the active → degraded → demoted timeline from chain events if the UI is not cooperating.
 
 ## Top-5 judge Q&A
 
@@ -50,13 +50,13 @@ Not in v1 (single pool, captive flow), and the README says so. v2–v4 add a van
 
 So on this data the model moves value from LPs to retail; it does not reduce LVR (no significant LVR difference in any run). The v1 "fee law beats a fixed fee" result holds only without routing competition: with a vanilla pool next door (v2/v3) the law's LP effect is tens of dollars an hour either way, and we say so.
 
-**What we ship: the AI decides, the gate guarantees.** No hard-coded threshold; `k = kMax·p·c` from the model every block, with `kDefault = 0`, so a model that is unseasoned or demoted has no power and the pool is exactly a vanilla pool. A degraded model was demoted 40–140 steps after it went bad in every v1 run, and the gate separated honest from degraded by 31 pp (54 pp in volatile hours) in v3.
+**What we ship: the AI decides, the gate guarantees.** No hard-coded threshold; `k = kMax·p·c` from the model every block, with `kDefault = 0`, so a model that is demoted (or not allowlisted) has no power and the pool is exactly a vanilla pool. A degraded model was demoted 40–140 steps after it went bad in every v1 run, and the gate separated honest from degraded by 31 pp (54 pp in volatile hours) in v3.
 
-**Follow-up: "Then why have a model at all?"** Because the fee law has a real tuning knob (retail cost vs LP revenue vs regime), and a pool operator may want a model that turns it. Oniblock makes that safe to try: bounded `k` (never ≥ 1), step limits, probation for new model names, and automatic, public demotion. Honest limit: the 0.25 Brier line is strict for noisy labels, so even the honest model was demoted for 13–20% of steps in the volatile windows (0% in calm). Demotion only ever means constant `kDefault`, so that costs nothing relative to what we recommend shipping.
+**Follow-up: "Then why have a model at all?"** Because the fee law has a real tuning knob (retail cost vs LP revenue vs regime), and a pool operator may want a model that turns it. Oniblock makes that safe to try: bounded `k` (never ≥ 1), step limits, a per-pool allowlist of model names, and automatic, public demotion. Honest limit: the 0.25 Brier line is strict for noisy labels, so even the honest model was demoted for 13–20% of steps in the volatile windows (0% in calm). Demotion only ever means constant `kDefault`, so that costs nothing relative to what we recommend shipping.
 
 **3. "Who can cheat? What do I have to trust?"**
-- **The attestor** is a TEE stand-in. It is trusted to report the mid within the Chainlink band and to name the model truthfully. It could relabel a demoted model's scores as another *seasoned* allowlisted node until that node is demoted too. We document this (N-03).
-- **The owner** can allowlist models instantly, which is bounded, because a new node starts on probation. Config, attestor and role-oracle changes are timelocked (1 h, with a 1-day grace). The owner should be a Safe.
+- **The attestor** is a TEE stand-in. It is trusted to report the mid within the Chainlink band and to name the model truthfully. It could relabel a demoted model's scores as another well-calibrated allowlisted node until that node is demoted too. We document this (N-03).
+- **The owner** can allowlist models instantly, which is bounded: a new node only gets the same bounded, step-limited power, and loses it as soon as its calibration fails. Config, attestor and role-oracle changes are timelocked (1 h, with a 1-day grace). The owner should be a Safe.
 - **What you do not have to trust:** the hook never reverts on bad data, a stale mid means the conservative fee rather than zero, `k < 1` always, and the fee is capped at `feeMax`.
 
 We ran two internal review rounds. Round 1 found one High (a gate bypass by rotating model names), which is fixed. Round 2 found no Critical or High. There are 83 Foundry tests, including three invariants over 128k calls each.

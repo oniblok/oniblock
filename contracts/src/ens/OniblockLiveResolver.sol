@@ -28,18 +28,18 @@ import {DnsNameLib} from "./DnsNameLib.sol";
 ///   - `<label>.live.<name>.eth`  any label is a model label: node = namehash(`<label>.models.<name>.eth`), i.e.
 ///                                keccak256(modelsNode ‖ keccak256(label)); text records read the hook's
 ///                                `calibration(node)`, `calibration(jitCalibrationKey(node))`, `modelAllowed`,
-///                                `isDemoted`, `isJitDemoted` and the pool's `minSamples`:
+///                                `isDemoted` and `isJitDemoted`:
 ///       calibration.brier | calibration.hitRate | calibration.n | calibration.epoch          (arb head, bps / count / block)
 ///       calibration.jit.brier | calibration.jit.hitRate | calibration.jit.n | calibration.jit.epoch   (JIT head)
 ///       allowed | demoted | jit.demoted                              "true" / "false"
-///       status | jit.status      "unknown" (not allowlisted) | "probation" (n < minSamples) | "demoted" | "active"
+///       status | jit.status      "unknown" (not allowlisted) | "demoted" (Brier gate) | "active"
 ///       model-node (0x-hex bytes32) | models-name (`<label>.models.<name>.eth`) | live-name | description
 ///   - `<poolLabel>.live.<name>.eth` (the pool label given at construction, e.g. `weth-usdc`): the pool's live state
 ///       k | stale | jit-window | p-toxic | confidence | p-jit | model (node of the attestation in force, 0x0 while
 ///       stale) | last-model | oracle-mid-x96 | last-attest-block | last-post-block | attest-block |
 ///       gap-zero-for-one | gap-one-for-zero | fee-zero-for-one | fee-one-for-zero (quoteFee, pips)
 ///       hook | pool-id | pool-node | pools-name | description
-///       base-fee | fee-max | conservative-fee | k-min | k-max | k-default | max-k-step | stale-blocks | min-samples |
+///       base-fee | fee-max | conservative-fee | k-min | k-max | k-default | max-k-step | stale-blocks |
 ///       brier-demote | arb-threshold | jit-window-min | jit-window-max | jit-window-default
 ///       addr(node) = the hook
 ///   - `current.live.<name>.eth`: alias of the model in force (anchor model, or the last accepted one while stale)
@@ -245,16 +245,16 @@ contract OniblockLiveResolver is Ownable2Step, IERC165, IEnsExtendedResolver, IE
         stale = staleNow;
     }
 
-    /// @notice Gate status of a model node on the pool: unknown | probation | demoted | active.
+    /// @notice Gate status of a model node on the pool: unknown | demoted | active.
     function status(bytes32 modelNode) public view returns (string memory) {
         PoolId pid = PoolId.wrap(poolId);
-        return _status(pid, modelNode, modelNode, hook.isDemoted(pid, modelNode));
+        return _status(pid, modelNode, hook.isDemoted(pid, modelNode));
     }
 
     /// @notice Gate status of a model's JIT head on the pool.
     function jitStatus(bytes32 modelNode) public view returns (string memory) {
         PoolId pid = PoolId.wrap(poolId);
-        return _status(pid, modelNode, hook.jitCalibrationKey(modelNode), hook.isJitDemoted(pid, modelNode));
+        return _status(pid, modelNode, hook.isJitDemoted(pid, modelNode));
     }
 
     // ------------------------------------------------------------------ name parsing
@@ -354,14 +354,9 @@ contract OniblockLiveResolver is Ownable2Step, IERC165, IEnsExtendedResolver, IE
         return "";
     }
 
-    /// @dev unknown (not allowlisted) | probation (n < minSamples) | demoted (Brier gate) | active.
-    function _status(PoolId pid, bytes32 modelNode, bytes32 calKey, bool demoted)
-        internal
-        view
-        returns (string memory)
-    {
+    /// @dev unknown (not allowlisted) | demoted (Brier gate) | active (incl. no calibration record yet).
+    function _status(PoolId pid, bytes32 modelNode, bool demoted) internal view returns (string memory) {
         if (!hook.modelAllowed(pid, modelNode)) return "unknown";
-        if (hook.calibration(calKey).n < hook.poolConfig(pid).minSamples) return "probation";
         if (demoted) return "demoted";
         return "active";
     }
@@ -390,7 +385,6 @@ contract OniblockLiveResolver is Ownable2Step, IERC165, IEnsExtendedResolver, IE
         if (k == keccak256("k-default")) return _u(cfg.kDefaultBps);
         if (k == keccak256("max-k-step")) return _u(cfg.maxKStepBps);
         if (k == keccak256("stale-blocks")) return _u(cfg.staleBlocks);
-        if (k == keccak256("min-samples")) return _u(cfg.minSamples);
         if (k == keccak256("brier-demote")) return _u(cfg.brierDemoteBps);
         if (k == keccak256("arb-threshold")) return _u(cfg.arbThresholdPips);
         if (k == keccak256("jit-window-min")) return _u(cfg.jitWindowMin);

@@ -31,7 +31,7 @@ import {PriceMath} from "../../src/libraries/PriceMath.sol";
 /// Env: BASE_FEE (3000; applies to the vanilla pools AND the hooked pools' baseFee), ARB_THRESHOLD_PIPS
 /// (BASE_FEE + 300), CONSERVATIVE_FEE (BASE_FEE + 2000), FEE_MAX (10000), CONST_K (5000), MODEL_MAX_K_STEP_BPS
 /// (6000: one attestation can reach the target k — needed because a rule-v1 post resets k to kDefault),
-/// MIN_SAMPLES, STALE_BLOCKS, BRIER_DEMOTE_BPS, MODEL_NODES (allowlisted on every hooked pool), INIT_PRICE_USD_E8,
+/// STALE_BLOCKS, BRIER_DEMOTE_BPS, MODEL_NODES (allowlisted on every hooked pool), INIT_PRICE_USD_E8,
 /// LIQUIDITY, BENCH_OUT.
 contract DeployBenchV3 is DeployBase {
     uint256 internal constant ANVIL0_PK = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
@@ -174,7 +174,6 @@ contract DeployBenchV3 is DeployBase {
                 vm.serializeUint(t, "brierDemoteBps", cfgs[i].brierDemoteBps);
                 vm.serializeUint(t, "baseFee", cfgs[i].baseFee);
                 vm.serializeUint(t, "conservativeFee", cfgs[i].conservativeFee);
-                vm.serializeUint(t, "minSamples", cfgs[i].minSamples);
                 vm.serializeUint(t, "staleBlocks", cfgs[i].staleBlocks);
                 vm.serializeUint(t, "feeMax", cfgs[i].feeMax);
                 vm.serializeUint(t, "arbThresholdPips", cfgs[i].arbThresholdPips);

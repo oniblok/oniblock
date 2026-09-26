@@ -15,7 +15,6 @@ export function SwapModal({ open, onClose, feed, onSubmitted }: { open: boolean;
   const { base, quote } = feed.pair;
   const m = feed.market;
   const a = Number(amount);
-  const max = pay === 'base' ? feed.swapLimits.maxBase : feed.swapLimits.maxQuote;
 
   const q = useMemo(() => {
     const d = pay === 'base' ? m.sellBase : m.buyBase;
@@ -63,12 +62,12 @@ export function SwapModal({ open, onClose, feed, onSubmitted }: { open: boolean;
 
   const tokIn = pay === 'base' ? base : quote;
   const tokOut = pay === 'base' ? quote : base;
-  const disabled = busy || !feed.swapEnabled || !(a > 0) || a > max;
+  const disabled = busy || !feed.swapEnabled || !(a > 0);
 
   return (
     <Modal open={open} onClose={onClose} width={440}>
       <div className="p-6">
-        <div className="mb-1 text-lg font-semibold">Swap</div>
+        <div className="font-display mb-1 text-2xl uppercase leading-none">Swap</div>
         <div className="mb-5 text-xs text-muted">
           {base}/{quote} Oniblock pool · {feed.chain.name === 'sepolia' ? 'Ethereum Sepolia' : feed.chain.name === 'fork' ? 'Sepolia fork' : 'local chain'}
         </div>
@@ -91,7 +90,7 @@ export function SwapModal({ open, onClose, feed, onSubmitted }: { open: boolean;
           </Field>
           <button
             onClick={flip}
-            className="absolute left-1/2 top-1/2 z-10 grid h-9 w-9 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-xl border-4 border-[#0c0e13] bg-surface-2 text-ink-2 transition hover:rotate-180 hover:text-ink"
+            className="absolute left-1/2 top-1/2 z-10 grid h-9 w-9 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-md border-4 border-surface bg-surface-3 text-ink-2 transition hover:rotate-180 hover:text-ink"
             aria-label="Switch direction"
           >
             ↓
@@ -104,13 +103,13 @@ export function SwapModal({ open, onClose, feed, onSubmitted }: { open: boolean;
 
         <div className="mt-3 flex gap-2">
           {PRESETS[pay].map((p) => (
-            <button key={p} onClick={() => setAmount(String(p))} className="whitespace-nowrap rounded-full border border-line px-3 py-1 text-xs text-ink-2 hover:border-[#2c3342] hover:text-ink">
+            <button key={p} onClick={() => setAmount(String(p))} className="whitespace-nowrap rounded-md border border-line bg-surface-2 px-3 py-1 text-xs font-bold text-ink-2 hover:border-line-strong hover:text-ink">
               {amt(p)}
             </button>
           ))}
         </div>
 
-        <div className={`mt-5 rounded-xl border p-4 text-sm ${q.arbDir ? 'border-[rgba(255,77,94,0.35)] bg-[rgba(255,77,94,0.06)]' : 'border-line bg-surface'}`}>
+        <div className={`mt-5 rounded-lg border p-4 text-sm ${q.arbDir ? 'border-bad/35 bg-bad/6' : 'border-line bg-surface-2'}`}>
           <div className="flex items-center justify-between">
             <span className="text-ink-2">Oniblock fee now</span>
             <span className="mono text-ink">{(q.feePips / 10_000).toFixed(2)}%</span>
@@ -125,7 +124,7 @@ export function SwapModal({ open, onClose, feed, onSubmitted }: { open: boolean;
             ) : q.arbDir ? (
               <>
                 This trade moves the pool <b className="text-ink">toward the Binance price</b>, which is what an arbitrageur does. Oniblock charges{' '}
-                <b className="text-[#ff8a95]">+{usd(q.extraUsd, 2)}</b> extra, paid to LPs.
+                <b className="text-bad-soft">+{usd(q.extraUsd, 2)}</b> extra, paid to LPs.
               </>
             ) : (
               <>This trade goes against the arbitrage direction, so you pay only the base fee ({usd(q.feeUsd, 2)}).</>
@@ -133,13 +132,12 @@ export function SwapModal({ open, onClose, feed, onSubmitted }: { open: boolean;
           </div>
         </div>
 
-        {err && <div className="mt-3 rounded-lg bg-[rgba(255,77,94,0.1)] px-3 py-2 text-xs text-[#ff8a95]">{err}</div>}
-        {a > max && <div className="mt-3 text-xs text-warn">Demo limit: max {amt(max)} {tokIn} per swap.</div>}
+        {err && <div className="mt-3 rounded-md bg-bad/10 px-3 py-2 text-xs text-bad-soft">{err}</div>}
 
         <button
           onClick={submit}
           disabled={disabled}
-          className="mt-5 h-12 w-full rounded-xl bg-oni text-[15px] font-semibold text-[#04120d] transition hover:brightness-110 disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-muted"
+          className="mt-5 h-12 w-full rounded-md bg-primary text-[13px] font-bold uppercase text-white transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-muted"
         >
           {busy ? 'Sending…' : !feed.swapEnabled ? 'Swaps disabled' : 'Swap'}
         </button>
@@ -151,11 +149,11 @@ export function SwapModal({ open, onClose, feed, onSubmitted }: { open: boolean;
 
 function Field({ label, token, children }: { label: string; token: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-2xl border border-line bg-surface px-4 pb-4 pt-3">
+    <div className="rounded-lg border border-line bg-surface-2 px-4 pb-4 pt-3">
       <div className="mb-1 text-xs text-muted">{label}</div>
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">{children}</div>
-        <span className="shrink-0 rounded-full border border-line bg-surface-2 px-3 py-1.5 text-sm font-medium text-ink">{token}</span>
+        <span className="shrink-0 rounded-md border border-line bg-surface-3 px-3 py-1.5 text-sm font-bold text-ink">{token}</span>
       </div>
     </div>
   );

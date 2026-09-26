@@ -473,13 +473,13 @@ contract OniblockHookTest is OniblockTestBase {
         (st,,) = hook.poolState(pid);
         assertEq(st.kBps, 5000, "demotion is immediate (bypasses step limit)");
 
-        // another (allowlisted, seasoned, well-calibrated) model is unaffected
+        // another (allowlisted, well-calibrated) model is unaffected
         bytes32 kev = keccak256("kev");
         assertEq(hook.kFromScore(pid, 10000, 10000, kev), 5000, "not allowlisted => no power");
         hook.setModelAllowed(pid, kev, true);
-        assertEq(hook.kFromScore(pid, 10000, 10000, kev), 5000, "allowlisted but unseasoned => kDefault");
-        _season(kev, 1500);
-        assertEq(hook.kFromScore(pid, 10000, 10000, kev), 8000);
+        assertEq(hook.kFromScore(pid, 10000, 10000, kev), 8000, "allowlisted, no record => active");
+        _calibrate(kev, 1500);
+        assertEq(hook.kFromScore(pid, 10000, 10000, kev), 8000, "good Brier => active");
     }
 
     function test_setCalibration_onlySettler() public {

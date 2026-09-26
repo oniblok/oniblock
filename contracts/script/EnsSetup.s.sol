@@ -874,7 +874,7 @@ contract EnsSetup is Script {
         c[n++] = _text(
             nKev,
             K_AGENT_CONTEXT,
-            "Kev-0.8B open-weights decision model (LoRA fine-tune of jaredpalmer/kev-0.8b, served locally by the keeper), asked every block: is there profitable arbitrage at the base fee? -> {pToxicBps, confidenceBps}; same public fee law k = kMax * p * c. Unseasoned (kDefault 0 = base fee) until the settler has graded minSamples receipts; calibration written by settler."
+            "Kev-0.8B open-weights decision model (LoRA fine-tune of jaredpalmer/kev-0.8b, served locally by the keeper), asked every block: is there profitable arbitrage at the base fee? -> {pToxicBps, confidenceBps}; same public fee law k = kMax * p * c. Active from its first attestation; Brier-demoted to kDefault (0 = base fee) if its calibration (written by the settler) exceeds brierDemoteBps."
         );
         c[n++] = _text(nOni, K_MODEL_HASH, cfg.modelHashOniblock1);
         c[n++] = _text(
@@ -885,7 +885,7 @@ contract EnsSetup is Script {
         c[n++] = _text(
             nOni,
             K_AGENT_CONTEXT,
-            "oniblock1 production model (LightGBM trees over the pool and Binance features, evaluated in-process by the keeper or over TypeSafe's System One API), asked every block: is there profitable arbitrage at the base fee? -> {pToxicBps, confidenceBps}; same public fee law k = kMax * p * c. Charge gate (keeper CHARGE_THRESHOLD; the model's chargeThreshold is 0.8224): c = 10000 when p >= threshold, else 0 (base fee). No JIT head (pJitBps 0 -> jitWindowDefault). Unseasoned (kDefault 0 = base fee) until the settler has graded minSamples receipts; calibration written by settler."
+            "oniblock1 production model (LightGBM trees over the pool and Binance features, evaluated in-process by the keeper or over TypeSafe's System One API), asked every block: is there profitable arbitrage at the base fee? -> {pToxicBps, confidenceBps}; same public fee law k = kMax * p * c. Charge gate (keeper CHARGE_THRESHOLD; the model's chargeThreshold is 0.8224): c = 10000 when p >= threshold, else 0 (base fee). No JIT head (pJitBps 0 -> jitWindowMin, 10 blocks with the defaults). Active from its first attestation once allowlisted; Brier-demoted to kDefault (0 = base fee) if its calibration (written by the settler) exceeds brierDemoteBps."
         );
         c[n++] = _text(nRule, K_MODEL_HASH, vm.toString(keccak256("oniblock/rule-v1")));
         c[n++] = _text(

@@ -145,7 +145,6 @@ contract DeployBench is DeployBase {
                 vm.serializeUint(t, "kDefaultBps", cfgs[i].kDefaultBps);
                 vm.serializeUint(t, "brierDemoteBps", cfgs[i].brierDemoteBps);
                 vm.serializeUint(t, "baseFee", cfgs[i].baseFee);
-                vm.serializeUint(t, "minSamples", cfgs[i].minSamples);
                 vm.serializeUint(t, "feeMax", cfgs[i].feeMax);
                 vm.serializeUint(t, "arbThresholdPips", cfgs[i].arbThresholdPips);
             }

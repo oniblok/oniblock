@@ -1,5 +1,7 @@
 # V3 build: threshold fee law and the gated Jev keeper
 
+> Note (later change): the `minSamples` probation ("unseasoned") described in this historic document has since been removed from the hook; the calibration gate is now the pool allowlist + Brier demotion only, and a model with no calibration record is active.
+
 Date: 2026-09-26. Motivation: benchmark v2 (`benchmark/results_v2/results.md`) found that calm hours were negative for LPs. Under the v2 law even a tiny gap adds `k·gap` to the arb-direction fee, so retail in that direction routes to the vanilla pool. v2 also found two other problems. Model-tuned k was about the same as constant k. Settler labels computed against the attested (lagged) mid mislabelled arbs.
 
 ## 1. Contract (`contracts/src/OniblockHook.sol`)

@@ -67,7 +67,7 @@ export function DevPanel({ s, onDone }: { s: StateJson; onDone: () => void }) {
             inputMode="decimal"
           />
           <span className="text-sm text-ink-2">{s.pair.base}</span>
-          <button disabled={!!busy} onClick={() => swap('arb')} className="rounded-md bg-oni px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50">
+          <button disabled={!!busy} onClick={() => swap('arb')} className="rounded-md bg-primary px-3 py-1.5 text-sm font-bold uppercase text-white hover:bg-primary-hover disabled:opacity-50">
             Arb direction
           </button>
           <button disabled={!!busy} onClick={() => swap('reverse')} className="rounded-md border border-line px-3 py-1.5 text-sm disabled:opacity-50">

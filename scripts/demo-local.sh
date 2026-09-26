@@ -2,20 +2,20 @@
 # Oniblock local demo: anvil (2 s blocks) -> DeployLocal -> keeper + settler + arb + retail + jit -> Next.js app.
 # Ctrl-C stops everything. Logs: .runtime/logs/*.log
 #
-# Story in ~2-3 minutes (demo profile: MIN_SAMPLES=3, settle every 5 blocks, 8-label calibration window).
+# Story in ~2-3 minutes (demo profile: settle every 5 blocks, 8-label calibration window, post after 3 graded blocks).
 # v4 "the AI decides the fee" (docs/review/V4_AI_DECIDES.md): the keeper asks Jev EVERY block (no gate), the pool has
 # no gap threshold and kMin = kDefault = 0, so k = kMax * p * c: Jev's "no profitable arbitrage" = base fee.
-#   unseasoned (k = kDefault = 0: base fee, the model has no power yet) -> seasoned (settler writes n >= 3 from blocks
-#   with arb-direction flow; k follows Jev block by block) -> "Degrade model" -> Brier crosses brierDemoteBps
-#   -> demoted (k = kDefault = 0 again). The arb bot acts on its own because the price source replays a volatile
+#   active from the first attestation (the model is allowlisted and has no calibration record yet: k follows Jev
+#   block by block; the settler grades blocks with arb-direction flow) -> "Degrade model" -> Brier crosses
+#   brierDemoteBps -> demoted (k = kDefault = 0: base fee). The on-chain gate is the allowlist + Brier demotion only. The arb bot acts on its own because the price source replays a volatile
 #   window of REAL Binance klines on block time (keeper and arb share it).
 # v5 "the model decides the JIT window" (docs/review/V5_JIT_HEAD_SPEC.md): the jit bot mints a narrow position, swaps,
 #   and pulls it after JIT_HOLD=12 blocks (escapes the old fixed 10-block wall). The settler grades the JIT head once each
-#   add's SETTLER_JIT_LABEL_BLOCKS window has closed; after CALIB_MIN_N graded cycles the JIT head is seasoned, the model's
+#   add's SETTLER_JIT_LABEL_BLOCKS window has closed; after CALIB_MIN_N graded cycles the JIT head has a good record, the model's
 #   pJit moves the window above 12 and the next cycle is caught (JitPenalty with held >= 10). Timing at 2 s blocks:
-#   one cycle = JIT_HOLD + JIT_EVERY blocks (~54 s); the first add is a cold-start miss, so the head is seasoned AND active
+#   one cycle = JIT_HOLD + JIT_EVERY blocks (~54 s); the first add is a cold-start miss, so the head is graded AND active
 #   after ~5 cycles + label lag (JIT_CALIB_WINDOW=4 drops the miss) => allow DEMO_DURATION >= 540
-#   for the full jit-caught,jit-seasoned story (DEMO_JIT=0 disables the bot and those expectations).
+#   for the full jit-caught,jit-active story (DEMO_JIT=0 disables the bot and those expectations).
 #
 # Env knobs (all optional):
 #   RPC_PORT=8545  APP_PORT=3000  BLOCK_TIME=2
@@ -25,8 +25,8 @@
 #   DEMO_DEGRADE_AT        seconds after services start to press "Degrade model" automatically
 #                          (default: 40% of DEMO_DURATION when headless, never when interactive)
 #   INIT_PRICE_USD_E8      pool init price; default = first replay price (replay) or live Binance mid (live)
-#   MIN_SAMPLES=3          calibration records before a model is "seasoned" (hook caps k at kDefault until then)
-#   SETTLE_EVERY=5 CALIB_WINDOW=8 CALIB_MIN_N=$MIN_SAMPLES   settler cadence (blocks) / window (labelled blocks)
+#   SETTLE_EVERY=5 CALIB_WINDOW=8 CALIB_MIN_N=3   settler cadence (blocks) / window (labelled blocks) / graded blocks
+#                          before the settler posts a record (the settler's own statistical floor, not an on-chain gate)
 #   RETAIL_LAMBDA=1        retail swaps per block (Poisson mean); retail arb-direction swaps are labelled too
 #   MODEL_MODE=auto        keeper scorer: auto (Jev -> heuristic fallback) | jev | heuristic
 #   ARB_SPLIT=1            arb bot sub-swaps per tx (>1 exercises the per-block anchor)
@@ -36,7 +36,7 @@
 #   DEMO_RUNTIME_DIR=.runtime        flags file + logs (use another dir to run next to a live demo)
 #   DEMO_DEPLOYMENTS_FILE=deployments/31337.json   deployment JSON written by DeployLocal / read by the services
 #   KEEPER_GATE=0          v4 default: Jev every block (1 = the v3 rule-v1 gate, for comparison only)
-#   DEMO_JIT=1             start the jit bot (anvil key #8) and expect jit-caught,jit-seasoned in the headless check
+#   DEMO_JIT=1             start the jit bot (anvil key #8) and expect jit-caught,jit-active in the headless check
 #   JIT_HOLD=12 JIT_EVERY=15 JIT_TICKS=3 JIT_SIZE_USD=2000 JIT_SWAP_USD=5000   jit bot cycle (see services/src/bots/jit.ts)
 #   JIT_CALIB_WINDOW=4     demo rolling window (labelled adds) for the JIT head (default: CALIB_WINDOW)
 #   JIT_CHURN_WEIGHT=0.7   demo weight of observed liquidity churn in the posted p_jit (keeper default 0.5)
@@ -56,7 +56,6 @@ BLOCK_TIME="${BLOCK_TIME:-2}"
 RPC="http://127.0.0.1:${RPC_PORT}"
 DEMO_DURATION="${DEMO_DURATION:-0}"
 PRICE_SOURCE="${DEMO_PRICE_SOURCE:-replay}"
-MIN_SAMPLES="${MIN_SAMPLES:-3}"
 # anvil default account #0 (public dev key; local chain only)
 ANVIL0_PK=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 # shellcheck source=lib.sh
@@ -109,11 +108,11 @@ for _ in $(seq 1 50); do rpc_up && break; sleep 0.2; done
 rpc_up || { echo "[demo] anvil did not start"; exit 1; }
 
 # 2. deploy ----------------------------------------------------------------------------------
-echo "[demo] deploying (INIT_PRICE_USD_E8=${INIT_PRICE_USD_E8:-DeployLocal default}, MIN_SAMPLES=$MIN_SAMPLES)..."
+echo "[demo] deploying (INIT_PRICE_USD_E8=${INIT_PRICE_USD_E8:-DeployLocal default})..."
 PRE_DEPLOY_BLOCK="$(block_number)"
 (
   cd "$ROOT/contracts"
-  env ${INIT_PRICE_USD_E8:+INIT_PRICE_USD_E8=$INIT_PRICE_USD_E8} MIN_SAMPLES="$MIN_SAMPLES" LOCAL_PK="$ANVIL0_PK" DEPLOYMENTS_OUT="$DEPLOY_JSON" \
+  env ${INIT_PRICE_USD_E8:+INIT_PRICE_USD_E8=$INIT_PRICE_USD_E8} LOCAL_PK="$ANVIL0_PK" DEPLOYMENTS_OUT="$DEPLOY_JSON" \
     forge script script/DeployLocal.s.sol --rpc-url "$RPC" --broadcast --private-key "$ANVIL0_PK" --slow --non-interactive
 ) >"$LOGS/deploy.log" 2>&1 || { echo "[demo] deploy failed — see .runtime/logs/deploy.log"; tail -20 "$LOGS/deploy.log"; exit 1; }
 echo "[demo] deployed -> ${DEPLOY_JSON#"$ROOT"/} ($(patch_deploy_block "$DEPLOY_JSON" \
@@ -128,7 +127,7 @@ printf '{\n  "degraded": false,\n  "useBackupQuoter": false\n}\n' >"$RUNTIME/kee
 export CHAIN=local LOCAL_RPC="$RPC" KEEPER_FLAGS_FILE="$RUNTIME/keeper-flags.json" DEPLOYMENTS_FILE="$DEPLOY_JSON"
 export KEEPER_GATE="${KEEPER_GATE:-0}"
 export MODEL_MODE="${MODEL_MODE:-auto}"
-export SETTLE_EVERY="${SETTLE_EVERY:-5}" CALIB_WINDOW="${CALIB_WINDOW:-8}" CALIB_MIN_N="${CALIB_MIN_N:-$MIN_SAMPLES}"
+export SETTLE_EVERY="${SETTLE_EVERY:-5}" CALIB_WINDOW="${CALIB_WINDOW:-8}" CALIB_MIN_N="${CALIB_MIN_N:-3}"
 export RETAIL_LAMBDA="${RETAIL_LAMBDA:-1}" # more labelled blocks per minute for the settler
 # v5 JIT head: short label window so the settler grades the jit bot's cycles within the demo.
 export SETTLER_JIT_LABEL_BLOCKS="${SETTLER_JIT_LABEL_BLOCKS:-14}" JIT_LABEL_BLOCKS="${JIT_LABEL_BLOCKS:-${SETTLER_JIT_LABEL_BLOCKS:-14}}"
@@ -177,9 +176,9 @@ while [ $((SECONDS - SERVICES_T0)) -lt "$DEMO_DURATION" ]; do
   check_disk 500 || break
   sleep 2
 done
-EXPECT=seasoned; STORY_ARGS=()
-[ "$degraded" = "1" ] && EXPECT=seasoned,honest-active,demoted && STORY_ARGS=(--degraded-at "$((DEGRADED_BLOCK + 1))")
-[ "$DEMO_JIT" = "1" ] && EXPECT="$EXPECT,jit-caught,jit-seasoned"
+EXPECT=active; STORY_ARGS=()
+[ "$degraded" = "1" ] && EXPECT=active,honest-active,demoted && STORY_ARGS=(--degraded-at "$((DEGRADED_BLOCK + 1))")
+[ "$DEMO_JIT" = "1" ] && EXPECT="$EXPECT,jit-caught,jit-active"
 echo "[demo] narrative check (expect $EXPECT):"
 set +e
 (cd "$ROOT/services" && pnpm -s story --expect "$EXPECT" ${STORY_ARGS[@]+"${STORY_ARGS[@]}"}) | tee "$LOGS/story.log"

@@ -29,7 +29,6 @@ export const BASE: Omit<RunConfigV4, 'label' | 'path' | 'port'> = {
   settleEvery: 20,
   calibWindow: 50,
   calibMinN: 10,
-  minSamples: 10,
   staleSteps: 5,
   labelMid: 'true',
   bucketSteps: 60,

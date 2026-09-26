@@ -7,7 +7,7 @@
  * v5 (docs/review/V5_JIT_HEAD_SPEC.md): the same Jev call answers a second typed question — will liquidity added in
  * the next block be opportunistic JIT? — and its probability (pJitBps) is attested next to pToxic. The hook turns it
  * into the JIT penalty window for liquidity added from then on (jitWindowMin..Max, jitWindowDefault while the JIT head
- * is unseasoned/demoted); the keeper logs pJitBps and the resulting window (AttestationPosted.jitWindow).
+ * is demoted or the attestation stale); the keeper logs pJitBps and the resulting window (AttestationPosted.jitWindow).
  *
  * Online calibration of the JIT head against the observed churn of recent liquidity (deliberate, see `blendPJit`):
  * the posted probability is NOT the raw model answer but
@@ -17,7 +17,7 @@
  * there is no base rate to calibrate against and the model answer is posted unchanged. Why: the settler grades
  * pJit only on blocks WITH adds, so in a pool where recent adds have mostly been pulled again the graded base rate
  * is high; a zero-shot answer near 0.3-0.4 there is confidently wrong (Brier > brierDemoteBps) and the JIT head is
- * demoted the moment it is seasoned. The blend is a shrinkage toward the empirical base rate the label is built
+ * demoted as soon as the settler posts its first record. The blend is a shrinkage toward the empirical base rate the label is built
  * from; the attested log line carries both inputs (`pJitModel`, `pJitChurn`) next to the posted `pJitBps`.
  * The same blend is applied to the heuristic fallback (which already uses churn). RULE_SCORE (rule-v1) is not blended.
  *
@@ -87,8 +87,8 @@
  *   gap(pool, CEX mid) < arbThresholdPips - KEEPER_HYSTERESIS_PIPS
  * the keeper skips Jev/heuristic and posts the mid with the deterministic RULE_SCORE (pToxic 10%, confidence 100%)
  * under the dedicated allowlisted node rule-v1.models.oniblock.eth. The settler never grades rule-v1 receipts, so
- * rule-v1 stays unseasoned => the hook sets k = kDefault for the next block; the next model attestation steps k
- * from kDefault (maxKStepBps). Above the threshold the model is called as before (Jev, heuristic fallback under
+ * rule-v1 has no calibration record and is active: its fixed score sets k (step-limited) like any other allowlisted
+ * node's; the next model attestation steps k from there (maxKStepBps). Above the threshold the model is called as before (Jev, heuristic fallback under
  * heuristic-v1). Jev call rate (model ticks / attested ticks) is logged on every line and summarised periodically.
  *
  * Posting policy (KEEPER_POST=change): the features and the model call are unchanged every tick; before signing, the
@@ -207,9 +207,10 @@ export function keeperGateOn(): boolean {
 }
 
 /**
- * Never combine the v3 gate with kDefault = 0 (the v4 default): rule-v1 is allowlisted but never graded, so every rule
- * post is "unseasoned" and resets k to kDefault — with kDefault = 0 the gate would silently switch the fee law off
- * and make the model's (step-limited) k start from 0 after every quiet stretch. Throws with an explanation.
+ * Never combine the v3 gate with kDefault = 0 (the v4 default): the gate was built and validated for v3 pool configs
+ * (kDefault 5000, kMin 2000, a hard arbThresholdPips). On a v4 pool (kMin = kDefault = 0, no threshold) every rule
+ * post's fixed 10% score would pull k to ~kMax * 0.1 and override the model's per-block decision after every quiet
+ * stretch. Throws with an explanation.
  */
 export function assertGateConfig(gateOn: boolean, kDefaultBps: number | undefined): void {
   if (gateOn && kDefaultBps === 0)
@@ -584,7 +585,7 @@ export interface PoolCfg {
   feeMax: number;
   arbThresholdPips: number;
   kDefaultBps?: number;
-  /** v5: window used for adds while the attestation is stale / the JIT head is unseasoned or demoted. */
+  /** v5: window used for adds while the attestation is stale / the JIT head is demoted. */
   jitWindowDefault?: number;
   /** poolConfig.staleBlocks (attestation older than this => stale => jitWindowDefault in force). */
   staleBlocks?: number;

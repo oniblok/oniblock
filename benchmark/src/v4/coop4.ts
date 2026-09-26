@@ -379,17 +379,20 @@ for (const tier of tiers) {
   L.push('### Model inputs seen by the keeper (means over decisions)');
   L.push('');
   const rescaled = model.some((x) => x.rows.some((r) => r.demoted.rescaled));
+  // Runs saved before PR #5 (probation removed from the hook) carry seasonedAtStep: those k records at kDefault include
+  // the probation period (n < minSamples); newer runs carry activeAtStep and count Brier demotion only.
+  const prePr5 = model.some((x) => x.rows.some((r) => r.demoted.activeAtStep === undefined && r.demoted.seasonedAtStep !== undefined));
   L.push(
-    `"demoted 1st / 2nd half" = share of the blocks in each half-hour with the model demoted or unseasoned (k = kDefault = 0), per window in the order of the per-run table.${rescaled ? ' The saved runs predate the sim4 fix of this diagnostic (it divided the per-block count by the half\'s length in seconds, 12x too small); the report recovers the exact block count from the saved share and rescales it, nothing was re-run.' : ''}`,
+    `"demoted 1st / 2nd half" = share of the blocks in each half-hour with k forced to kDefault = 0 ${prePr5 ? 'by probation (fewer than minSamples graded receipts; these saved runs predate PR #5, which removed probation from the hook) or Brier demotion' : 'by Brier demotion (an allowlisted node with no calibration record is active)'}, per window in the order of the per-run table. "${prePr5 ? 'seasoned' : 'active'} at s" = first step with the node not at kDefault by the gate.${rescaled ? ' The saved runs predate the sim4 fix of this diagnostic (it divided the per-block count by the half\'s length in seconds, 12x too small); the report recovers the exact block count from the saved share and rescales it, nothing was re-run.' : ''}`,
   );
   L.push('');
-  L.push('| arm | decisions/run | mean p | gap > base fee | gap pips | edgeSigma | abs ret12 bps | realizedVol bps | nSwaps (20 blocks) | heuristic fallbacks | seasoned at s | demoted 1st / 2nd half |');
+  L.push(`| arm | decisions/run | mean p | gap > base fee | gap pips | edgeSigma | abs ret12 bps | realizedVol bps | nSwaps (20 blocks) | heuristic fallbacks | ${prePr5 ? 'seasoned' : 'active'} at s | demoted 1st / 2nd half |`);
   L.push('|---|---|---|---|---|---|---|---|---|---|---|---|');
   for (const x of model) {
     const ts = x.rows.map((r) => r.tab!).filter(Boolean);
     const m = (f: (t: NonNullable<Row['tab']>) => number) => ts.reduce((s, t) => s + f(t), 0) / Math.max(1, ts.length);
     L.push(
-      `| ${x.arm} | ${fmt(m((t) => t.decisions), 0)} | ${fmt(m((t) => t.meanP), 3)} | ${pct(m((t) => t.edgePosShare))} | ${fmt(m((t) => t.meanGapPips), 0)} | ${fmt(m((t) => t.meanEdgeSigma), 2)} | ${fmt(m((t) => t.meanAbsRet12Bps), 2)} | ${fmt(m((t) => t.meanRealizedVolBps), 2)} | ${fmt(m((t) => t.meanNSwaps), 1)} | ${fmt(m((t) => t.fallback), 0)} | ${x.rows.map((r) => r.demoted.seasonedAtStep ?? '-').join(', ')} | ${x.rows.map((r) => `${pct(r.demoted.firstHalf, 0)}/${pct(r.demoted.secondHalf, 0)}`).join(', ')} |`,
+      `| ${x.arm} | ${fmt(m((t) => t.decisions), 0)} | ${fmt(m((t) => t.meanP), 3)} | ${pct(m((t) => t.edgePosShare))} | ${fmt(m((t) => t.meanGapPips), 0)} | ${fmt(m((t) => t.meanEdgeSigma), 2)} | ${fmt(m((t) => t.meanAbsRet12Bps), 2)} | ${fmt(m((t) => t.meanRealizedVolBps), 2)} | ${fmt(m((t) => t.meanNSwaps), 1)} | ${fmt(m((t) => t.fallback), 0)} | ${x.rows.map((r) => r.demoted.activeAtStep ?? r.demoted.seasonedAtStep ?? '-').join(', ')} | ${x.rows.map((r) => `${pct(r.demoted.firstHalf, 0)}/${pct(r.demoted.secondHalf, 0)}`).join(', ')} |`,
     );
   }
   L.push('');

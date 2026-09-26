@@ -183,13 +183,9 @@ export async function getState(): Promise<StateJson> {
   });
   const f0 = fq(q0);
   const f1 = fq(q1);
-  // "Unseasoned": has no (or too few) calibration records yet — k capped at kDefault by newer hook versions.
-  // Newer hooks: isDemoted also covers "unseasoned" (calibration.n < minSamples) and non-allowlisted nodes.
-  const minSamples = Number(cfg.minSamples ?? 0);
+  // Gate = pool allowlist + Brier demotion: hook.isDemoted is true iff the node is not allowlisted or its calibration
+  // record (n > 0) has Brier above brierDemoteBps. A model with no record yet is active.
   const allowed = await tryRead<boolean>(c, 'modelAllowed', [id, modelNode]);
-  const nCal = calibration?.n ?? 0;
-  const unseasoned = !!demoted && allowed !== false && nCal < minSamples;
-  const badCalibration = !!demoted && !unseasoned;
   const lastQuoter = lastAttArgs?.quoter as Address | undefined;
   const lastQuoterName = ens && lastQuoter ? ((await ensReverse(c, lastQuoter)) ?? undefined) : undefined;
   const stale = !!ps?.[2];
@@ -197,8 +193,6 @@ export async function getState(): Promise<StateJson> {
   const pJitBps = optNum(st.pJitBps) ?? optNum(lastAttArgs?.pJitBps);
   const jitWindow = optNum(st.jitWindow) ?? optNum(lastAttArgs?.jitWindow);
   const jitWindowDefault = optNum(cfg.jitWindowDefault);
-  const jitUnseasoned = !!jitDemoted && allowed !== false && (jitCalibration?.n ?? 0) < minSamples;
-  const jitBad = !!jitDemoted && !jitUnseasoned;
   const flags = readFlags();
   const res: StateJson = {
     chain: { name: c.sel.name, chainId: c.d.chainId, isDev: c.sel.isDev, block: head, timestamp: Number(blk.timestamp), ens },
@@ -222,8 +216,7 @@ export async function getState(): Promise<StateJson> {
       oracleMid: oracleX96 > 0n ? priceX96ToMid(oracleX96, o) : null,
       modelNode,
       modelName: nameOf(c, modelNode),
-      demoted: badCalibration,
-      unseasoned,
+      demoted: !!demoted,
       allowed: allowed ?? null,
       stale,
       feeZeroForOne: f0,
@@ -241,8 +234,7 @@ export async function getState(): Promise<StateJson> {
         jitWindow,
         // adds while the attestation is stale get jitWindowDefault (contract: _windowFor / effective window now)
         jitWindowEffective: stale ? jitWindowDefault : (jitWindow ?? jitWindowDefault),
-        demoted: jitBad,
-        unseasoned: jitUnseasoned,
+        demoted: !!jitDemoted,
         calibrationKey: jitKey,
         calibration: jitCalibration,
         supported: jitSupported,
@@ -282,6 +274,8 @@ export async function getState(): Promise<StateJson> {
 export interface Att {
   attBlock: number;
   mined: number;
+  /** log index within the mined block (orders attestations and swaps inside one block) */
+  logIndex: number;
   midX96: bigint;
   p: number;
   conf: number;
@@ -321,6 +315,7 @@ export interface Rcpt {
 }
 export interface Swp {
   block: number;
+  logIndex: number;
   a0: bigint;
   a1: bigint;
   tx: Hex;
@@ -404,6 +399,7 @@ async function refresh(c: Ctx, head: number): Promise<Store> {
       s.atts.push({
         attBlock: num(l.args.blockNumber),
         mined: Number(l.blockNumber),
+        logIndex: l.logIndex,
         midX96: l.args.oracleMidX96 as bigint,
         p: num(l.args.pToxicBps),
         conf: num(l.args.confidenceBps),
@@ -448,7 +444,7 @@ async function refresh(c: Ctx, head: number): Promise<Store> {
     }
     pools.forEach((p, i) => {
       const arr = (s.swaps[p.poolId] ??= []);
-      for (const l of swaps[i] as unknown as L[]) arr.push({ block: Number(l.blockNumber), a0: l.args.amount0 as bigint, a1: l.args.amount1 as bigint, tx: l.transactionHash, fee: num(l.args.fee) });
+      for (const l of swaps[i] as unknown as L[]) arr.push({ block: Number(l.blockNumber), logIndex: l.logIndex, a0: l.args.amount0 as bigint, a1: l.args.amount1 as bigint, tx: l.transactionHash, fee: num(l.args.fee) });
     });
     // Per chunk: if a later chunk's RPC call fails, the retry resumes after this one instead of storing it twice.
     s.scannedTo = b;
@@ -471,24 +467,39 @@ async function snap(c: Ctx, s: Store, pool: PoolInfo, block: number): Promise<Sn
   }
 }
 
-/** Attestation in force at block b = latest mined at or before b. `atts` sorted by mined. */
-export function inForce(atts: Att[], b: number): Att | undefined {
+/** Sort attestations by chain position (mined block, then log index): the order inForce/firstAfter expect. */
+export function sortAtts(atts: Att[]): Att[] {
+  return [...atts].sort((a, b) => a.mined - b.mined || a.logIndex - b.logIndex);
+}
+
+/** Index of the attestation in force at position (b, logIndex): the latest with (mined, logIndex) < (b, logIndex); -1 if none. */
+function inForceIdx(atts: Att[], b: number, logIndex: number): number {
   let lo = 0;
   let hi = atts.length - 1;
-  let best: Att | undefined;
+  let best = -1;
   while (lo <= hi) {
     const m = (lo + hi) >> 1;
-    if (atts[m]!.mined <= b) {
-      best = atts[m];
+    const x = atts[m]!;
+    if (x.mined < b || (x.mined === b && x.logIndex < logIndex)) {
+      best = m;
       lo = m + 1;
     } else hi = m - 1;
   }
   return best;
 }
-export function firstAfter(atts: Att[], b: number): Att | undefined {
-  const a = inForce(atts, b);
-  const i = a ? atts.indexOf(a) + 1 : 0;
-  return atts[i];
+
+/**
+ * Attestation in force at a chain position. For a swap pass its log index: an attestation mined later in the same
+ * block is not in force for it. Without a log index (block-level questions) = latest mined at or before b.
+ * `atts` sorted by sortAtts.
+ */
+export function inForce(atts: Att[], b: number, logIndex = Infinity): Att | undefined {
+  const i = inForceIdx(atts, b, logIndex);
+  return i >= 0 ? atts[i] : undefined;
+}
+/** First attestation posted after position (b, logIndex) (the markout mid for a swap there). */
+export function firstAfter(atts: Att[], b: number, logIndex = Infinity): Att | undefined {
+  return atts[inForceIdx(atts, b, logIndex) + 1];
 }
 
 export async function getHistory(opts: { blocks?: number; regimeBlocks?: number; points?: number } = {}): Promise<HistoryJson> {
@@ -497,7 +508,7 @@ export async function getHistory(opts: { blocks?: number; regimeBlocks?: number;
   const head = Number(await c.pc.getBlockNumber());
   const s = await loadStore(c, head);
   const cfg = await readConfig(c);
-  const atts = [...s.atts].sort((a, b) => a.mined - b.mined);
+  const atts = sortAtts(s.atts);
   const d0 = 10 ** c.d.token0.decimals;
   const d1 = 10 ** c.d.token1.decimals;
   const quote = c.d.baseIsToken0 ? c.d.token1.symbol : c.d.token0.symbol;
@@ -532,7 +543,7 @@ export async function getHistory(opts: { blocks?: number; regimeBlocks?: number;
     (s.swaps[p.poolId] ?? [])
       .filter((w) => w.block >= from)
       .map((w) => {
-        const a = firstAfter(atts, w.block) ?? inForce(atts, w.block);
+        const a = firstAfter(atts, w.block, w.logIndex) ?? inForce(atts, w.block, w.logIndex);
         const v = a ? valueAt(w.a0, w.a1, a.midX96) : 0;
         const inRaw = w.a0 < 0n ? -w.a0 : 0n;
         const inRaw1 = w.a1 < 0n ? -w.a1 : 0n;
@@ -601,7 +612,6 @@ export async function getHistory(opts: { blocks?: number; regimeBlocks?: number;
     let cal: Cal | undefined;
     if (a) for (const x of cals) if (x.mined <= b && x.node === a.node) cal = x;
     const demoted = !!(cal && cal.n > 0 && cfg.brierDemoteBps > 0 && cal.brier > cfg.brierDemoteBps);
-    const unseasoned = !!a && !demoted && (cal?.n ?? 0) < Number(cfg.minSamples ?? 0);
     const rs = rByBlock.get(b) ?? [];
     const arbR = rs.find((r) => r.arbDir) ?? rs.find((r) => r.stale);
     let feePips: number | null = null;
@@ -635,7 +645,6 @@ export async function getHistory(opts: { blocks?: number; regimeBlocks?: number;
       model: modelKind(name) ?? (a ? a.node.slice(0, 10) : null),
       modelName: name ?? null,
       demoted,
-      unseasoned,
       feePips,
       feeSource: src,
       gapPips: gap,

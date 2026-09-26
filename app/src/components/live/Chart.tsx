@@ -62,16 +62,9 @@ export function Chart({ buckets, quote }: { buckets: FeedBucket[]; quote: string
       <svg width={w} height={h} className="block">
         <defs>
           <linearGradient id="oniFill" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor="var(--oni)" stopOpacity="0.18" />
+            <stop offset="0%" stopColor="var(--oni)" stopOpacity="0.14" />
             <stop offset="100%" stopColor="var(--oni)" stopOpacity="0" />
           </linearGradient>
-          <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-            <feGaussianBlur stdDeviation="3" result="b" />
-            <feMerge>
-              <feMergeNode in="b" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
         </defs>
         {g.ticks.map((t) => (
           <g key={t}>
@@ -81,7 +74,7 @@ export function Chart({ buckets, quote }: { buckets: FeedBucket[]; quote: string
             </text>
           </g>
         ))}
-        <line x1={pad.l} x2={w - pad.r} y1={zeroY} y2={zeroY} stroke="#2a3040" strokeWidth={1} />
+        <line x1={pad.l} x2={w - pad.r} y1={zeroY} y2={zeroY} stroke="var(--axis)" strokeWidth={1} />
         {/* edge bars (own strip) */}
         <line x1={pad.l} x2={w - pad.r} y1={g.barBase} y2={g.barBase} stroke="var(--grid)" strokeWidth={1} />
         <text x={w - pad.r + 10} y={g.barBase + 4} fontSize={10.5} fill="var(--muted)">
@@ -98,9 +91,9 @@ export function Chart({ buckets, quote }: { buckets: FeedBucket[]; quote: string
               y={pos ? g.barBase - hgt : g.barBase}
               width={g.barW}
               height={hgt}
-              rx={Math.min(3, g.barW / 3)}
+              rx={Math.min(1.5, g.barW / 4)}
               fill={pos ? 'var(--oni)' : 'var(--bad)'}
-              opacity={hover === i ? 0.9 : 0.55}
+              opacity={hover === i ? 1 : 0.8}
             />
           );
         })}
@@ -108,12 +101,12 @@ export function Chart({ buckets, quote }: { buckets: FeedBucket[]; quote: string
           <>
             <path d={g.area} fill="url(#oniFill)" />
             <path d={g.path('vanCum')} fill="none" stroke="var(--vanilla)" strokeWidth={1.75} strokeDasharray="5 4" strokeLinejoin="round" />
-            <path d={g.path('oniCum')} fill="none" stroke="var(--oni)" strokeWidth={2.25} strokeLinejoin="round" filter="url(#glow)" />
+            <path d={g.path('oniCum')} fill="none" stroke="var(--oni)" strokeWidth={2.25} strokeLinejoin="round" />
           </>
         )}
         {hb && hover !== null && (
           <g>
-            <line x1={g.x(hover)} x2={g.x(hover)} y1={pad.t} y2={h - pad.b} stroke="#3a4152" strokeDasharray="2 3" />
+            <line x1={g.x(hover)} x2={g.x(hover)} y1={pad.t} y2={h - pad.b} stroke="var(--axis)" strokeDasharray="2 3" />
             <circle cx={g.x(hover)} cy={g.y(hb.oniCum)} r={4} fill="var(--oni)" />
             <circle cx={g.x(hover)} cy={g.y(hb.vanCum)} r={3.5} fill="var(--vanilla)" />
           </g>
@@ -144,7 +137,7 @@ export function Chart({ buckets, quote }: { buckets: FeedBucket[]; quote: string
       </svg>
       {hb && hover !== null && (
         <div
-          className="pointer-events-none absolute top-2 z-10 min-w-[190px] rounded-xl border border-line bg-[#0b0d12]/95 px-3 py-2 text-xs shadow-2xl fade-in"
+          className="pointer-events-none absolute top-2 z-10 min-w-[190px] rounded-md border border-line bg-surface-2 px-3 py-2 text-xs shadow-lg fade-in"
           style={{ left: Math.min(Math.max(g.x(hover) + 12, 8), w - 210) }}
         >
           <div className="mb-1.5 text-muted mono">

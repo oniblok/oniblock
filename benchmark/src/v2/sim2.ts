@@ -62,7 +62,6 @@ export interface RunConfigV2 {
   settleEvery: number;
   calibWindow: number;
   calibMinN: number;
-  minSamples: number;
   staleSteps: number;
   labelMid: 'attested' | 'true';
   bucketSteps: number;
@@ -114,8 +113,8 @@ export interface RunResultV2 {
   degradeAtStep: number;
   totals: Record<Pool, PoolTotals>;
   buckets: Record<Pool, PoolBuckets>;
-  /** Model pools: share of steps with k forced to kDefault by demotion/probation, by half. */
-  demoted: Record<'mjev' | 'mheur' | 'gated', { firstHalf: number; secondHalf: number; seasonedAtStep: number | null }>;
+  /** Model pools: share of steps with k forced to kDefault by Brier demotion, by half. */
+  demoted: Record<'mjev' | 'mheur' | 'gated', { firstHalf: number; secondHalf: number; activeAtStep: number | null }>;
   kBuckets: Record<Hooked, number[]>;
   labelDiag: Record<'mjev' | 'mheur' | 'gated', { n: number; baseRate: number; meanP: number; meanPwhenY1: number; meanPwhenY0: number; brier: number; nArbBlocks: number; baseRateArbBlocks: number }>;
   calibrations: CalibPost[];
@@ -218,7 +217,7 @@ export async function runOneV2(cfg: RunConfigV2): Promise<RunResultV2> {
 
   await anvil.start();
   try {
-    const d: DeploymentV2 = await deployV2(anvil, { initMid: mids[0]!, liquidity, minSamples: cfg.minSamples, staleBlocks: cfg.staleSteps * 3 });
+    const d: DeploymentV2 = await deployV2(anvil, { initMid: mids[0]!, liquidity, staleBlocks: cfg.staleSteps * 3 });
     const rpc: Rpc = anvil.rpc;
     const baseIsToken0 = d.wethIsToken0;
     const meta = { baseIsToken0, decimals0: baseIsToken0 ? 18 : 6, decimals1: baseIsToken0 ? 6 : 18 };
@@ -374,9 +373,9 @@ export async function runOneV2(cfg: RunConfigV2): Promise<RunResultV2> {
     const demoteBps = Number(d.pools.mjev.brierDemoteBps ?? 2500);
     const isDemoted = (n: Hooked) => {
       const c = nodeCalib[nodeOf(n)];
-      return !c || c.n < cfg.minSamples || (demoteBps > 0 && c.brier > demoteBps);
+      return c !== undefined && c.n > 0 && demoteBps > 0 && c.brier > demoteBps; // allowlist + Brier only: no record => active
     };
-    const demCount = Object.fromEntries(MODEL_POOLS.map((n) => [n, { a: 0, b: 0, seasoned: null as number | null }])) as Record<(typeof MODEL_POOLS)[number], { a: number; b: number; seasoned: number | null }>;
+    const demCount = Object.fromEntries(MODEL_POOLS.map((n) => [n, { a: 0, b: 0, active: null as number | null }])) as Record<(typeof MODEL_POOLS)[number], { a: number; b: number; active: number | null }>;
     const kBk = Object.fromEntries(HOOKED.map((n) => [n, new Array(nB).fill(0)])) as Record<Hooked, number[]>;
     let missedPosts = 0;
     const arbWins = new Array(cfg.arbs.length).fill(0);
@@ -548,7 +547,7 @@ export async function runOneV2(cfg: RunConfigV2): Promise<RunResultV2> {
         const dm = isDemoted(n);
         if (t < degradeAt) demCount[n].a += dm ? 1 : 0;
         else demCount[n].b += dm ? 1 : 0;
-        if (!dm && demCount[n].seasoned === null) demCount[n].seasoned = t;
+        if (!dm && demCount[n].active === null) demCount[n].active = t;
       }
       for (const n of HOOKED) {
         kBk[n][bIdx] += pools[n].kBps / cfg.bucketSteps;
@@ -785,7 +784,7 @@ export async function runOneV2(cfg: RunConfigV2): Promise<RunResultV2> {
       totals,
       buckets: Object.fromEntries(POOLS.map((n) => [n, pools[n].bk])) as Record<Pool, PoolBuckets>,
       demoted: Object.fromEntries(
-        MODEL_POOLS.map((n) => [n, { firstHalf: demCount[n].a / Math.max(1, h1), secondHalf: demCount[n].b / Math.max(1, h2), seasonedAtStep: demCount[n].seasoned }]),
+        MODEL_POOLS.map((n) => [n, { firstHalf: demCount[n].a / Math.max(1, h1), secondHalf: demCount[n].b / Math.max(1, h2), activeAtStep: demCount[n].active }]),
       ) as RunResultV2['demoted'],
       kBuckets: kBk,
       labelDiag,

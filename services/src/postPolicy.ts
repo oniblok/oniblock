@@ -10,8 +10,8 @@
  *     - the mid has drifted > midBps from the posted mid AND k is non-zero (posted or new). With k = 0 on both
  *       sides the fee is baseFee whatever the mid is, so a drifting mid changes nothing.
  *     - pToxic or pJit moved >= pStepBps from the posted values. The settler grades the probabilities of the
- *       attestation in force, so they must stay current even while k is pinned (unseasoned/demoted model),
- *       or the model is graded on stale answers and can never season.
+ *       attestation in force, so they must stay current even while k is pinned (demoted model, or p * c = 0),
+ *       or the model is graded on stale answers and a demoted model can never earn its way back.
  *     - heartbeatBlocks > 0 and that many blocks have passed since the last post (keep it < staleBlocks, or the
  *       pool goes stale and charges conservativeFee; the keeper defaults to staleBlocks - 2 for one block of slack). 0 = no heartbeat: only safe when conservativeFee == baseFee,
  *       so a silent keeper leaves a vanilla pool.

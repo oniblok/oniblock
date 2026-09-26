@@ -24,7 +24,7 @@
  *          k-raising attestation, so that is routine). Swaps of one block are grouped per attestation, not per model.
  *   Only receipts whose modelNode is a REAL model are graded: receipts priced under the keeper's deterministic
  *   below-threshold rule (rule-v1.models.oniblock.eth, env RULE_MODEL_NAME; v3 gate) are skipped, so rule-v1
- *   never gets a calibration record (it stays unseasoned => kDefault, which is irrelevant below the threshold).
+ *   never gets a calibration record (so it is never Brier-demoted; its score is irrelevant below the threshold).
  *   mid_h (SETTLER_LABEL_MID, v3 default `cex`):
  *     cex      -> the CEX mid AT THE SWAP'S BLOCK TIME, fetched ex post: PRICE_SOURCE=replay -> the replay path's
  *                 mid at block b (the same series the keeper/arb use); otherwise the Binance 1s kline at block b's
@@ -67,7 +67,7 @@
  *              graded model; rule-v1 is never graded). Adds of one block are grouped per attestation. An add made while
  *              that attestation was stale (b - attested block > poolConfig.staleBlocks) is not graded: the hook used
  *              jitWindowDefault, not the model's window (skipped_stale).
- * Same rolling window / min-n / Brier-gate maths as the arb head (CALIB_WINDOW, CALIB_MIN_N, CALIB_GATE). Posted with
+ * Same rolling window / posting minimum / Brier-gate maths as the arb head (CALIB_WINDOW, CALIB_MIN_N, CALIB_GATE). Posted with
  * the existing setCalibration under hook.jitCalibrationKey(modelNode) and mirrored as calibration.jit.* ENS records
  * on the model name. Log lines: jit_graded, jit_calibration_posted.
  *
@@ -84,7 +84,7 @@
  * the heuristic fallback's answers are posted (and graded) under the primary node, so that node's window mixes both
  * models' p (nothing on-chain says which model answered) — see the keeper header.
  *
- * Env: CALIB_WINDOW (30), JIT_CALIB_WINDOW (= CALIB_WINDOW), CALIB_MIN_N (3), CALIB_GATE (raw | skill), SETTLE_EVERY (10),
+ * Env: CALIB_WINDOW (30), JIT_CALIB_WINDOW (= CALIB_WINDOW), CALIB_MIN_N (1), CALIB_GATE (raw | skill), SETTLE_EVERY (10),
  *      SETTLER_LABEL_MID (cex | attested), MARKOUT_HORIZON (0 | 1), SETTLER_BINANCE_FALLBACK (1), SETTLER_LABEL_FEE
  *      (base | paid), SETTLER_DEADBAND_USD (1), SETTLER_DEADBAND_BPS (1), SETTLER_JIT_LABEL_BLOCKS (100), RULE_MODEL_NAME,
  *      RECEIPT_AMOUNT_SIGN (1), PRICE_SOURCE, ENS_WRITE (1), ENS_DEPLOYMENT_FILE, CHARGE_WINDOW_BLOCKS (50400),
@@ -690,7 +690,9 @@ export class Settler {
     this.busy = true;
     try {
       const { labels, cal, jitLabels, jitCal } = await this.computeUpTo(head);
-      const minN = this.o.minN ?? envInt('CALIB_MIN_N', 3);
+      // CALIB_MIN_N: the settler's own statistical floor for POSTING a record (graded blocks in the window); the hook
+      // has no sample minimum — a model with no record is active, a posted record is Brier-gated immediately.
+      const minN = this.o.minN ?? envInt('CALIB_MIN_N', 1);
       for (const c of cal) {
         if (c.n < minN) {
           log('settler', 'skip_low_n', { ...c });
@@ -704,7 +706,7 @@ export class Settler {
       } catch (e) {
         log('settler', 'charge_threshold_error', { head, error: (e as Error).message.split('\n')[0] });
       }
-      // v5 JIT head: same min-n discipline; skipped entirely while nothing is graded (no adds / windows still open).
+      // v5 JIT head: same posting minimum; skipped entirely while nothing is graded (no adds / windows still open).
       for (const c of jitCal) {
         if (c.n < minN) {
           log('settler', 'jit_skip_low_n', { ...c, minN });

@@ -89,9 +89,9 @@ ens_phase grant-jit || { tail -20 "$LOGS/ens.log"; exit 1; }
 KEV_HASH="0x24f0793d55e0fde516ebe4da1d187e0468a5f7c830ba9a9f4d48e43f007c88be" # ml/models/kev08b-v1/NOTE.md
 ONI_HASH="0x$(shasum -a 256 "$ROOT/ml/models/oniblock1.json" | cut -d' ' -f1)"
 KEV_DESC="Kev-0.8B (jaredpalmer/kev-0.8b) fine-tuned on Oniblock's mainnet informed-flow dataset; open weights at ml/models/kev08b-v1/adapter; model-hash = sha256 over the sorted per-file digests (ml/models/kev08b-v1/SHA256)"
-KEV_CTX="Kev-0.8B open-weights decision model (LoRA fine-tune of jaredpalmer/kev-0.8b, served locally by the keeper), asked every block: is there profitable arbitrage at the base fee? -> {pToxicBps, confidenceBps}; same public fee law k = kMax * p * c. Unseasoned (kDefault 0 = base fee) until the settler has graded minSamples receipts; calibration written by settler."
+KEV_CTX="Kev-0.8B open-weights decision model (LoRA fine-tune of jaredpalmer/kev-0.8b, served locally by the keeper), asked every block: is there profitable arbitrage at the base fee? -> {pToxicBps, confidenceBps}; same public fee law k = kMax * p * c. Active from its first attestation; Brier-demoted to kDefault (0 = base fee) if its calibration (written by the settler) exceeds brierDemoteBps."
 ONI_DESC="oniblock1: gradient-boosted trees (LightGBM, 216 trees, 17 features) on the per-block features, trained on Binance reads ~2 s before the block; open weights ml/models/oniblock1.json; model-hash = sha256 of that file"
-ONI_CTX="oniblock1 production model (LightGBM trees over the pool and Binance features, evaluated in-process by the keeper or over TypeSafe's System One API), asked every block: is there profitable arbitrage at the base fee? -> {pToxicBps, confidenceBps}; same public fee law k = kMax * p * c. Charge gate (keeper CHARGE_THRESHOLD; the model's chargeThreshold is 0.8224): c = 10000 when p >= threshold, else 0 (base fee). No JIT head (pJitBps 0 -> jitWindowDefault). Unseasoned (kDefault 0 = base fee) until the settler has graded minSamples receipts; calibration written by settler."
+ONI_CTX="oniblock1 production model (LightGBM trees over the pool and Binance features, evaluated in-process by the keeper or over TypeSafe's System One API), asked every block: is there profitable arbitrage at the base fee? -> {pToxicBps, confidenceBps}; same public fee law k = kMax * p * c. Charge gate (keeper CHARGE_THRESHOLD; the model's chargeThreshold is 0.8224): c = 10000 when p >= threshold, else 0 (base fee). No JIT head (pJitBps 0 -> jitWindowMin, 10 blocks with the defaults). Active from its first attestation once allowlisted; Brier-demoted to kDefault (0 = base fee) if its calibration (written by the settler) exceeds brierDemoteBps."
 add_model() { # label hash description context
   local name="$1.models.$ENS_NAME" res
   if res=$(ur_text "$name" model-hash) && [ "$(lower "${res%%$'\t'*}")" = "$(lower "$2")" ]; then
@@ -121,10 +121,11 @@ HOOK=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["hook"])' 
 POOL_ID=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["pools"]["oniblock"]["poolId"])' "$DEP_OUT")
 
 # 4b. model allowlist on the hook -------------------------------------------------------------------
-# DeployBase allowlists jev-v1 / heuristic-v1 / kev-v1 / oniblock1 on a new hook (unless MODEL_NODES overrides it).
+# DeployBase allowlists jev-v1 / heuristic-v1 / oniblock1 on a new hook (unless MODEL_NODES overrides it). kev-v1 is
+# registered in ENS (above) but deliberately not allowlisted: an allowlisted node has fee power from its first attestation.
 # Anything still missing is an owner tx on a live hook: printed for the owner to run, never sent from here.
 MISSING_ALLOW=0
-for m in jev-v1 heuristic-v1 kev-v1 oniblock1; do
+for m in jev-v1 heuristic-v1 oniblock1; do
   node=$(cast namehash "$m.models.$ENS_NAME")
   if [ "$(cast call --rpc-url "$RPC" "$HOOK" 'modelAllowed(bytes32,bytes32)(bool)' "$POOL_ID" "$node")" != true ]; then
     [ "$MISSING_ALLOW" = 1 ] || echo "[sepolia] hook $HOOK does not allowlist every default model; as the hook owner run:"
@@ -132,7 +133,7 @@ for m in jev-v1 heuristic-v1 kev-v1 oniblock1; do
     echo "  cast send --rpc-url \"\$SEPOLIA_RPC_HTTPS\" --private-key \"\$DEPLOYER_PK\" $HOOK \"setModelAllowed(bytes32,bytes32,bool)\" $POOL_ID $node true  # $m"
   fi
 done
-[ "$MISSING_ALLOW" = 1 ] || echo "[sepolia] hook allowlists jev-v1, heuristic-v1, kev-v1, oniblock1"
+[ "$MISSING_ALLOW" = 1 ] || echo "[sepolia] hook allowlists jev-v1, heuristic-v1, oniblock1"
 
 # 5. pool records ------------------------------------------------------------------------------------
 POOL_DNS=$(cd "$ROOT/services" && pnpm -s exec tsx -e "import {dnsEncode} from './src/ens.ts'; console.log(dnsEncode('weth-usdc.pools.$ENS_NAME'))")

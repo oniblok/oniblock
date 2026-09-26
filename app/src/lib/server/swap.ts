@@ -3,7 +3,7 @@
  * no wallet or test ETH. Dev chains use anvil's public swapper key; Sepolia uses SWAPPER_PK from the root .env
  * (a throwaway key holding only test ETH; the pool tokens are freely mintable mocks).
  *
- * Abuse limits: size caps, one swap per client every 10 s, one in flight at a time (also keeps the nonce simple).
+ * No size caps or per-client cooldown (local/demo use). One swap in flight at a time keeps the swapper's nonce simple.
  */
 import 'server-only';
 import { createWalletClient, http, maxUint256, parseAbi, type Address, type Hex } from 'viem';
@@ -13,10 +13,8 @@ import { ctx } from './chain';
 import { devAccount } from './devkeys';
 import { rootEnv } from './env';
 
-export const SWAP_LIMITS = { maxBase: 3, maxQuote: 10_000 };
 const MIN_SQRT_PRICE = 4295128739n;
 const MAX_SQRT_PRICE = 1461446703485210103287273052203988822378723970342n;
-const COOLDOWN_MS = 10_000;
 
 const erc20 = parseAbi([
   'function allowance(address,address) view returns (uint256)',
@@ -48,7 +46,6 @@ export function swapEnabled(c: Ctx): boolean {
 }
 
 let busy = false;
-const lastByClient = new Map<string, number>();
 
 export interface PublicSwapReq {
   /** which token the user pays */
@@ -60,24 +57,21 @@ export interface PublicSwapReq {
 export async function publicSwap(req: PublicSwapReq): Promise<{ hash: Hex; zeroForOne: boolean }> {
   const c = await ctx();
   if (!swapEnabled(c)) throw new SwapError('swaps are disabled on this deployment', 403);
-  const max = req.pay === 'base' ? SWAP_LIMITS.maxBase : SWAP_LIMITS.maxQuote;
+  if (req.pay !== 'base' && req.pay !== 'quote') throw new SwapError("pay must be 'base' or 'quote'");
   if (!(req.amount > 0) || !Number.isFinite(req.amount)) throw new SwapError('amount must be > 0');
-  if (req.amount > max) throw new SwapError(`max ${max} per swap`);
-  const now = Date.now();
-  const last = lastByClient.get(req.client) ?? 0;
-  if (now - last < COOLDOWN_MS) throw new SwapError(`one swap every ${COOLDOWN_MS / 1000} s — try again in ${Math.ceil((COOLDOWN_MS - (now - last)) / 1000)} s`, 429);
+  const payIsToken0 = (req.pay === 'base') === c.d.baseIsToken0;
+  const zeroForOne = payIsToken0; // paying token0 = swapping 0 -> 1
+  const tok = payIsToken0 ? c.d.token0 : c.d.token1;
+  const amountIn = BigInt(Math.floor(req.amount * 10 ** Math.min(tok.decimals, 12))) * 10n ** BigInt(Math.max(0, tok.decimals - 12));
+  // a tiny amount rounds to 0 raw units: that would send a real no-op tx (gas, no Receipt), so reject it
+  if (amountIn <= 0n) throw new SwapError('amount too small');
   if (busy) throw new SwapError('another swap is being sent — try again in a few seconds', 429);
   busy = true;
-  lastByClient.set(req.client, now);
   try {
     const key = swapperKey(c);
     const account = key ? privateKeyToAccount(key) : devAccount('swapper');
     const w = createWalletClient({ chain: c.sel.chain, account, transport: http(c.sel.rpcUrl) });
     const me = account.address as Address;
-    const payIsToken0 = (req.pay === 'base') === c.d.baseIsToken0;
-    const zeroForOne = payIsToken0; // paying token0 = swapping 0 -> 1
-    const tok = payIsToken0 ? c.d.token0 : c.d.token1;
-    const amountIn = BigInt(Math.floor(req.amount * 10 ** Math.min(tok.decimals, 12))) * 10n ** BigInt(Math.max(0, tok.decimals - 12));
     const rtr = c.d.splitSwapRouter!;
     const wait = (hash: Hex) => c.pc.waitForTransactionReceipt({ hash, timeout: 90_000 });
 
@@ -93,7 +87,6 @@ export async function publicSwap(req: PublicSwapReq): Promise<{ hash: Hex; zeroF
     const hash = await w.writeContract(request);
     return { hash, zeroForOne };
   } catch (e) {
-    lastByClient.delete(req.client);
     if (e instanceof SwapError) throw e;
     throw new SwapError(`swap failed: ${(e as Error).message.split('\n')[0]}`, 500);
   } finally {

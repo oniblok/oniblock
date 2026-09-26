@@ -1,6 +1,10 @@
 /**
  * Reproduction check: keepercost4 arm a (the v4 default, 1 s loop) must reproduce results_v4/heuristic-full exactly —
  * every PoolTotals field of all 14 pools in the 6 ETH windows (84 pool totals).
+ * Since PR #5 (probation / minSamples removed from the hook) this is EXPECTED TO FAIL against the saved reference:
+ * results_v4/heuristic-full was generated with minSamples 10, so its model pools sat at kDefault for the first 200-240
+ * steps of every window (demoted.*.seasonedAtStep), while the current hook makes an allowlisted node active from its
+ * first attestation. Regenerate the reference before using this as a reproduction check again.
  *
  *   tsx src/v4/repro4.ts [--windows ETH-vol1,...] [--port 8900]
  */

@@ -27,13 +27,12 @@ stale mid (older than staleBlocks) → conservativeFee in both directions. The h
 2. **Per-block anchor with a high-water gap.** The first touch in a block anchors one attestation's `(k, model, mid)`. Each direction keeps the largest toward-oracle gap seen in that block. A split arb (many sub-swaps in one transaction) therefore pays the full fee on every part. Once the live price is back at or past the mid, the direction pays base again, so retail that trades after an arb is not overcharged.
 3. **Stale fallback, never revert.** If no fresh attestation exists, both directions pay `conservativeFee` (not `feeMax`). Every data check happens in the keeper's `setAttestation` transaction, never in the swap path, so the hook never breaks V4Quoter or aggregator quotes.
 4. **Attested `k`, from a model behind the hook: the AI decides (v4).** Every block, the keeper builds a k-free feature state (gap, base fee, the arbitrage edge at the base fee, flow, volatility) and asks **Jev** (`typesafe-ai/jev`, an evaluation model on the Vercel AI Gateway) one typed question: should this pool charge an extra arbitrage fee on the next block, given that the extra fee is proportional to the probability and that no profitable arbitrage at the base fee means a probability near 0? A deterministic heuristic is the fallback. The attestor, a TEE stand-in, signs the result with EIP-712. The contract maps the score to `k = kMin + (kMax−kMin)·p·c`; with the v4 defaults (`kMin = 0`, `kDefault = 0`, `kMax = 0.8`, `maxKStep = kMax`, no gap threshold) that is `k = 0.8·p·c`, so "calm" is exactly the base fee and "toxic" is a high k, applied from the next block. **The model never outputs a fee, and there is no hard-coded threshold.** The oracle mid is posted in the same transaction and checked against a Chainlink ETH/USD band. Jev is the keeper's default. The production model option is **oniblock1** (`MODEL_MODE=oniblock1`), a LightGBM model trained on mainnet blocks. For how the two compare, see [Results](#results-no-hook-vs-jev-vs-oniblock1).
-5. **Calibration gate: the model earns its power.** An off-chain settler labels every block's arb-direction receipts by markout against the attested mid, computes each model's Brier score, and posts it on-chain (`setCalibration`) and to ENS. A model node has power over `k` only if all three hold:
-   - it is allowlisted for the pool;
-   - it has at least `minSamples` scored samples (otherwise it is on probation at `kDefault`);
-   - its Brier score is at most `brierDemoteBps` (2500 by default, which is the score of a constant 0.5 forecast).
+5. **Calibration gate: the model earns its power.** An off-chain settler labels every block's arb-direction receipts by markout against the attested mid, computes each model's Brier score, and posts it on-chain (`setCalibration`) and to ENS. A model node has power over `k` (and over the JIT window) only if both hold:
+   - it is allowlisted for the pool (owner, `setModelAllowed`);
+   - it is not Brier-demoted: once the settler has posted a record (n > 0), its Brier score must be at most `brierDemoteBps` (2500 by default, which is the score of a constant 0.5 forecast).
 
-   If any of these fails, `k` is clamped to `kDefault` from the next attestation. No admin step is involved, and switching to a fresh model name does not escape the gate.
-6. **JIT liquidity penalty, with a window the model sets (v5).** Built on OpenZeppelin's `LiquidityPenaltyHook`: fees earned by liquidity removed within the penalty window of being added are penalised with linear decay and donated to in-range LPs. We changed two things. When the last in-range LP exits inside the window, OZ reverts; we park the penalty as ERC-6909 claims and donate it on the next swap, so withdrawals never brick. And the window is no longer a fixed wall: the same per-block Jev call answers a second typed question (is liquidity added next block likely short-lived fee capture?), the attestation carries `pJitBps`, and the contract sets `window = jitWindowMin + (jitWindowMax − jitWindowMin)·p_jit·c` (10 … 100 blocks). Each position is judged by the window in force when it was added, so a window raised later can never penalise an honest LP. The JIT head has its own calibration record (`jitCalibrationKey(model)`, ENS `calibration.jit.*`) and its own demotion; while it is unseasoned or demoted the window is the default 10 blocks. Design, measurements and limits: `docs/review/V5_JIT_HEAD_SPEC.md`, `docs/review/V5_JIT_HEAD_BUILD.md`.
+   A model with no calibration record yet is active from its first attestation. If either condition fails, `k` is clamped to `kDefault` from the next attestation. No admin step is involved; which names can post at all is bounded by the per-pool allowlist.
+6. **JIT liquidity penalty, with a window the model sets (v5).** Built on OpenZeppelin's `LiquidityPenaltyHook`: fees earned by liquidity removed within the penalty window of being added are penalised with linear decay and donated to in-range LPs. We changed two things. When the last in-range LP exits inside the window, OZ reverts; we park the penalty as ERC-6909 claims and donate it on the next swap, so withdrawals never brick. And the window is no longer a fixed wall: the same per-block Jev call answers a second typed question (is liquidity added next block likely short-lived fee capture?), the attestation carries `pJitBps`, and the contract sets `window = jitWindowMin + (jitWindowMax − jitWindowMin)·p_jit·c` (10 … 100 blocks). Each position is judged by the window in force when it was added, so a window raised later can never penalise an honest LP. The JIT head has its own calibration record (`jitCalibrationKey(model)`, ENS `calibration.jit.*`) and its own demotion; while it is demoted the window is the default 10 blocks. Design, measurements and limits: `docs/review/V5_JIT_HEAD_SPEC.md`, `docs/review/V5_JIT_HEAD_BUILD.md`.
 7. **Receipts.** Every swap emits a `Receipt` carrying the exact fee-law inputs and output: gap, k, fee, arbDir, stale, the model node and the executed amounts. `beforeSwap` hands the values to `afterSwap` through a transient-storage slot. The settler scores models from these receipts, and the app renders them.
 
 ### Architecture
@@ -91,7 +90,7 @@ oniblock.eth                    our own UserRegistry (VerifiableFactory proxy) +
 ├─ models.oniblock.eth          own subregistry
 │  ├─ jev-v1                    model-hash, agent-context (ENSIP-26), calibration.* (settler-only)
 │  ├─ heuristic-v1              model-hash, agent-context, calibration.* (settler-only)
-│  ├─ kev-v1                    Kev-0.8B fine-tune (open weights); model-hash = SHA-256 of the adapter, agent-context, calibration.* (settler-only)
+│  ├─ kev-v1                    Kev-0.8B fine-tune (open weights; registered, not allowlisted by default); model-hash = SHA-256 of the adapter, agent-context, calibration.* (settler-only)
 │  └─ oniblock1                 production LightGBM model; model-hash = SHA-256 of ml/models/oniblock1.json, agent-context, calibration.* (settler-only)
 └─ pools.oniblock.eth           own subregistry
    └─ weth-usdc                 hook, pool-id, fee-min, fee-max, policy-uri
@@ -101,7 +100,7 @@ oniblock.eth                    our own UserRegistry (VerifiableFactory proxy) +
 - **Revoke = kill switch.** `revokeRoles(labelId("quoter"), ROLE_QUOTER, keeper)` makes the keeper's next attestation revert. The pool goes stale and charges `conservativeFee`. `grantRoles(…, backup)` brings a backup keeper online. Both are fork-tested and part of the demo.
 - **Calibration records only the settler can write.** PermissionedResolver text permissions are per key. The settler is granted exactly the seven `calibration.*` keys. The owner holds only `ROLE_SET_TEXT_ADMIN` for text, so it cannot quietly edit a model's scorecard: it would first have to grant itself the key, and that grant is visible on-chain (`EACRolesChanged`).
 - **Reads go through UniversalResolverV2.** The app and the settler resolve `calibration.brier`, `quoter.oniblock.eth` and the rest through the UR, and the receipt page checks that the ENS address of `quoter` matches the transaction's sender. No names are hard-coded in the UI.
-- **Rotate a model by changing a record, not by redeploying.** Model identity is an ENS namehash. The hook allowlists namehashes per pool, and new names start on probation.
+- **Rotate a model by changing a record, not by redeploying.** Model identity is an ENS namehash. The hook allowlists namehashes per pool; an allowlisted name is active until its calibration demotes it.
 - **Live state as wildcard names (ENSIP-10).** `jev-v1.live.oniblock.eth`, `current.live.oniblock.eth` and `weth-usdc.live.oniblock.eth` are never registered: `OniblockLiveResolver`, set on `live.oniblock.eth`, answers them from hook storage (calibration, gate status, k, JIT window, fees). `current` is an alias of the model in force.
 - **Primary names (ENSIP-19).** The quoter and settler keys name themselves `quoter.oniblock.eth` / `settler.oniblock.eth` through the Sepolia `DefaultReverseRegistrar` (`pnpm -C services ens:primary`); the app shows the forward-verified name from `UniversalResolverV2.reverse` next to each address.
 
@@ -119,22 +118,22 @@ Line numbers refer to the files as shipped.
 |---|---|
 | Fee law, full spec in NatSpec | [`contracts/src/OniblockHook.sol:38-59`](contracts/src/OniblockHook.sol#L38-L59) |
 | v5 JIT window, full spec in NatSpec (formula, JIT calibration key, window-at-add rule) | [`OniblockHook.sol:71-82`](contracts/src/OniblockHook.sol#L71-L82) |
-| Fee law implementation (`_fee`: directional, feeMax cap, stale → conservative, N-07 floor) | [`OniblockHook.sol:927-942`](contracts/src/OniblockHook.sol#L927-L942) |
-| Per-block anchor + per-direction high-water gap + live `toward` check (`_liveAnchor`) | [`OniblockHook.sol:885-921`](contracts/src/OniblockHook.sol#L885-L921) |
-| Stale detection and fallback | [`OniblockHook.sol:893-897`](contracts/src/OniblockHook.sol#L893-L897), [`846-848`](contracts/src/OniblockHook.sol#L846-L848) |
+| Fee law implementation (`_fee`: directional, feeMax cap, stale → conservative, N-07 floor) | [`OniblockHook.sol:926-941`](contracts/src/OniblockHook.sol#L926-L941) |
+| Per-block anchor + per-direction high-water gap + live `toward` check (`_liveAnchor`) | [`OniblockHook.sol:884-920`](contracts/src/OniblockHook.sol#L884-L920) |
+| Stale detection and fallback | [`OniblockHook.sol:892-896`](contracts/src/OniblockHook.sol#L892-L896), [`846-848`](contracts/src/OniblockHook.sol#L846-L848) |
 | `beforeSwap`: returns `fee \| OVERRIDE_FEE_FLAG`, transient hand-off | [`OniblockHook.sol:691-707`](contracts/src/OniblockHook.sol#L691-L707) |
 | `setAttestation`: quoter role (452), block window + replay (453-456), bounds incl. `pJitBps` (457-460), model allowlist (461), EIP-712 sig (464-465), Chainlink band (468), demotion / step-limited k (470-482), JIT branch: window from `pJitBps` (484-486, stored 496-497), same-block anchor rules (499-515) | [`OniblockHook.sol:448-520`](contracts/src/OniblockHook.sol#L448-L520) |
-| Chainlink sanity band | [`OniblockHook.sol:948-992`](contracts/src/OniblockHook.sol#L948-L992) |
+| Chainlink sanity band | [`OniblockHook.sol:947-991`](contracts/src/OniblockHook.sol#L947-L991) |
 | Calibration gate: `setCalibration` (settler role; the JIT head's record is written under `jitCalibrationKey`) | [`OniblockHook.sol:524-529`](contracts/src/OniblockHook.sol#L524-L529) |
-| Calibration gate: `kFromScore` and `isDemoted` (allowlist + `minSamples` + Brier; shared rule `_demoted`) | [`OniblockHook.sol:537-555`](contracts/src/OniblockHook.sol#L537-L555), [`852-859`](contracts/src/OniblockHook.sol#L852-L859) |
+| Calibration gate: `kFromScore` and `isDemoted` (allowlist + Brier demotion; shared rule `_demoted`) | [`OniblockHook.sol:537-555`](contracts/src/OniblockHook.sol#L537-L555), [`852-858`](contracts/src/OniblockHook.sol#L852-L858) |
 | JIT head gate: `jitCalibrationKey` (559-561), `isJitDemoted` (567-569), `jitWindowFromScore` (574-585) | [`OniblockHook.sol:559-585`](contracts/src/OniblockHook.sol#L559-L585) |
 | `quoteFee` (quote == execution) | [`OniblockHook.sol:589-598`](contracts/src/OniblockHook.sol#L589-L598) |
 | Hook permissions, pool allowlist in `beforeInitialize` | [`OniblockHook.sol:651-675`](contracts/src/OniblockHook.sol#L651-L675) |
 | JIT penalty: `_afterAddLiquidity` (window-at-add: max of the running window and the effective window now) | [`OniblockHook.sol:747-770`](contracts/src/OniblockHook.sol#L747-L770) |
-| JIT penalty: `_afterRemoveLiquidity` (position's window, linear decay, `JitPenalty` emitted at 811, last-LP parking) | [`OniblockHook.sol:781-821`](contracts/src/OniblockHook.sol#L781-L821), effective window + decay helpers [`863-878`](contracts/src/OniblockHook.sol#L863-L878), flush [`995-1006`](contracts/src/OniblockHook.sol#L995-L1006) |
+| JIT penalty: `_afterRemoveLiquidity` (position's window, linear decay, `JitPenalty` emitted at 811, last-LP parking) | [`OniblockHook.sol:781-821`](contracts/src/OniblockHook.sol#L781-L821), effective window + decay helpers [`862-877`](contracts/src/OniblockHook.sol#L862-L877), flush [`994-1005`](contracts/src/OniblockHook.sol#L994-L1005) |
 | `JitPenalty` event | [`OniblockHook.sol:310-318`](contracts/src/OniblockHook.sol#L310-L318) |
 | `Receipt` event and emission | [`OniblockHook.sol:283-296`](contracts/src/OniblockHook.sol#L283-L296), [`724-737`](contracts/src/OniblockHook.sol#L724-L737) |
-| Timelock on config / attestor / role oracle, config validation (incl. `1 <= jitWindowMin <= jitWindowDefault <= jitWindowMax`) | [`OniblockHook.sol:831-844`](contracts/src/OniblockHook.sol#L831-L844), [`1008-1017`](contracts/src/OniblockHook.sol#L1008-L1017) |
+| Timelock on config / attestor / role oracle, config validation (incl. `1 <= jitWindowMin <= jitWindowDefault <= jitWindowMax`) | [`OniblockHook.sol:831-844`](contracts/src/OniblockHook.sol#L831-L844), [`1007-1016`](contracts/src/OniblockHook.sol#L1007-L1016) |
 | `EnsV2RoleOracle` (`isQuoter` / `isSettler`, fail-closed `hasRoles`) | [`contracts/src/roles/EnsV2RoleOracle.sol:55-72`](contracts/src/roles/EnsV2RoleOracle.sol#L55-L72) |
 | Custom EAC role bits | [`contracts/src/roles/EnsV2Lib.sol:19-22`](contracts/src/roles/EnsV2Lib.sol#L19-L22) |
 | `EnsSetup`: commit (171), finish (183), subnames (209-228), role grants (230-234), role oracle (239-246), settler-only text keys incl. `calibration.jit.*` (336-356; idempotent `_grantKeys` 290-299), `ENS_PHASE=grant-jit` upgrade phase (254-270); later phases `add-live` (OniblockLiveResolver on `live.<root>`), `add-model` (a model name owned by its author), `set-endpoints` (ENSIP-26 `agent-endpoint[...]`) | [`contracts/script/EnsSetup.s.sol`](contracts/script/EnsSetup.s.sol) |
@@ -234,7 +233,7 @@ Reproduce: `pnpm -C benchmark bench` (about 8 minutes). `pnpm -C benchmark run:q
 - **0.05% tier:** +0.246 bps/h [−0.08, 0.57] ≈ +$492/h, positive in 3/3 volatile windows.
 - **0.30% tier:** +0.145 bps/h [−0.13, 0.42] ≈ +$290/h, positive in 2/3 volatile windows.
 
-All of the gain comes in the volatile hours. In calm hours the pool is about −0.01 bps/h, which is the keeper's gas. The gain comes from the fresh price and first position (a heuristic at the same timing earns about the same); oniblock1's edge is precision. Jev was not run in the mainnet-block benchmark.
+All of the gain comes in the volatile hours. In calm hours the pool is about −0.01 bps/h, which is the keeper's gas. The gain comes from the fresh price and first position (a heuristic at the same timing earns about the same); oniblock1's edge is precision. Jev was not run in the mainnet-block benchmark. These runs predate PR #5 (probation removed): in them the model had no fee power for the first 7–21 minutes of each window, until 10 blocks were graded; under the current hook it is active from its first attestation, so a re-run will differ.
 
 **Full comparison.** [`docs/RESULTS_ONIBLOCK1.md`](docs/RESULTS_ONIBLOCK1.md) has the metric definitions, sources, the benchmark by regime and the reproduce commands.
 
@@ -263,9 +262,9 @@ DEMO_DURATION=180 ./scripts/demo-local.sh       # headless: presses "Degrade mod
 DEMO_PRICE_SOURCE=live ./scripts/demo-local.sh  # live Binance mid instead of the replay
 ```
 
-The script starts Anvil with 2-second blocks, runs `DeployLocal`, starts the keeper, settler, arb bot, retail bot and the Next.js app. The price source defaults to `replay`: a volatile window of real Binance 1-minute klines from the last 7 days, indexed by block, so every process agrees on the mid. The demo profile (`MIN_SAMPLES=3`, `SETTLE_EVERY=5`, `CALIB_WINDOW=8`) fits the story into about 3 minutes:
+The script starts Anvil with 2-second blocks, runs `DeployLocal`, starts the keeper, settler, arb bot, retail bot and the Next.js app. The price source defaults to `replay`: a volatile window of real Binance 1-minute klines from the last 7 days, indexed by block, so every process agrees on the mid. The demo profile (`SETTLE_EVERY=5`, `CALIB_WINDOW=8`, `CALIB_MIN_N=3`) fits the story into about 3 minutes:
 
-**unseasoned** (k = kDefault) → **seasoned** (k follows the model) → *Degrade model* → the Brier score crosses 0.25 → **demoted** (k = kDefault).
+**active** from the first attestation (k follows the model) → *Degrade model* → the Brier score crosses 0.25 → **demoted** (k = kDefault).
 
 Afterwards, `pnpm -C services story` prints that timeline from chain events. Dev controls on `/`: Execute swap, Degrade model, Revoke quoter, Grant backup, Restore.
 
@@ -313,7 +312,7 @@ By default the keeper sends `setAttestation` on every block, which costs about 1
 - the k the hook would store moves by at least `KEEPER_POST_K_BPS` (500). A demotion counts, because it resets k to kDefault.
 - the JIT window moves by at least `KEEPER_POST_JIT_BLOCKS` (5).
 - the mid drifts more than `KEEPER_POST_MID_BPS` (2) while k is non-zero.
-- the model's `pToxic` or `pJit` moves by at least `KEEPER_POST_P_BPS` (1000, i.e. 10 points). The settler grades the probabilities of the attestation in force, so they must stay current even while k is pinned (unseasoned or demoted model); otherwise the model is graded on stale answers and cannot season.
+- the model's `pToxic` or `pJit` moves by at least `KEEPER_POST_P_BPS` (1000, i.e. 10 points). The settler grades the probabilities of the attestation in force, so they must stay current even while k is pinned (a demoted model, or p·c = 0); otherwise the model is graded on stale answers and a demoted model cannot earn its way back.
 - `KEEPER_HEARTBEAT_BLOCKS` blocks have passed since the last post. The default is `staleBlocks − 1`, so the pool never goes stale.
 
 The comparison is against on-chain `poolState`, so restarts and the backup quoter are handled. `KEEPER_HEARTBEAT_BLOCKS=0` turns the heartbeat off. That is only safe when `conservativeFee == baseFee`: otherwise a quiet keeper lets the pool go stale and charge the higher `conservativeFee` in both directions (the keeper warns once). The rule lives in `services/src/postPolicy.ts`.
@@ -393,7 +392,7 @@ All the watcher, keeper, settler and benchmark code is ours. No other hackathon 
 - Review 1: [`docs/review/CONTRACT_REVIEW_1.md`](docs/review/CONTRACT_REVIEW_1.md), fixed in [`CONTRACT_FIXES_1.md`](docs/review/CONTRACT_FIXES_1.md).
 - Review 2: [`CONTRACT_REVIEW_2.md`](docs/review/CONTRACT_REVIEW_2.md), fixed in [`CONTRACT_FIXES_2.md`](docs/review/CONTRACT_FIXES_2.md).
 
-Round 1 found one High (a calibration-gate bypass by rotating model names), which is fixed with a per-pool allowlist and `minSamples` probation. Round 2 found no Critical or High issues. Every finding is either fixed or documented in the NatSpec and in [`docs/DESIGN.md` §12](docs/DESIGN.md). Current results:
+Round 1 found one High (a calibration-gate bypass by rotating model names), which was fixed with a per-pool allowlist (plus a sample-minimum probation that has since been removed: the gate is now allowlist + Brier demotion). Round 2 found no Critical or High issues. Every finding is either fixed or documented in the NatSpec and in [`docs/DESIGN.md` §12](docs/DESIGN.md). Current results:
 
 - **Tests.** `forge test` gives 83 passed, 1 skipped (the fork suite).
 - **Invariants** (256 runs × 500 calls each):
@@ -407,7 +406,7 @@ Round 1 found one High (a calibration-gate bypass by rotating model names), whic
 - **High-water residual (N-02).** A dominant LP can round-trip the price and leave it at mid + ε, so the toward direction pays the inflated fee for the rest of that block. This is bounded by `feeMax`, lasts one block, and is profitable only for an LP. Integral pricing would remove it.
 - **Freshness (arb before keeper).** The gap is measured against the last *posted* mid. An arb that lands in a block before the keeper's post is priced against the old, still-fresh mid; if the pool was aligned with that mid it sees ~0 gap and pays **baseFee** (0.30%), not the conservative fee; had the post landed first it would pay up to `feeMax`. Whoever controls ordering (builders, searchers) can put the arb first, and withheld posts keep the old mid fresh for up to `staleBlocks` (5) before the pool goes stale and charges `conservativeFee`. The worst case is a vanilla pool (baseFee), never below baseFee. Pinned by `contracts/test/review4/AuditFindings.t.sol::test_audit_arbBeforeKeeper_paysBaseFee`.
 - **Same-block attestations** can raise the other direction's fee (N-06) and can apply two k steps in one block (N-10).
-- **Calibration is global per model node,** while the allowlist, `minSamples` and threshold are set per pool (N-13). Small calibration windows are noisy, and a noisy demotion falls back to `kDefault` — with the v4 default `kDefault = 0` that is the base fee (a vanilla pool), never a fee below base.
+- **Calibration is global per model node,** while the allowlist and Brier threshold are set per pool (N-13). Small calibration windows are noisy, and a noisy demotion falls back to `kDefault` — with the v4 default `kDefault = 0` that is the base fee (a vanilla pool), never a fee below base.
 - **JIT parking caveat (R-08).** A parked JIT penalty goes to whoever is in range at the next swap. Use a large `blockNumberOffset` in thin pools.
 
 **Trust assumptions:**

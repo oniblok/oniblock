@@ -39,7 +39,6 @@ export interface PoolJson {
   kDefaultBps?: number;
   feeMax?: number;
   staleBlocks?: number;
-  minSamples?: number;
   brierDemoteBps?: number;
 }
 export interface DeploymentV2 {
@@ -52,7 +51,7 @@ export interface DeploymentV2 {
   pools: Record<Pool, PoolJson>;
 }
 
-export async function deployV2(anvil: Anvil, env: { initMid: number; liquidity: bigint; minSamples: number; staleBlocks: number }): Promise<DeploymentV2> {
+export async function deployV2(anvil: Anvil, env: { initMid: number; liquidity: bigint; staleBlocks: number }): Promise<DeploymentV2> {
   const out = resolve(ROOT, 'deployments', `bench-v2-${anvil.port}.json`);
   for (let attempt = 0; attempt < 4; attempt++) {
     const r = spawnSync('forge', ['script', 'script/bench/DeployBenchV2.s.sol', '--rpc-url', anvil.url, '--broadcast', '--private-key', ANVIL0_PK, '--slow'], {
@@ -64,7 +63,6 @@ export async function deployV2(anvil: Anvil, env: { initMid: number; liquidity: 
         DEPLOYER_PK: ANVIL0_PK,
         INIT_PRICE_USD_E8: String(Math.round(env.initMid * 1e8)),
         LIQUIDITY: env.liquidity.toString(),
-        MIN_SAMPLES: String(env.minSamples),
         STALE_BLOCKS: String(env.staleBlocks),
         BENCH_OUT: out,
         MODEL_NODES: Object.values(NODES).join(','),

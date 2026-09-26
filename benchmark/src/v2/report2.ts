@@ -249,7 +249,7 @@ export function writeReportV2(results: RunResultV2[], outDir: string, meta: { qu
     claim(
       'Degraded minus honest demotion share',
       Mo.gateSeparationPp,
-      `Degraded model demoted ${fa(Mo.degradedDemoted2ndPct, 1)}% of 2nd-half steps vs honest ${fa(Mo.honestDemoted2ndPct, 1)}% (honest 1st half, incl. the initial probation until ${cfg.minSamples} labels: ${fa(Mo.honestDemoted1stPct, 1)}%). Volatile: ${fa(V.model!.gateSeparationPp, 1)} pp; calm: ${fa(Cm.model!.gateSeparationPp, 1)} pp (few labels in calm hours, slower detection). The LP value of the gate here is ~0 (gated minus honest pool, 2nd half: ${fa(Mo.gatedMinusJev2ndHalfBps)} bps) because k itself barely matters (claim 3). **Caveats:** (i) with CEX-mid labels, arb blocks are ~always labelled informed (arbs only trade when profitable), so the gate mostly checks that p is high on arb-direction flow and low otherwise, an easy test that an inverted model fails; (ii) this holds only with the settler marking out against the CEX mid at the swap's block time. With today's settler labelling against the attested (lagged) mid, arb swaps look unprofitable and the honest model is demoted too: ${labTxt || 'n/a'}.`,
+      `Degraded model demoted ${fa(Mo.degradedDemoted2ndPct, 1)}% of 2nd-half steps vs honest ${fa(Mo.honestDemoted2ndPct, 1)}% (honest 1st half: ${fa(Mo.honestDemoted1stPct, 1)}%). Volatile: ${fa(V.model!.gateSeparationPp, 1)} pp; calm: ${fa(Cm.model!.gateSeparationPp, 1)} pp (few labels in calm hours, slower detection). The LP value of the gate here is ~0 (gated minus honest pool, 2nd half: ${fa(Mo.gatedMinusJev2ndHalfBps)} bps) because k itself barely matters (claim 3). **Caveats:** (i) with CEX-mid labels, arb blocks are ~always labelled informed (arbs only trade when profitable), so the gate mostly checks that p is high on arb-direction flow and low otherwise, an easy test that an inverted model fails; (ii) this holds only with the settler marking out against the CEX mid at the swap's block time. With today's settler labelling against the attested (lagged) mid, arb swaps look unprofitable and the honest model is demoted too: ${labTxt || 'n/a'}.`,
       'pp',
     ),
   );
@@ -266,7 +266,7 @@ export function writeReportV2(results: RunResultV2[], outDir: string, meta: { qu
   L.push(`- Retail total demand is fixed (Poisson ${cfg.lambda}/s per market, lognormal median $${cfg.retailMedianUsd}, sigma ${cfg.retailSigma}); elasticity comes only from routing between the two pools of a market (${cfg.routing}, optimal split with a ${cfg.minSplitFrac * 100}% minimum leg), with no retail gas, no aggregator fees and perfect quotes. ${cfg.informedFrac * 100}% of orders are informed (trade the sign of the next ${cfg.informedHorizon}s move).`);
   L.push('- Full-range liquidity only, one LP per pool, no JIT, no LP re-allocation between pools during the hour; two pools per market (real markets have more venues and fee tiers).');
   L.push('- One hour per window at 1s steps: 12 windows is still a small sample, and the windows are the most volatile / typical-quiet hours of the last 60 days (selection rule in data/windows_v2.json), so the volatile rows are stress tests, not an average day.');
-  L.push('- Settler labels arb-direction swaps against the CEX mid at the swap\'s block time (fetched ex post; `--label-mid attested` = today\'s services behaviour, see the labelatt variant); calibration posts every ' + cfg.settleEvery + ' steps over the last ' + cfg.calibWindow + ' labelled blocks, minSamples ' + cfg.minSamples + '.');
+  L.push('- Settler labels arb-direction swaps against the CEX mid at the swap\'s block time (fetched ex post; `--label-mid attested` = today\'s services behaviour, see the labelatt variant); calibration posts every ' + cfg.settleEvery + ' steps over the last ' + cfg.calibWindow + ' labelled blocks, posting after ' + cfg.calibMinN + ' graded blocks.');
 
   // ---------------- tables
   const T: string[] = [];
@@ -279,7 +279,7 @@ export function writeReportV2(results: RunResultV2[], outDir: string, meta: { qu
   T.push('## Setup');
   T.push('');
   T.push(
-    `Fresh anvil per run (\`--prune-history\`), \`contracts/script/bench/DeployBenchV2.s.sol\`: one OniblockHook, six markets = 12 v4 pools with identical full-range liquidity (~$${fmt(baseRuns[0]?.initialTvlUsd ?? 0, 0)} per pool at the start, L scaled per asset) and the same initial price. Markets: ${MARKETS.map((m) => `**${m.name}** (${m.label})`).join('; ')}. Hooked pools: base fee 0.30%, feeMax 1%, conservativeFee 0.50%, stale after ${cfg.staleSteps} steps, model pools kMin 0.2 / kMax 0.8 / kDefault 0.5, Brier gate 0.25, minSamples ${cfg.minSamples}.`,
+    `Fresh anvil per run (\`--prune-history\`), \`contracts/script/bench/DeployBenchV2.s.sol\`: one OniblockHook, six markets = 12 v4 pools with identical full-range liquidity (~$${fmt(baseRuns[0]?.initialTvlUsd ?? 0, 0)} per pool at the start, L scaled per asset) and the same initial price. Markets: ${MARKETS.map((m) => `**${m.name}** (${m.label})`).join('; ')}. Hooked pools: base fee 0.30%, feeMax 1%, conservativeFee 0.50%, stale after ${cfg.staleSteps} steps, model pools kMin 0.2 / kMax 0.8 / kDefault 0.5, Brier gate 0.25 (no sample minimum).`,
   );
   T.push('');
   T.push(
@@ -315,12 +315,12 @@ export function writeReportV2(results: RunResultV2[], outDir: string, meta: { qu
   T.push('');
   T.push('## Model and gate per window');
   T.push('');
-  T.push('| window | Jev k - const k (bps TVL) [within CI USD] | heur k - const k | Jev - heur | honest demoted 1st/2nd half | degraded demoted 1st/2nd half | honest seasoned at step | gated - honest LP, 2nd half (bps) | Jev calls / fallback |');
+  T.push('| window | Jev k - const k (bps TVL) [within CI USD] | heur k - const k | Jev - heur | honest demoted 1st/2nd half | degraded demoted 1st/2nd half | honest active at step | gated - honest LP, 2nd half (bps) | Jev calls / fallback |');
   T.push('|---|---|---|---|---|---|---|---|---|');
   for (const r of baseRuns) {
     const x = md.get(r.label)!;
     T.push(
-      `| ${r.windowId} | ${fmt(x.jevMinusConstBps)} [${fmt(x.jevMinusConstCI.lo, 0)}, ${fmt(x.jevMinusConstCI.hi, 0)}] | ${fmt(x.heurMinusConstBps)} | ${fmt(x.jevMinusHeurBps)} | ${fmt(r.demoted.mjev.firstHalf * 100, 0)}% / ${fmt(r.demoted.mjev.secondHalf * 100, 0)}% | ${fmt(r.demoted.gated.firstHalf * 100, 0)}% / ${fmt(r.demoted.gated.secondHalf * 100, 0)}% | ${r.demoted.mjev.seasonedAtStep ?? 'never'} | ${fmt(x.gatedMinusJev2ndHalfBps)} | ${r.jev.calls} / ${fmt(r.jev.fallbackShare * 100, 1)}% |`,
+      `| ${r.windowId} | ${fmt(x.jevMinusConstBps)} [${fmt(x.jevMinusConstCI.lo, 0)}, ${fmt(x.jevMinusConstCI.hi, 0)}] | ${fmt(x.heurMinusConstBps)} | ${fmt(x.jevMinusHeurBps)} | ${fmt(r.demoted.mjev.firstHalf * 100, 0)}% / ${fmt(r.demoted.mjev.secondHalf * 100, 0)}% | ${fmt(r.demoted.gated.firstHalf * 100, 0)}% / ${fmt(r.demoted.gated.secondHalf * 100, 0)}% | ${r.demoted.mjev.activeAtStep ?? 'never'} | ${fmt(x.gatedMinusJev2ndHalfBps)} | ${r.jev.calls} / ${fmt(r.jev.fallbackShare * 100, 1)}% |`,
     );
   }
   T.push('');

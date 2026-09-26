@@ -68,8 +68,7 @@ const base: Omit<RunConfigV3, 'label' | 'path' | 'port'> = {
   degradeAtFrac: 0.5,
   settleEvery: num('settle-every', quick ? 10 : 20),
   calibWindow: num('calib-window', quick ? 20 : 50),
-  calibMinN: num('min-samples', quick ? 3 : 10),
-  minSamples: num('min-samples', quick ? 3 : 10),
+  calibMinN: num('calib-min-n', 1), // settler posting floor; the hook has no sample minimum
   staleSteps: num('stale-steps', 5),
   labelMid: (a['label-mid'] as 'attested' | 'true') ?? 'true',
   bucketSteps: 60,

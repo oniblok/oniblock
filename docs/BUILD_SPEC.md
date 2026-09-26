@@ -56,7 +56,7 @@ struct PoolConfig {
     address chainlinkFeed;   // address(0) = disabled
     bool   chainlinkInverted;// true if feed price must be inverted to match priceX96 convention
     uint32 brierDemoteBps;   // if model brier > this => k forced to kDefault (e.g. 2500 = 0.25)
-    uint32 minSamples;       // (fixes-1) calibration n needed before a model can move k off kDefault (default 10)
+    // (fixes-1 added a uint32 minSamples probation here; removed since: the gate is allowlist + Brier demotion only)
     uint32 chainlinkMaxAge;  // (fixes-1) seconds; required if chainlinkFeed != 0 (default 7200)
     uint24 arbThresholdPips; // (v3) gap below which the arb-direction fee is exactly baseFee; <= feeMax (default base+300)
 }

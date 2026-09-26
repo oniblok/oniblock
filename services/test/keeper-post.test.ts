@@ -123,7 +123,7 @@ describe('keeper change-mode decision (pure pieces composed as in Keeper.tick)',
     const oldTarget = L + (s - 1) + 1;
     expect(oldTarget + 1 - L > s).toBe(true);
   });
-  it('unseasoned/demoted model (k pinned at kDefault): a 10-point pToxic move still posts, so the settler grades current answers', () => {
+  it('demoted model (k pinned at kDefault): a 10-point pToxic move still posts, so the settler grades current answers', () => {
     expect(decide(true, 0, 101, 10, 5000).reason).toBe('k'); // demotion itself: k 4000 -> 0
     const pinned = { ...chain, kBps: 0 };
     const last = postedFromPoolState(pinned, false, { kDefaultBps: 0, jitWindowDefault: 10 });

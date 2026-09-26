@@ -70,7 +70,6 @@ export interface RunConfigV3 {
   settleEvery: number;
   calibWindow: number;
   calibMinN: number;
-  minSamples: number;
   staleSteps: number;
   labelMid: 'attested' | 'true';
   bucketSteps: number;
@@ -132,8 +131,8 @@ export interface RunResultV3 {
   degradeAtStep: number;
   totals: Record<Pool, PoolTotals>;
   buckets: Record<Pool, PoolBuckets>;
-  /** Model pools: share of steps with k forced to kDefault by demotion/probation, by half. */
-  demoted: Record<ModelPool, { firstHalf: number; secondHalf: number; seasonedAtStep: number | null }>;
+  /** Model pools: share of steps with k forced to kDefault by Brier demotion, by half. */
+  demoted: Record<ModelPool, { firstHalf: number; secondHalf: number; activeAtStep: number | null }>;
   /** v3 keeper gate per model pool: attestation steps posted under rule-v1 vs under the model (Jev/heuristic consulted) */
   gate: Record<ModelPool, { rule: number; model: number }>;
   /** v3: arb swaps on hooked pools that paid exactly baseFee (below threshold) vs all arbs */
@@ -243,7 +242,6 @@ export async function runOneV3(cfg: RunConfigV3): Promise<RunResultV3> {
     const d: DeploymentV3 = await deployV3(anvil, {
       initMid: mids[0]!,
       liquidity,
-      minSamples: cfg.minSamples,
       staleBlocks: cfg.staleSteps * 3,
       baseFee: cfg.baseFee,
       thrPips: cfg.thrPips,
@@ -406,9 +404,9 @@ export async function runOneV3(cfg: RunConfigV3): Promise<RunResultV3> {
     const arbAtBase = Object.fromEntries(HOOKED.map((n) => [n, { atBase: 0, n: 0 }])) as Record<Hooked, { atBase: number; n: number }>;
     const isDemoted = (n: Hooked) => {
       const c = nodeCalib[nodeOf(n)];
-      return !c || c.n < cfg.minSamples || (demoteBps > 0 && c.brier > demoteBps);
+      return c !== undefined && c.n > 0 && demoteBps > 0 && c.brier > demoteBps; // allowlist + Brier only: no record => active
     };
-    const demCount = Object.fromEntries(MODEL_POOLS.map((n) => [n, { a: 0, b: 0, seasoned: null as number | null }])) as Record<(typeof MODEL_POOLS)[number], { a: number; b: number; seasoned: number | null }>;
+    const demCount = Object.fromEntries(MODEL_POOLS.map((n) => [n, { a: 0, b: 0, active: null as number | null }])) as Record<(typeof MODEL_POOLS)[number], { a: number; b: number; active: number | null }>;
     const kBk = Object.fromEntries(HOOKED.map((n) => [n, new Array(nB).fill(0)])) as Record<Hooked, number[]>;
     let missedPosts = 0;
     const arbWins = new Array(cfg.arbs.length).fill(0);
@@ -591,7 +589,7 @@ export async function runOneV3(cfg: RunConfigV3): Promise<RunResultV3> {
         const dm = isDemoted(n);
         if (t < degradeAt) demCount[n].a += dm ? 1 : 0;
         else demCount[n].b += dm ? 1 : 0;
-        if (!dm && demCount[n].seasoned === null) demCount[n].seasoned = t;
+        if (!dm && demCount[n].active === null) demCount[n].active = t;
       }
       for (const n of HOOKED) {
         kBk[n][bIdx] += pools[n].kBps / cfg.bucketSteps;
@@ -832,7 +830,7 @@ export async function runOneV3(cfg: RunConfigV3): Promise<RunResultV3> {
       totals,
       buckets: Object.fromEntries(POOLS.map((n) => [n, pools[n].bk])) as Record<Pool, PoolBuckets>,
       demoted: Object.fromEntries(
-        MODEL_POOLS.map((n) => [n, { firstHalf: demCount[n].a / Math.max(1, h1), secondHalf: demCount[n].b / Math.max(1, h2), seasonedAtStep: demCount[n].seasoned }]),
+        MODEL_POOLS.map((n) => [n, { firstHalf: demCount[n].a / Math.max(1, h1), secondHalf: demCount[n].b / Math.max(1, h2), activeAtStep: demCount[n].active }]),
       ) as RunResultV3['demoted'],
       gate: gateCnt,
       arbAtBase,
