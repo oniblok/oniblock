@@ -8,6 +8,7 @@ import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
 import {Position} from "@uniswap/v4-core/src/libraries/Position.sol";
+import {SafeCast} from "@uniswap/v4-core/src/libraries/SafeCast.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
@@ -30,8 +31,9 @@ import {AggregatorV3Interface} from "./interfaces/AggregatorV3Interface.sol";
 /// @notice Uniswap v4 hook that charges informed (arbitrage-direction) flow a fee proportional to the part of the
 /// gap between the pool price and an attested CEX mid that exceeds an arbitrage threshold (below it the pool is a
 /// plain baseFee pool), scaled by an attested sensitivity `k`. Flow that moves the pool away from
-/// the oracle pays the base fee. JIT liquidity is penalised (OpenZeppelin LiquidityPenaltyHook pattern).
-/// Every swap emits a `Receipt` that an off-chain settler scores; a model's calibration (Brier) gates its power.
+/// the oracle pays the base fee. JIT liquidity is penalised (OpenZeppelin LiquidityPenaltyHook pattern) over a
+/// per-pool window the model sets every block (v5). Every swap emits a `Receipt` that an off-chain settler scores;
+/// a model's calibration (Brier) gates its power.
 ///
 /// Fee law (see docs/BUILD_SPEC.md, docs/review/CONTRACT_FIXES_1.md):
 ///   stale mid (block.number - lastAttestBlock > staleBlocks at the block's first touch)
@@ -65,6 +67,19 @@ import {AggregatorV3Interface} from "./interfaces/AggregatorV3Interface.sol";
 /// Calibration gate: attestations must name a model node allowlisted for the pool (owner, `setModelAllowed`).
 /// A node whose calibration has fewer than `minSamples` samples ("unseasoned") or whose Brier exceeds
 /// `brierDemoteBps` is demoted: k = kDefault. Rotating to a fresh node therefore never escapes demotion.
+///
+/// v5: JIT window (docs/review/V5_JIT_HEAD_SPEC.md). The same attestation carries a second score, `pJitBps` (the
+/// model's probability that liquidity added in the next block is short-lived fee capture), which sets the pool's
+/// JIT penalty window instead of the fixed OZ `blockNumberOffset`:
+///   window = jitWindowMin + (jitWindowMax - jitWindowMin) * pJit * confidence / 1e8   (blocks, in [min, max])
+///   JIT head demoted / unseasoned, parent model not allowlisted, or attestation stale => window = jitWindowDefault
+/// The JIT head has its own calibration record under `jitCalibrationKey(modelNode)` = keccak256(modelNode ‖
+/// keccak256("jit")) (written by the settler with the existing `setCalibration`; ENS `calibration.jit.*`) and is
+/// demoted by the same rule as k (`isJitDemoted`), gated by the parent model's allowlist. Window-at-add rule: a
+/// position is judged by the window in force when its liquidity was added (`_windowAtAdd`), so a later change of
+/// the window never lengthens the wall for liquidity already in the pool and never shortens it for liquidity added
+/// under a wide one (re-adding inside the window keeps the larger of the two). The penalty decays linearly over that
+/// window (OZ shape); every applied penalty emits `JitPenalty`. The fee law for swaps is unchanged.
 ///
 /// Price convention: priceX96 = (raw token1 per raw token0) * 2^96, i.e. sqrtPriceX96^2 / 2^96.
 /// Range: sqrtPriceX96 <= 2^160 so poolX96 <= 2^224 (FullMath 512-bit intermediate, never overflows). Precision:
@@ -113,6 +128,9 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
         uint32 chainlinkMaxAge; // seconds; Chainlink answers older than this are invalid (required if feed set)
         uint24 arbThresholdPips; // gap (pips) below which no profitable arb exists: the premium only prices the
         // excess gap above it (0 = premium from the first pip, the v2 law). Typically baseFee + ~300. <= feeMax.
+        uint16 jitWindowMin; // v5: JIT penalty window (blocks) at pJit * confidence = 0 (>= 1)
+        uint16 jitWindowMax; // v5: window at pJit * confidence = 1 (>= jitWindowDefault)
+        uint16 jitWindowDefault; // v5: window while the JIT head is demoted/unseasoned or the attestation is stale
     }
 
     /// @notice Signed by the attestor (EIP-712), posted by a quoter once per block.
@@ -121,8 +139,9 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
         uint256 oracleMidX96; // CEX mid in priceX96 convention
         uint32 pToxicBps; // 0..10000
         uint32 confidenceBps; // 0..10000
+        uint32 pJitBps; // 0..10000, v5: P(liquidity added next block is short-lived fee capture); sets the JIT window
         bytes32 modelNode; // ENS namehash of the model name; must be allowlisted for the pool
-        bytes signature; // EIP-712 signature by `attestor` over (poolId, blockNumber, oracleMidX96, pToxicBps, confidenceBps, modelNode)
+        bytes signature; // EIP-712 signature by `attestor` over (poolId, blockNumber, oracleMidX96, pToxicBps, confidenceBps, pJitBps, modelNode)
     }
 
     /// @notice A model's calibration record, written by the settler (mirrors the ENS calibration.* text records).
@@ -146,6 +165,8 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
         uint32 confidenceBps; // informational (last attestation)
         uint256 oracleMidX96;
         bytes32 modelNode; // model of the last accepted attestation
+        uint16 jitWindow; // v5: JIT window (blocks) for liquidity added from now on while the attestation is fresh
+        uint32 pJitBps; // informational (last attestation)
     }
 
     /// @notice Per-block fee anchor. Created at the block's first touch (swap) from the stored state; the gaps are
@@ -193,7 +214,7 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
     uint256 internal constant FEE_TSLOT = uint256(keccak256("oniblock.fee.transient")) - 1;
 
     string public constant ATTESTATION_TYPE =
-        "Attestation(bytes32 poolId,uint64 blockNumber,uint256 oracleMidX96,uint32 pToxicBps,uint32 confidenceBps,bytes32 modelNode)";
+        "Attestation(bytes32 poolId,uint64 blockNumber,uint256 oracleMidX96,uint32 pToxicBps,uint32 confidenceBps,uint32 pJitBps,bytes32 modelNode)";
     bytes32 public constant ATTESTATION_TYPEHASH = keccak256(bytes(ATTESTATION_TYPE));
 
     // ---------------------------------------------------------------------------------------------------------
@@ -221,9 +242,15 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
 
     /// @notice JIT penalties parked (as ERC-6909 claims held by this hook) when the last in-range LP exits inside
     /// the penalty window; donated to whatever liquidity is in range on the next swap that finds any (see
-    /// docs/review/CONTRACT_FIXES_1.md R-08 for the redirect caveat — use a large blockNumberOffset in thin pools).
+    /// docs/review/CONTRACT_FIXES_1.md R-08 for the redirect caveat — use a large jitWindowDefault in thin pools).
     mapping(PoolId => uint256) public pendingPenalty0;
     mapping(PoolId => uint256) public pendingPenalty1;
+
+    /// @dev v5: the JIT window (blocks) in force when a position's liquidity was (last) added; 0 = never added.
+    /// Read by `_afterRemoveLiquidity` instead of the immutable `blockNumberOffset`. Never cleared: a fully removed
+    /// position's entry is harmless (its `lastAddedLiquidityBlock` decides whether a window is still running) and
+    /// is replaced by the effective window on the next add once the old window has expired.
+    mapping(PoolId => mapping(bytes32 positionKey => uint16)) internal _windowAtAdd;
 
     /// @dev Mid of the attestation in force in the current block's anchor when a lower-k same-block attestation
     /// has already replaced `PoolState.oracleMidX96` (only read while `BlockAnchor.pinnedMid`).
@@ -241,7 +268,9 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
         uint32 confidenceBps,
         uint32 kBps,
         bytes32 indexed modelNode,
-        address quoter
+        address quoter,
+        uint32 pJitBps,
+        uint16 jitWindow
     );
     /// @notice One per swap. gapPips/kBps/feePips are exactly the inputs/outputs of the fee law for this swap;
     /// gapPips is the RAW (high-water) gap, the threshold comes from poolConfig(id).arbThresholdPips:
@@ -275,6 +304,18 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
     event ChangeCancelled(bytes32 indexed id);
     event PenaltyParked(PoolId indexed id, uint256 amount0, uint256 amount1);
     event PenaltyDonated(PoolId indexed id, uint256 amount0, uint256 amount1);
+    /// @notice v5: a JIT penalty was applied (donated, or parked if no liquidity was in range) to a position removed
+    /// within `window` blocks of `addedBlock`. sender = the router calling the PoolManager; positionKey = OZ/v4
+    /// Position.calculatePositionKey(sender, tickLower, tickUpper, salt).
+    event JitPenalty(
+        PoolId indexed id,
+        address indexed sender,
+        bytes32 positionKey,
+        uint48 addedBlock,
+        uint16 window,
+        uint256 penalty0,
+        uint256 penalty1
+    );
 
     error PoolNotRegistered();
     error PoolAlreadyInitialized();
@@ -301,7 +342,8 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
     /// @param _owner admin (Ownable2Step); explicit because the hook is deployed via a CREATE2 factory
     /// @param _attestor EIP-712 signer of attestations (TEE stand-in)
     /// @param _roleOracle quoter/settler role source (ENSv2 or mock)
-    /// @param _blockNumberOffset JIT penalty window in blocks (LiquidityPenaltyHook)
+    /// @param _blockNumberOffset LiquidityPenaltyHook's immutable window; kept for ABI/deploy compatibility only
+    ///        (v5 reads the per-pool `PoolConfig.jitWindow*` / attested window instead). Must be >= 1.
     /// @param _configDelay timelock in seconds for updatePoolConfig / setAttestor / setRoleOracle (0 = none)
     constructor(
         IPoolManager _poolManager,
@@ -338,9 +380,9 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
     }
 
     /// @notice Update the config of a registered pool (owner, timelocked: the first call queues, the identical call
-    /// after `configDelay` executes). On execution the stored k is clamped into [kMin, kMax] and the current block's
-    /// anchor is cleared (the next swap re-anchors under the new config). Note: Chainlink decimals are only checked
-    /// at registration.
+    /// after `configDelay` executes). On execution the stored k is clamped into [kMin, kMax], the stored JIT window
+    /// into [jitWindowMin, jitWindowMax], and the current block's anchor is cleared (the next swap re-anchors under
+    /// the new config). Note: Chainlink decimals are only checked at registration.
     function updatePoolConfig(PoolId id, PoolConfig calldata cfg) external onlyOwner {
         PoolState storage st = _state[id];
         if (!st.registered) revert PoolNotRegistered();
@@ -350,6 +392,9 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
         uint32 k = st.kBps;
         if (k < cfg.kMinBps) st.kBps = cfg.kMinBps;
         else if (k > cfg.kMaxBps) st.kBps = cfg.kMaxBps;
+        uint16 w = st.jitWindow;
+        if (w < cfg.jitWindowMin) st.jitWindow = cfg.jitWindowMin;
+        else if (w > cfg.jitWindowMax) st.jitWindow = cfg.jitWindowMax;
         delete _anchor[id];
         emit PoolConfigUpdated(id, cfg);
     }
@@ -411,6 +456,7 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
         if (a.blockNumber <= st.lastAttestBlock) revert AlreadyAttested();
         if (
             a.oracleMidX96 == 0 || a.oracleMidX96 >= MAX_MID_X96 || a.pToxicBps > BPS || a.confidenceBps > BPS
+                || a.pJitBps > BPS
         ) revert InvalidAttestation();
         if (!modelAllowed[id][a.modelNode]) revert ModelNotAllowed();
 
@@ -435,6 +481,10 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
             }
         }
 
+        // v5 JIT window: not step-limited (it only governs liquidity added from now on) and demotion-aware on the
+        // JIT head's own calibration key.
+        uint16 jitWindow = jitWindowFromScore(id, a.pJitBps, a.confidenceBps, a.modelNode);
+
         uint256 prevMid = st.oracleMidX96;
         st.kBps = k;
         st.oracleMidX96 = a.oracleMidX96;
@@ -443,6 +493,8 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
         st.modelNode = a.modelNode;
         st.lastAttestBlock = a.blockNumber;
         st.lastPostBlock = uint64(block.number);
+        st.jitWindow = jitWindow;
+        st.pJitBps = a.pJitBps;
 
         // Same-block refresh: the anchored (k, model, mid) move together, and only to a higher-or-equal k.
         BlockAnchor storage anc = _anchor[id];
@@ -463,7 +515,7 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
         }
 
         emit AttestationPosted(
-            id, a.blockNumber, a.oracleMidX96, a.pToxicBps, a.confidenceBps, k, a.modelNode, msg.sender
+            id, a.blockNumber, a.oracleMidX96, a.pToxicBps, a.confidenceBps, k, a.modelNode, msg.sender, a.pJitBps, jitWindow
         );
     }
 
@@ -499,12 +551,37 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
     /// unseasoned (calibration n < minSamples), OR Brier demotion is enabled (brierDemoteBps > 0), it has a record
     /// (n > 0) and its Brier score exceeds the threshold.
     function isDemoted(PoolId id, bytes32 modelNode) public view returns (bool) {
+        return _demoted(id, modelNode, modelNode);
+    }
+
+    /// @notice v5: derived calibration key of a model's JIT head, keccak256(modelNode ‖ keccak256("jit")). The
+    /// settler writes it with `setCalibration`; ENS mirrors it as calibration.jit.* records on the model name.
+    function jitCalibrationKey(bytes32 modelNode) public pure returns (bytes32) {
+        return keccak256(abi.encodePacked(modelNode, keccak256("jit")));
+    }
+
+    /// @notice v5: True iff the model's JIT head has no power over the JIT window on this pool (window =
+    /// jitWindowDefault). Same rule as `isDemoted`, read on `jitCalibrationKey(modelNode)`: the parent model is not
+    /// allowlisted, OR the JIT record is unseasoned (n < minSamples), OR Brier demotion is enabled, it has a record
+    /// and its Brier exceeds brierDemoteBps. No separate allowlist: the parent's allowlist gates both heads.
+    function isJitDemoted(PoolId id, bytes32 modelNode) public view returns (bool) {
+        return _demoted(id, modelNode, jitCalibrationKey(modelNode));
+    }
+
+    /// @notice v5: Public, clamped, demotion-aware map from the JIT score to the penalty window (blocks):
+    ///   window = jitWindowMin + (jitWindowMax - jitWindowMin) * pJit * confidence / 1e8 ;
+    ///   JIT head demoted / unseasoned / parent not allowlisted => jitWindowDefault.
+    function jitWindowFromScore(PoolId id, uint32 pJitBps, uint32 confidenceBps, bytes32 modelNode)
+        public
+        view
+        returns (uint16)
+    {
         PoolConfig storage cfg = _config[id];
-        Calibration storage c = _calibration[modelNode];
-        uint32 n = c.n;
-        if (!modelAllowed[id][modelNode] || n < cfg.minSamples) return true;
-        uint32 threshold = cfg.brierDemoteBps;
-        return threshold != 0 && n != 0 && c.brierBps > threshold;
+        if (isJitDemoted(id, modelNode)) return cfg.jitWindowDefault;
+        uint256 p = pJitBps > BPS ? BPS : pJitBps;
+        uint256 c = confidenceBps > BPS ? BPS : confidenceBps;
+        uint256 span = cfg.jitWindowMax - cfg.jitWindowMin; // validated max >= min; p * c <= 1e8 => <= max
+        return uint16(cfg.jitWindowMin + (span * p * c) / 1e8);
     }
 
     /// @notice Fee a swap in `zeroForOne` direction would pay if executed now (in this block, at the current pool
@@ -551,6 +628,7 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
                     a.oracleMidX96,
                     a.pToxicBps,
                     a.confidenceBps,
+                    a.pJitBps,
                     a.modelNode
                 )
             )
@@ -596,12 +674,15 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
         return this.beforeInitialize.selector;
     }
 
-    /// @dev Marks the pool initialized and starts k at kDefault (dynamic fee already enforced in beforeInitialize).
+    /// @dev Marks the pool initialized and starts k at kDefault and the JIT window at jitWindowDefault (dynamic fee
+    /// already enforced in beforeInitialize).
     function _afterInitialize(address, PoolKey calldata key, uint160, int24) internal override returns (bytes4) {
         PoolId id = key.toId();
         PoolState storage st = _state[id];
+        PoolConfig storage cfg = _config[id];
         st.initialized = true;
-        st.kBps = _config[id].kDefaultBps;
+        st.kBps = cfg.kDefaultBps;
+        st.jitWindow = cfg.jitWindowDefault;
         return this.afterInitialize.selector;
     }
 
@@ -658,12 +739,45 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
         return (this.afterSwap.selector, 0);
     }
 
-    /// @dev LiquidityPenaltyHook._afterRemoveLiquidity, except the "last in-range LP exits inside the window" case:
-    /// instead of reverting (which would brick the withdrawal until the window passes), the penalty is taken by the
-    /// hook as ERC-6909 claims (`pendingPenalty*`) and donated to in-range LPs on the next swap that finds
-    /// liquidity in range. The exiting JIT LP still forfeits the penalty; the withdrawal never reverts.
-    /// Caveat (R-08): the parked penalty goes to whoever is in range at that later swap, which can be an old
-    /// position of the same JIT; like OZ's multi-account caveat, use a large blockNumberOffset in thin pools.
+    /// @dev LiquidityPenaltyHook._afterAddLiquidity with the v5 per-position window: the "added recently" check
+    /// (fees withheld by the hook until removal) runs against the window the position was last added under, and the
+    /// window stored for this add is the larger of that running window and the effective window now — re-adding
+    /// inside a window never shortens it (OZ: splitting additions does not reduce the penalty). Once the previous
+    /// window has expired the position starts afresh under the effective window now (equivalent to a new position).
+    function _afterAddLiquidity(
+        address sender,
+        PoolKey calldata key,
+        ModifyLiquidityParams calldata params,
+        BalanceDelta,
+        BalanceDelta feeDelta,
+        bytes calldata
+    ) internal override returns (bytes4, BalanceDelta) {
+        PoolId id = key.toId();
+        bytes32 positionKey = Position.calculatePositionKey(sender, params.tickLower, params.tickUpper, params.salt);
+
+        uint16 w = _windowAtAdd[id][positionKey];
+        bool recent = w != 0 && _getBlockNumber() - getLastAddedLiquidityBlock(id, positionKey) < w;
+        uint16 wNow = _effectiveJitWindow(id);
+        if (!recent || wNow > w) w = wNow;
+        _windowAtAdd[id][positionKey] = w;
+        _updateLastAddedLiquidityBlock(id, positionKey);
+
+        if (recent) {
+            _takeFeesToHook(key, positionKey, feeDelta);
+            return (this.afterAddLiquidity.selector, feeDelta);
+        }
+        return (this.afterAddLiquidity.selector, BalanceDeltaLibrary.ZERO_DELTA);
+    }
+
+    /// @dev LiquidityPenaltyHook._afterRemoveLiquidity with two changes. (1) v5: the window is the one in force
+    /// when the position's liquidity was added (`_windowAtAdd`, jitWindowDefault if never recorded), not the
+    /// immutable `blockNumberOffset`; the penalty decays linearly over that window and emits `JitPenalty`. (2) The
+    /// "last in-range LP exits inside the window" case: instead of reverting (which would brick the withdrawal until
+    /// the window passes), the penalty is taken by the hook as ERC-6909 claims (`pendingPenalty*`) and donated to
+    /// in-range LPs on the next swap that finds liquidity in range. The exiting JIT LP still forfeits the penalty;
+    /// the withdrawal never reverts. Caveat (R-08): the parked penalty goes to whoever is in range at that later
+    /// swap, which can be an old position of the same JIT; like OZ's multi-account caveat, use a large
+    /// jitWindowDefault in thin pools.
     function _afterRemoveLiquidity(
         address sender,
         PoolKey calldata key,
@@ -678,9 +792,11 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
         BalanceDelta withheldFees = _settleFeesFromHook(key, positionKey);
         BalanceDelta totalFees = feeDelta + withheldFees;
         uint48 lastAdded = getLastAddedLiquidityBlock(id, positionKey);
+        uint16 window = _windowAtAdd[id][positionKey];
+        if (window == 0) window = _config[id].jitWindowDefault;
 
-        if (_getBlockNumber() - lastAdded < blockNumberOffset && totalFees != BalanceDeltaLibrary.ZERO_DELTA) {
-            BalanceDelta penalty = _calculateLiquidityPenalty(totalFees, lastAdded);
+        if (_getBlockNumber() - lastAdded < window && totalFees != BalanceDeltaLibrary.ZERO_DELTA) {
+            BalanceDelta penalty = _jitPenalty(totalFees, lastAdded, window);
             uint256 p0 = uint256(int256(penalty.amount0()));
             uint256 p1 = uint256(int256(penalty.amount1()));
             if (poolManager.getLiquidity(id) == 0) {
@@ -692,6 +808,7 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
             } else {
                 poolManager.donate(key, p0, p1, "");
             }
+            emit JitPenalty(id, sender, positionKey, lastAdded, window, p0, p1);
             return (this.afterRemoveLiquidity.selector, penalty - withheldFees);
         }
 
@@ -728,6 +845,36 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
 
     function _isStale(PoolConfig memory cfg, uint64 lastAttestBlock) internal view returns (bool) {
         return lastAttestBlock == 0 || block.number - lastAttestBlock > cfg.staleBlocks;
+    }
+
+    /// @dev Demotion rule shared by the arb head (`calKey` = modelNode) and the JIT head (`calKey` =
+    /// jitCalibrationKey(modelNode)); the allowlist is always the parent model's.
+    function _demoted(PoolId id, bytes32 modelNode, bytes32 calKey) internal view returns (bool) {
+        PoolConfig storage cfg = _config[id];
+        Calibration storage c = _calibration[calKey];
+        uint32 n = c.n;
+        if (!modelAllowed[id][modelNode] || n < cfg.minSamples) return true;
+        uint32 threshold = cfg.brierDemoteBps;
+        return threshold != 0 && n != 0 && c.brierBps > threshold;
+    }
+
+    /// @dev v5: the JIT window for liquidity added now: the attested window while the attestation is fresh, else
+    /// jitWindowDefault (same staleness rule as the fee law).
+    function _effectiveJitWindow(PoolId id) internal view returns (uint16) {
+        PoolConfig storage cfg = _config[id];
+        uint64 last = _state[id].lastAttestBlock;
+        if (last == 0 || block.number - last > cfg.staleBlocks) return cfg.jitWindowDefault;
+        return _state[id].jitWindow;
+    }
+
+    /// @dev OZ's _calculateLiquidityPenalty with the position's window in place of the immutable offset:
+    /// penalty = fees * (window - (now - lastAdded)) / window, i.e. 100% in the add block, 0 once the window has
+    /// passed. Caller guarantees now - lastAdded < window (no underflow).
+    function _jitPenalty(BalanceDelta fees, uint48 lastAdded, uint16 window) internal view returns (BalanceDelta) {
+        uint256 remaining = uint256(window) - (_getBlockNumber() - lastAdded);
+        uint256 p0 = FullMath.mulDiv(SafeCast.toUint128(fees.amount0()), remaining, window);
+        uint256 p1 = FullMath.mulDiv(SafeCast.toUint128(fees.amount1()), remaining, window);
+        return toBalanceDelta(SafeCast.toInt128(p0), SafeCast.toInt128(p1));
     }
 
     /// @dev The anchor as it is after a swap/quote now: loads the current block's anchor (or creates it from the
@@ -864,7 +1011,8 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
                 || c.kMinBps > c.kMaxBps || c.kDefaultBps < c.kMinBps || c.kDefaultBps > c.kMaxBps
                 || c.sanityBandBps > BPS || c.brierDemoteBps > BPS || c.staleBlocks == 0
                 || (c.chainlinkFeed != address(0) && c.chainlinkMaxAge == 0) || c.minSamples == 0
-                || c.arbThresholdPips > c.feeMax
+                || c.arbThresholdPips > c.feeMax || c.jitWindowMin == 0 || c.jitWindowMin > c.jitWindowDefault
+                || c.jitWindowDefault > c.jitWindowMax
         ) revert InvalidConfig();
     }
 

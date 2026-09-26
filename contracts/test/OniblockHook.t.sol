@@ -399,7 +399,7 @@ contract OniblockHookTest is OniblockTestBase {
     }
 
     function test_attestationDigest_matchesManualEip712() public view {
-        OniblockHook.Attestation memory a = OniblockHook.Attestation(123, 456, 7, 8, MODEL, "");
+        OniblockHook.Attestation memory a = OniblockHook.Attestation(123, 456, 7, 8, 9, MODEL, "");
         bytes32 domain = keccak256(
             abi.encode(
                 keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
@@ -412,13 +412,14 @@ contract OniblockHookTest is OniblockTestBase {
         bytes32 structHash = keccak256(
             abi.encode(
                 keccak256(
-                    "Attestation(bytes32 poolId,uint64 blockNumber,uint256 oracleMidX96,uint32 pToxicBps,uint32 confidenceBps,bytes32 modelNode)"
+                    "Attestation(bytes32 poolId,uint64 blockNumber,uint256 oracleMidX96,uint32 pToxicBps,uint32 confidenceBps,uint32 pJitBps,bytes32 modelNode)"
                 ),
                 PoolId.unwrap(pid),
                 uint64(123),
                 uint256(456),
                 uint32(7),
                 uint32(8),
+                uint32(9),
                 MODEL
             )
         );
@@ -431,7 +432,7 @@ contract OniblockHookTest is OniblockTestBase {
         OniblockHook.Attestation memory a =
             _attestation(pid, uint64(vm.getBlockNumber()), mid, 10000, 10000, MODEL, attestorPk);
         vm.expectEmit(true, true, true, true, address(hook));
-        emit OniblockHook.AttestationPosted(pid, uint64(vm.getBlockNumber()), mid, 10000, 10000, 6000, MODEL, quoter);
+        emit OniblockHook.AttestationPosted(pid, uint64(vm.getBlockNumber()), mid, 10000, 10000, 6000, MODEL, quoter, 0, uint16(JIT_OFFSET));
         vm.prank(quoter);
         hook.setAttestation(pkey, a);
     }

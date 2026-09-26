@@ -1,21 +1,22 @@
 @import 'tailwindcss';
 
-/* Dark-first demo UI. Tokens on :root; a light variant is provided for completeness. */
+/* Dark-only UI. Tokens on :root. */
 :root {
   color-scheme: dark;
-  --bg: #0f0f0e;
-  --surface: #1a1a19;
-  --surface-2: #222220;
-  --border: #2e2e2b;
-  --text: #ffffff;
-  --text-2: #c3c2b7;
-  --muted: #8a8980;
-  --vanilla: #3987e5; /* categorical slot 1 (dark step) */
-  --oni: #d95926; /* categorical slot 2 (dark step) */
-  --good: #1baf7a;
-  --warn: #c98500;
-  --bad: #e66767;
-  --grid: #2a2a27;
+  --bg: #07080b;
+  --surface: #0d0f14;
+  --surface-2: #141821;
+  --border: #1d222c;
+  --text: #eef0f4;
+  --text-2: #a7aebb;
+  --muted: #687181;
+  --vanilla: #8a94a6; /* without Oniblock (plain Uniswap pool) */
+  --oni: #3ee6b0; /* with Oniblock */
+  --good: #3ee6b0;
+  --warn: #f5b041;
+  --bad: #ff4d5e;
+  --grid: #171b23;
+  --toxic: 255 77 94; /* rgb triplet for score tints */
 }
 
 @theme inline {
@@ -31,8 +32,8 @@
   --color-good: var(--good);
   --color-warn: var(--warn);
   --color-bad: var(--bad);
-  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Inter, sans-serif;
-  --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: var(--font-jb), ui-monospace, 'SF Mono', Menlo, monospace;
 }
 
 body {
@@ -57,4 +58,68 @@ body {
 
 .mono {
   font-family: var(--font-mono);
+}
+
+/* ---------------------------------------------------------------- live screen */
+.glass {
+  background: linear-gradient(180deg, rgba(20, 24, 33, 0.72), rgba(13, 15, 20, 0.72));
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  backdrop-filter: blur(12px);
+}
+.row-enter {
+  animation: row-in 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.live-dot {
+  box-shadow: 0 0 0 0 rgba(62, 230, 176, 0.6);
+  animation: pulse 1.8s infinite;
+}
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(62, 230, 176, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(62, 230, 176, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(62, 230, 176, 0);
+  }
+}
+.you-glow {
+  box-shadow: inset 0 0 0 1px rgba(62, 230, 176, 0.55), 0 0 24px -6px rgba(62, 230, 176, 0.45);
+}
+.fade-in {
+  animation: fade 180ms ease-out both;
+}
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+.pop-in {
+  animation: pop 220ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type='number'] {
+  -moz-appearance: textfield;
 }

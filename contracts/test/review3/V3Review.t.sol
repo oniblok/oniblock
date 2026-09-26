@@ -260,7 +260,7 @@ contract V3ReviewTest is OniblockTestBase {
     }
 
     function _post2(uint256 mid, uint32 p, uint32 c) internal {
-        OniblockHook.Attestation memory a = OniblockHook.Attestation(uint64(vm.getBlockNumber()), mid, p, c, MODEL, "");
+        OniblockHook.Attestation memory a = OniblockHook.Attestation(uint64(vm.getBlockNumber()), mid, p, c, 0, MODEL, "");
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(attestorPk, h2.attestationDigest(id2, a));
         a.signature = abi.encodePacked(r, s, v);
         vm.prank(quoter);
@@ -310,7 +310,7 @@ contract V3ReviewTest is OniblockTestBase {
         h2.refreshMid(k2, bn, mid, abi.encodePacked(r, s, v));
         // a full-attestation signature cannot be used as a mid-only one (different typehash)
         _next();
-        OniblockHook.Attestation memory a = OniblockHook.Attestation(uint64(vm.getBlockNumber()), mid, 0, 0, MODEL, "");
+        OniblockHook.Attestation memory a = OniblockHook.Attestation(uint64(vm.getBlockNumber()), mid, 0, 0, 0, MODEL, "");
         (v, r, s) = vm.sign(attestorPk, h2.attestationDigest(id2, a));
         vm.prank(quoter);
         vm.expectRevert(OniblockHook.BadSignature.selector);

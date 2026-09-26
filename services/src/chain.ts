@@ -1,12 +1,15 @@
 /**
  * On-chain helpers shared by keeper / settler / bots:
  *  - read pool slot0 + liquidity from the v4 PoolManager via extsload (StateLibrary layout)
- *  - fetch hook Receipt / AttestationPosted logs (chunked)
+ *  - fetch hook Receipt / AttestationPosted / JitPenalty and PoolManager ModifyLiquidity logs (chunked)
+ *  - v5 JIT calibration key (jitCalibrationKey)
  *  - TxSender: local nonce management + simulate-before-send + retry
  */
 import {
   encodeAbiParameters,
+  encodePacked,
   keccak256,
+  toBytes,
   type Abi,
   type Account,
   type Address,
@@ -17,12 +20,23 @@ import {
   type WalletClient,
   type ContractFunctionName,
   type ContractFunctionArgs,
+  type Log,
 } from 'viem';
 import { oniblockHookAbi, poolManagerAbi } from './abi/oniblockHook.js';
 import type { PoolKeyJson } from './config.js';
 import { log, sleep } from './config.js';
-import type { SwapObs } from './features.js';
+import type { JitPenaltyObs, LiquidityObs, SwapObs } from './features.js';
 import { Q96 } from './price.js';
+
+/**
+ * v5: derived calibration key of a model's JIT head = OniblockHook.jitCalibrationKey(modelNode)
+ * = keccak256(abi.encodePacked(modelNode, keccak256("jit"))). The settler posts setCalibration under this key and
+ * mirrors it as calibration.jit.* ENS records on the model name.
+ */
+export const JIT_KEY_SALT: Hex = keccak256(toBytes('jit'));
+export function jitCalibrationKey(modelNode: Hex): Hex {
+  return keccak256(encodePacked(['bytes32', 'bytes32'], [modelNode, JIT_KEY_SALT]));
+}
 
 /** v4-core StateLibrary: `mapping(PoolId => Pool.State) internal _pools` is at slot 6. */
 export const POOLS_SLOT = 6n;
@@ -92,6 +106,23 @@ export interface AttestationLog {
   modelNode: Hex;
   quoter: Address;
   txHash: Hex;
+  /** v5 JIT head: attested pJit (bps) and the window (blocks) the hook set for liquidity added from now on. */
+  pJitBps: number;
+  jitWindow: number;
+}
+
+/** PoolManager ModifyLiquidity log (v5 JIT head). */
+export interface LiquidityLog extends LiquidityObs {
+  poolId: Hex;
+  txHash: Hex;
+  logIndex: number;
+}
+
+/** Hook JitPenalty log (v5). */
+export interface JitPenaltyLog extends JitPenaltyObs {
+  poolId: Hex;
+  txHash: Hex;
+  logIndex: number;
 }
 
 async function chunkedLogs<T>(
@@ -161,6 +192,63 @@ export async function getAttestations(pc: PublicClient, hook: Address, poolId: H
         modelNode: l.args.modelNode!,
         quoter: l.args.quoter!,
         txHash: l.transactionHash!,
+        pJitBps: Number(l.args.pJitBps ?? 0),
+        jitWindow: Number(l.args.jitWindow ?? 0),
+      }),
+    );
+  });
+}
+
+/** PoolManager `ModifyLiquidity` logs of a pool (adds AND removes; liquidityDelta sign tells which). */
+export async function getModifyLiquidity(pc: PublicClient, poolManager: Address, poolId: Hex | undefined, from: bigint, to: bigint, step = 5_000n) {
+  return chunkedLogs(from, to, step, async (a, b) => {
+    const logs = await pc.getContractEvents({
+      address: poolManager,
+      abi: poolManagerAbi,
+      eventName: 'ModifyLiquidity',
+      args: poolId ? { id: poolId } : undefined,
+      fromBlock: a,
+      toBlock: b,
+    });
+    return logs.map(
+      (l): LiquidityLog => ({
+        poolId: l.args.id!,
+        block: Number(l.blockNumber!),
+        sender: l.args.sender!,
+        tickLower: Number(l.args.tickLower!),
+        tickUpper: Number(l.args.tickUpper!),
+        liquidityDelta: l.args.liquidityDelta!,
+        salt: l.args.salt!,
+        txHash: l.transactionHash!,
+        logIndex: l.logIndex!,
+      }),
+    );
+  });
+}
+
+/** Hook `JitPenalty` logs of a pool (v5). */
+export async function getJitPenalties(pc: PublicClient, hook: Address, poolId: Hex | undefined, from: bigint, to: bigint, step = 5_000n) {
+  return chunkedLogs(from, to, step, async (a, b) => {
+    const logs = await pc.getContractEvents({
+      address: hook,
+      abi: oniblockHookAbi,
+      eventName: 'JitPenalty',
+      args: poolId ? { id: poolId } : undefined,
+      fromBlock: a,
+      toBlock: b,
+    });
+    return logs.map(
+      (l): JitPenaltyLog => ({
+        poolId: l.args.id!,
+        block: Number(l.blockNumber!),
+        sender: l.args.sender!,
+        positionKey: l.args.positionKey!,
+        addedBlock: Number(l.args.addedBlock!),
+        window: Number(l.args.window!),
+        penalty0: l.args.penalty0!,
+        penalty1: l.args.penalty1!,
+        txHash: l.transactionHash!,
+        logIndex: l.logIndex!,
       }),
     );
   });
@@ -207,7 +295,7 @@ export class TxSender {
     wait?: boolean;
     /** Called once the tx is broadcast (or failed to broadcast: null), before waiting for the receipt. */
     onBroadcast?: (hash: Hex | null) => void;
-  }): Promise<{ hash: Hex; status: 'success' | 'reverted'; blockNumber: bigint; gasUsed: bigint } | null> {
+  }): Promise<{ hash: Hex; status: 'success' | 'reverted'; blockNumber: bigint; gasUsed: bigint; logs?: Log[] } | null> {
     const label = req.label ?? String(req.functionName);
     const broadcast = async (): Promise<Hex | null> => {
       const retries = req.retries ?? 2;
@@ -224,7 +312,10 @@ export class TxSender {
             value: req.value,
             blockTag: 'pending',
           } as any);
-          const hash = await this.wc.writeContract({ ...(request as any), nonce: this.nonce });
+          // Estimates are tight (warm/cold slots differ between the estimate and the mined block): 1.5x headroom,
+          // else attestations can die with ReentrancySentryOOG. Unused gas is not charged.
+          const est = await this.pc.estimateContractGas({ ...(request as any), account: this.wc.account });
+          const hash = await this.wc.writeContract({ ...(request as any), nonce: this.nonce, gas: (est * 3n) / 2n });
           this.nonce!++;
           return hash;
         } catch (e) {
@@ -248,7 +339,7 @@ export class TxSender {
     try {
       const rc = await this.pc.waitForTransactionReceipt({ hash, timeout: 60_000, pollingInterval: 200 });
       if (rc.status !== 'success') log(this.component, 'tx_reverted', { label, hash, block: rc.blockNumber });
-      return { hash, status: rc.status, blockNumber: rc.blockNumber, gasUsed: rc.gasUsed };
+      return { hash, status: rc.status, blockNumber: rc.blockNumber, gasUsed: rc.gasUsed, logs: rc.logs };
     } catch (e) {
       log(this.component, 'tx_wait_error', { label, hash, error: (e as Error).message.split('\n')[0] });
       this.nonce = undefined;

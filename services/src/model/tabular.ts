@@ -69,6 +69,7 @@ export function scoreTabular(f: Features, model?: TabularModel | null): ModelSco
     return {
       pToxicBps: clampBps(p * 10_000),
       confidenceBps: clampBps(Math.abs(2 * p - 1) * 10_000),
+      pJitBps: 0, // no JIT head yet (trees trained on swap features only) => the hook uses jitWindowDefault
       cls: p >= 0.6 ? 'informed' : 'unknown',
       latencyMs: Math.round((performance.now() - t0) * 1000) / 1000,
       model: 'tabular',

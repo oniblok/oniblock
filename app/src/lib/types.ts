@@ -22,7 +22,36 @@ export interface PoolConfigJson {
   minSamples?: number;
   /** v3: gap (pips) below which the hook charges exactly baseFee (absent on pre-v3 hooks => 0) */
   arbThresholdPips?: number;
+  /** v5 JIT head: window = jitWindowMin + (jitWindowMax − jitWindowMin)·p_jit·confidence; demoted/unseasoned/stale => jitWindowDefault (absent on pre-v5 hooks) */
+  jitWindowMin?: number;
+  jitWindowMax?: number;
+  jitWindowDefault?: number;
   [k: string]: unknown;
+}
+
+/** The fixed LiquidityPenaltyHook wall the v5 adaptive window replaces (blocks). A remove at addedBlock + 10 or later escaped it. */
+export const LEGACY_JIT_WALL = 10;
+
+/** One JitPenalty event: liquidity removed inside the window in force when it was added forfeited its fees. */
+export interface JitPenaltyJson {
+  tx: string;
+  /** block the liquidity was removed in (the penalty block) */
+  block: number;
+  addedBlock: number;
+  /** blocks held = block − addedBlock */
+  held: number;
+  /** window in force for this position (stored at add time) */
+  window: number;
+  sender: string;
+  positionKey: string;
+  penalty0: string;
+  penalty1: string;
+  penalty0Human: number;
+  penalty1Human: number;
+  /** penalty valued in quote units at the attested CEX mid in force (null if no attestation yet) */
+  penaltyQuote: number | null;
+  /** held >= LEGACY_JIT_WALL: only the adaptive window caught this one */
+  caughtByAdaptiveWindow: boolean;
 }
 
 export interface CalibrationJson {
@@ -79,6 +108,24 @@ export interface StateJson {
     calibration?: CalibrationJson;
     lastQuoter?: string;
     lastQuoterName?: string;
+    /** v5 second knob. null on pre-v5 hooks (or when poolState cannot be decoded). */
+    jit: {
+      /** the model's JIT probability in the attestation in force (bps) */
+      pJitBps: number | null;
+      /** window set by the last attestation (poolState.jitWindow), blocks */
+      jitWindow: number | null;
+      /** window applied to liquidity added now: jitWindow, or jitWindowDefault while the attestation is stale */
+      jitWindowEffective: number | null;
+      /** hook.isJitDemoted minus the unseasoned case (bad JIT calibration) */
+      demoted: boolean;
+      /** JIT head on probation: calibration(jitCalibrationKey).n < minSamples */
+      unseasoned: boolean;
+      /** derived calibration key of the JIT head (keccak(modelNode ‖ keccak("jit"))) */
+      calibrationKey: string | null;
+      calibration?: CalibrationJson;
+      /** the deployed ABI exposes the JIT head views */
+      supported: boolean;
+    };
   };
   roles: { quoter?: string; quoterActive?: boolean; backupQuoter?: string; backupActive?: boolean; settler?: string; settlerActive?: boolean };
   flags: { degraded: boolean; useBackupQuoter: boolean };
@@ -103,6 +150,9 @@ export interface RegimeCell {
   pToxicBps: number | null;
   confidenceBps: number | null;
   kBps: number | null;
+  /** v5: the attestation's JIT head (null on pre-v5 events) */
+  pJitBps: number | null;
+  jitWindow: number | null;
   model: string | null;
   modelName: string | null;
   demoted: boolean;
@@ -143,5 +193,122 @@ export interface HistoryJson {
   regime: RegimeCell[];
   totals: { oni: PoolTotals; van?: PoolTotals };
   receipts: RecentReceipt[];
+  /** latest JitPenalty events on the Oniblock pool (newest first) */
+  jitPenalties: JitPenaltyJson[];
+  jitTotals: { count: number; caughtByAdaptiveWindow: number; penaltyQuote: number };
   quote: string;
+}
+
+// ============================================================================================ live feed (/api/feed)
+
+export type Trader = 'arb' | 'retail' | 'demo' | null;
+
+export interface FeedRow {
+  tx: string;
+  logIndex: number;
+  block: number;
+  /** unix seconds */
+  ts: number;
+  /** swapper bought or sold the base token (ETH) */
+  side: 'buy' | 'sell';
+  baseAmount: number;
+  quoteAmount: number;
+  /** trade size in quote units (USD) at the attested CEX mid */
+  usd: number;
+  feePips: number;
+  baseFeePips: number;
+  feeUsd: number;
+  /** fee paid above the base fee, i.e. what a plain Uniswap pool would not have charged */
+  extraUsd: number;
+  arbDir: boolean;
+  stale: boolean;
+  gapPips: number;
+  kBps: number;
+  pToxicBps: number | null;
+  confidenceBps: number | null;
+  /** Oniblock score used for colour: p·c for arb-direction swaps, 0 for counter-trend swaps */
+  score: number;
+  model: string | null;
+  trader: Trader;
+  from: string;
+  /** swapper P&L vs the next attested CEX mid (quote units); null until the next attestation lands */
+  markoutUsd: number | null;
+}
+
+export interface FeedBucket {
+  fromBlock: number;
+  toBlock: number;
+  /** LP P&L vs CEX in this bucket (quote units) */
+  oni: number;
+  van: number;
+  /** cumulative since the window start */
+  oniCum: number;
+  vanCum: number;
+  swaps: number;
+}
+
+export interface FeedDirQuote {
+  feePips: number;
+  arbDir: boolean;
+}
+
+export interface FeedJson {
+  chain: { name: string; chainId: number; block: number; ts: number; explorer: string | null; ensName: string | null };
+  pair: { base: string; quote: string; baseIsToken0: boolean };
+  baseFeePips: number;
+  vanillaFeePips: number | null;
+  model: { name: string | null; pToxicBps: number; confidenceBps: number; kBps: number; stale: boolean; lastAttestBlock: number };
+  market: {
+    oracleMid: number | null;
+    poolMid: number;
+    /** virtual full-range reserves (human units) for a constant-product output estimate */
+    reserveBase: number;
+    reserveQuote: number;
+    /** fee a swap would pay right now, per direction (sell base = zeroForOne when base is token0) */
+    sellBase: FeedDirQuote;
+    buyBase: FeedDirQuote;
+  };
+  chart: { buckets: FeedBucket[]; oniTotal: number; vanTotal: number; windowBlocks: number };
+  rows: FeedRow[];
+  swapEnabled: boolean;
+  swapLimits: { maxBase: number; maxQuote: number };
+}
+
+// ============================================================================================ v6 verdicts (/api/verdicts)
+
+/** The 7 attack types of the keeper's v6 head (services/src/model/types.ts ATTACK_TYPES), in order. */
+export const ATTACK_TYPES = ['none', 'cex_dex_arbitrage', 'split_arbitrage', 'backrun', 'jit_liquidity', 'sandwich', 'unknown'] as const;
+export type AttackType = (typeof ATTACK_TYPES)[number];
+
+/** Human labels for the status strip / tooltips. */
+export const ATTACK_LABELS: Record<AttackType, string> = {
+  none: 'none',
+  cex_dex_arbitrage: 'CEX-DEX arbitrage',
+  split_arbitrage: 'split arbitrage',
+  backrun: 'backrun',
+  jit_liquidity: 'JIT liquidity',
+  sandwich: 'sandwich (label only)',
+  unknown: 'unknown',
+};
+export const attackLabel = (t: string | null | undefined) => (t == null ? '—' : ((ATTACK_LABELS as Record<string, string>)[t] ?? t));
+
+/**
+ * One line of the keeper's verdicts file (services/src/keeper.ts VerdictLog): the v6 model answer behind a posted
+ * attestation. pMalicious / attack / attackProbs are null for models without the v6 head (rule-v1, kev, tabular).
+ */
+export interface VerdictJson {
+  /** observed block (features) and the attested target block */
+  block: number;
+  target: number;
+  pMalicious: number | null;
+  attack: AttackType | null;
+  attackProbs: Record<AttackType, number> | null;
+  /** the two attested numbers (bps; pJitBps after the keeper's churn blend) */
+  pToxicBps: number;
+  pJitBps: number;
+  /** what the hook derived from them (AttestationPosted), when decoded */
+  k?: number;
+  jitWindow?: number;
+  model: string;
+  txHash: string;
 }

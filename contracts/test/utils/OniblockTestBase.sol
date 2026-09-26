@@ -37,6 +37,8 @@ abstract contract OniblockTestBase is Test {
             | Hooks.AFTER_ADD_LIQUIDITY_RETURNS_DELTA_FLAG | Hooks.AFTER_REMOVE_LIQUIDITY_RETURNS_DELTA_FLAG
     );
     uint48 constant JIT_OFFSET = 10;
+    uint16 constant JIT_WINDOW_MIN = 10;
+    uint16 constant JIT_WINDOW_MAX = 100;
     int24 constant TICK_SPACING = 60;
     int24 constant FULL_LOWER = -887220;
     int24 constant FULL_UPPER = 887220;
@@ -120,6 +122,11 @@ abstract contract OniblockTestBase is Test {
         c.minSamples = MIN_SAMPLES;
         c.chainlinkMaxAge = 2 hours;
         c.arbThresholdPips = ARB_THRESHOLD;
+        // v5 JIT window: default = JIT_OFFSET so that tests written against the fixed 10-block wall still hold
+        // (MODEL's JIT head is never seasoned here => every attestation sets jitWindow = jitWindowDefault).
+        c.jitWindowMin = JIT_WINDOW_MIN;
+        c.jitWindowMax = JIT_WINDOW_MAX;
+        c.jitWindowDefault = uint16(JIT_OFFSET);
     }
 
     /// Fee law mirror (default config, arb direction, not stale): min(base + max(0, gap - threshold) * k / 1e4, feeMax).
@@ -180,12 +187,27 @@ abstract contract OniblockTestBase is Test {
         );
     }
 
+    /// Signed attestation with pJitBps = 0 (no JIT signal).
     function _attestation(PoolId id, uint64 bn, uint256 mid, uint32 p, uint32 c, bytes32 model, uint256 pk)
         internal
         view
         returns (OniblockHook.Attestation memory a)
     {
-        a = OniblockHook.Attestation(bn, mid, p, c, model, "");
+        return _attestation(id, bn, mid, p, c, 0, model, pk);
+    }
+
+    /// Signed attestation with an explicit JIT score (v5).
+    function _attestation(
+        PoolId id,
+        uint64 bn,
+        uint256 mid,
+        uint32 p,
+        uint32 c,
+        uint32 pJit,
+        bytes32 model,
+        uint256 pk
+    ) internal view returns (OniblockHook.Attestation memory a) {
+        a = OniblockHook.Attestation(bn, mid, p, c, pJit, model, "");
         bytes32 digest = hook.attestationDigest(id, a);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         a.signature = abi.encodePacked(r, s, v);

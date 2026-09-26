@@ -514,7 +514,7 @@ export async function runOneV2(cfg: RunConfigV2): Promise<RunResultV2> {
             attestor,
             31337,
             d.hook,
-            { poolId: pools[n].id, blockNumber: BigInt(A), oracleMidX96: Mk, pToxicBps: sc.p, confidenceBps: sc.c, modelNode: nodeOf(n) },
+            { poolId: pools[n].id, blockNumber: BigInt(A), oracleMidX96: Mk, pToxicBps: sc.p, confidenceBps: sc.c, pJitBps: 0 /* v5: no JIT head in the benchmark */, modelNode: nodeOf(n) },
             domain,
           );
           txA.push({

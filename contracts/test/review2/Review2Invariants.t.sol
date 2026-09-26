@@ -130,7 +130,13 @@ contract Handler is Test {
         if (bn <= st.lastAttestBlock) return;
         uint256 mid = _poolX96() * (9850 + (seed >> 8) % 300) / 10000 + 1;
         OniblockHook.Attestation memory a = OniblockHook.Attestation(
-            bn, mid, uint32((seed >> 32) % 10001), uint32((seed >> 48) % 10001), models[(seed >> 64) % 2], ""
+            bn,
+            mid,
+            uint32((seed >> 32) % 10001),
+            uint32((seed >> 48) % 10001),
+            uint32((seed >> 80) % 10001),
+            models[(seed >> 64) % 2],
+            ""
         );
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(attestorPk, hook.attestationDigest(id, a));
         a.signature = abi.encodePacked(r, s, v);

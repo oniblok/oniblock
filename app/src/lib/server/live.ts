@@ -9,17 +9,19 @@
  */
 import 'server-only';
 import type { Address, Hex } from 'viem';
-import type {
-  CalibrationJson,
-  FeeQuote,
-  HistoryJson,
-  HistoryPoint,
-  PoolConfigJson,
-  PoolTotals,
-  RegimeCell,
-  StateJson,
+import {
+  LEGACY_JIT_WALL,
+  type CalibrationJson,
+  type FeeQuote,
+  type HistoryJson,
+  type HistoryPoint,
+  type JitPenaltyJson,
+  type PoolConfigJson,
+  type PoolTotals,
+  type RegimeCell,
+  type StateJson,
 } from '../types';
-import { ctx, hasFn, nameOf, tryRead, ensAvailable, type Ctx } from './chain';
+import { ctx, hasEvent, hasFn, jitCalibrationKey, jitHeadSupported, nameOf, tryRead, ensAvailable, type Ctx } from './chain';
 import type { PoolInfo } from './deployment';
 import { backupQuoterAddress } from './devkeys';
 import { readFlags } from './flags';
@@ -33,6 +35,10 @@ export function order(c: Ctx): TokenOrder {
 
 function num(x: unknown): number {
   return typeof x === 'bigint' ? Number(x) : Number(x ?? 0);
+}
+/** Like num, but a field the deployed ABI/hook does not have stays null (rendered as "—"). */
+function optNum(x: unknown): number | null {
+  return x == null ? null : num(x);
 }
 
 function jsonify<T>(o: T): T {
@@ -137,7 +143,10 @@ export async function getState(): Promise<StateJson> {
   const lastAttestBlock = num(st.lastAttestBlock);
   const oracleX96 = BigInt((st.oracleMidX96 as bigint | undefined) ?? 0n);
   const MIX_WINDOW = 100;
-  const [demoted, calibration, quoterActive, backupActive, settlerActive, recentAtts] = await Promise.all([
+  // v5 JIT head: its own calibration record (under the derived key) and its own demotion, same parent allowlist.
+  const jitSupported = jitHeadSupported(c);
+  const jitKey = jitSupported ? jitCalibrationKey(modelNode) : null;
+  const [demoted, calibration, quoterActive, backupActive, settlerActive, recentAtts, jitDemoted, jitCalibration] = await Promise.all([
     tryRead<boolean>(c, 'isDemoted', [id, modelNode]),
     readCalibration(c, modelNode),
     isQuoter(c, c.d.quoter),
@@ -146,8 +155,11 @@ export async function getState(): Promise<StateJson> {
     c.pc
       .getContractEvents({ address: c.d.hook, abi: c.hookAbi, eventName: 'AttestationPosted', args: { id }, fromBlock: BigInt(Math.max(0, head - MIX_WINDOW)), toBlock: BigInt(head) })
       .catch(() => []),
+    jitSupported ? tryRead<boolean>(c, 'isJitDemoted', [id, modelNode]) : Promise.resolve(undefined),
+    jitKey ? readCalibration(c, jitKey) : Promise.resolve(undefined),
   ]);
   const lastAtt = recentAtts.at(-1);
+  const lastAttArgs = (lastAtt as { args?: Record<string, unknown> } | undefined)?.args;
   let attestMix: StateJson['status']['attestMix'] = null;
   if (recentAtts.length) {
     const m = { window: MIX_WINDOW, total: recentAtts.length, jev: 0, heuristic: 0, rule: 0, other: 0 };
@@ -173,7 +185,14 @@ export async function getState(): Promise<StateJson> {
   const nCal = calibration?.n ?? 0;
   const unseasoned = !!demoted && allowed !== false && nCal < minSamples;
   const badCalibration = !!demoted && !unseasoned;
-  const lastQuoter = (lastAtt as { args?: { quoter?: Address } } | undefined)?.args?.quoter;
+  const lastQuoter = lastAttArgs?.quoter as Address | undefined;
+  const stale = !!ps?.[2];
+  // Second knob: poolState.jitWindow / pJitBps, falling back to the last AttestationPosted (same values, event stream).
+  const pJitBps = optNum(st.pJitBps) ?? optNum(lastAttArgs?.pJitBps);
+  const jitWindow = optNum(st.jitWindow) ?? optNum(lastAttArgs?.jitWindow);
+  const jitWindowDefault = optNum(cfg.jitWindowDefault);
+  const jitUnseasoned = !!jitDemoted && allowed !== false && (jitCalibration?.n ?? 0) < minSamples;
+  const jitBad = !!jitDemoted && !jitUnseasoned;
   const flags = readFlags();
   const res: StateJson = {
     chain: { name: c.sel.name, chainId: c.d.chainId, isDev: c.sel.isDev, block: head, timestamp: Number(blk.timestamp), ens },
@@ -200,17 +219,28 @@ export async function getState(): Promise<StateJson> {
       demoted: badCalibration,
       unseasoned,
       allowed: allowed ?? null,
-      stale: !!ps?.[2],
+      stale,
       feeZeroForOne: f0,
       feeOneForZero: f1,
       arbZeroForOne: f0.arbDir ? true : f1.arbDir ? false : num(anchor.gapZeroForOne) > 0 ? true : num(anchor.gapOneForZero) > 0 ? false : null,
       gapPips: Math.max(f0.gapPips, f1.gapPips),
       arbThresholdPips: Number(cfg.arbThresholdPips ?? 0),
-      belowThreshold: !ps?.[2] && Number(cfg.arbThresholdPips ?? 0) > 0 && Math.max(f0.gapPips, f1.gapPips) <= Number(cfg.arbThresholdPips ?? 0),
+      belowThreshold: !stale && Number(cfg.arbThresholdPips ?? 0) > 0 && Math.max(f0.gapPips, f1.gapPips) <= Number(cfg.arbThresholdPips ?? 0),
       attestMix,
       calibration,
       lastQuoter,
       lastQuoterName: undefined,
+      jit: {
+        pJitBps,
+        jitWindow,
+        // adds while the attestation is stale get jitWindowDefault (contract: _windowFor / effective window now)
+        jitWindowEffective: stale ? jitWindowDefault : (jitWindow ?? jitWindowDefault),
+        demoted: jitBad,
+        unseasoned: jitUnseasoned,
+        calibrationKey: jitKey,
+        calibration: jitCalibration,
+        supported: jitSupported,
+      },
     },
     roles: {
       quoter: c.d.quoter,
@@ -241,7 +271,7 @@ export async function getState(): Promise<StateJson> {
 
 // ============================================================================================ history
 
-interface Att {
+export interface Att {
   attBlock: number;
   mined: number;
   midX96: bigint;
@@ -251,8 +281,22 @@ interface Att {
   node: Hex;
   quoter: Address;
   tx: Hex;
+  /** v5 (null on pre-v5 events) */
+  pJit: number | null;
+  jitWindow: number | null;
 }
-interface Rcpt {
+/** JitPenalty event: fees forfeited by liquidity removed inside its window (block = removal block). */
+interface Jit {
+  block: number;
+  addedBlock: number;
+  window: number;
+  sender: Address;
+  positionKey: Hex;
+  p0: bigint;
+  p1: bigint;
+  tx: Hex;
+}
+export interface Rcpt {
   block: number;
   arbDir: boolean;
   fee: number;
@@ -261,11 +305,18 @@ interface Rcpt {
   stale: boolean;
   zeroForOne: boolean;
   tx: Hex;
+  logIndex: number;
+  /** swapper deltas (positive = received by the swapper), raw units */
+  a0: bigint;
+  a1: bigint;
+  node: Hex;
 }
-interface Swp {
+export interface Swp {
   block: number;
   a0: bigint;
   a1: bigint;
+  tx: Hex;
+  fee: number;
 }
 interface Cal {
   mined: number;
@@ -275,41 +326,56 @@ interface Cal {
 }
 type Snap = Awaited<ReturnType<typeof slot0>>;
 
-interface Store {
+export interface Store {
   key: string;
   scannedTo: number;
   atts: Att[];
   rcpts: Rcpt[];
   swaps: Record<string, Swp[]>;
   cals: Cal[];
+  jits: Jit[];
   snaps: Map<string, Snap>;
 }
 let store: Store | undefined;
+let inflight: Promise<Store> | undefined;
 
 function storeKey(c: Ctx) {
   return `${c.sel.rpcUrl}|${c.d.file}|${c.d.mtime}|${c.d.hook}`;
 }
 
+/** Serialised refresh: concurrent API calls share one scan instead of racing on the module-level store. */
+export async function loadStore(c: Ctx, head: number): Promise<Store> {
+  while (inflight) await inflight.catch(() => undefined);
+  inflight = refresh(c, head);
+  try {
+    return await inflight;
+  } finally {
+    inflight = undefined;
+  }
+}
+
 async function refresh(c: Ctx, head: number): Promise<Store> {
   const key = storeKey(c);
   if (!store || store.key !== key || head < store.scannedTo) {
-    store = { key, scannedTo: c.d.deployBlock - 1, atts: [], rcpts: [], swaps: {}, cals: [], snaps: new Map() };
+    store = { key, scannedTo: c.d.deployBlock - 1, atts: [], rcpts: [], swaps: {}, cals: [], jits: [], snaps: new Map() };
   }
   const s = store;
   if (head <= s.scannedTo) return s;
   const id = c.d.oniblock.poolId;
   const step = 2_000;
+  const jitEvents = hasEvent(c.hookAbi, 'JitPenalty');
   for (let a = s.scannedTo + 1; a <= head; a += step) {
     const b = Math.min(head, a + step - 1);
     const range = { fromBlock: BigInt(a), toBlock: BigInt(b) };
     const pools = [c.d.oniblock, c.d.vanilla].filter(Boolean) as PoolInfo[];
-    const [atts, rcpts, cals, ...swaps] = await Promise.all([
+    const [atts, rcpts, cals, jits, ...swaps] = await Promise.all([
       c.pc.getContractEvents({ address: c.d.hook, abi: c.hookAbi, eventName: 'AttestationPosted', args: { id }, ...range }),
       c.pc.getContractEvents({ address: c.d.hook, abi: c.hookAbi, eventName: 'Receipt', args: { id }, ...range }),
       c.pc.getContractEvents({ address: c.d.hook, abi: c.hookAbi, eventName: 'CalibrationUpdated', ...range }),
+      jitEvents ? c.pc.getContractEvents({ address: c.d.hook, abi: c.hookAbi, eventName: 'JitPenalty', args: { id }, ...range }).catch(() => []) : Promise.resolve([]),
       ...pools.map((p) => c.pc.getContractEvents({ address: c.d.poolManager, abi: c.poolManagerAbi, eventName: 'Swap', args: { id: p.poolId }, ...range })),
     ]);
-    type L = { args: Record<string, unknown>; blockNumber: bigint; transactionHash: Hex };
+    type L = { args: Record<string, unknown>; blockNumber: bigint; transactionHash: Hex; logIndex: number };
     for (const l of atts as unknown as L[]) {
       s.atts.push({
         attBlock: num(l.args.blockNumber),
@@ -320,6 +386,20 @@ async function refresh(c: Ctx, head: number): Promise<Store> {
         k: num(l.args.kBps),
         node: l.args.modelNode as Hex,
         quoter: l.args.quoter as Address,
+        tx: l.transactionHash,
+        pJit: optNum(l.args.pJitBps),
+        jitWindow: optNum(l.args.jitWindow),
+      });
+    }
+    for (const l of jits as unknown as L[]) {
+      s.jits.push({
+        block: Number(l.blockNumber),
+        addedBlock: num(l.args.addedBlock),
+        window: num(l.args.window),
+        sender: l.args.sender as Address,
+        positionKey: l.args.positionKey as Hex,
+        p0: BigInt((l.args.penalty0 as bigint | undefined) ?? 0n),
+        p1: BigInt((l.args.penalty1 as bigint | undefined) ?? 0n),
         tx: l.transactionHash,
       });
     }
@@ -333,6 +413,10 @@ async function refresh(c: Ctx, head: number): Promise<Store> {
         stale: !!l.args.stale,
         zeroForOne: !!l.args.zeroForOne,
         tx: l.transactionHash,
+        logIndex: l.logIndex,
+        a0: BigInt((l.args.amount0 as bigint | undefined) ?? 0n),
+        a1: BigInt((l.args.amount1 as bigint | undefined) ?? 0n),
+        node: l.args.modelNode as Hex,
       });
     }
     for (const l of cals as unknown as L[]) {
@@ -340,7 +424,7 @@ async function refresh(c: Ctx, head: number): Promise<Store> {
     }
     pools.forEach((p, i) => {
       const arr = (s.swaps[p.poolId] ??= []);
-      for (const l of swaps[i] as unknown as L[]) arr.push({ block: Number(l.blockNumber), a0: l.args.amount0 as bigint, a1: l.args.amount1 as bigint });
+      for (const l of swaps[i] as unknown as L[]) arr.push({ block: Number(l.blockNumber), a0: l.args.amount0 as bigint, a1: l.args.amount1 as bigint, tx: l.transactionHash, fee: num(l.args.fee) });
     });
   }
   s.scannedTo = head;
@@ -363,7 +447,7 @@ async function snap(c: Ctx, s: Store, pool: PoolInfo, block: number): Promise<Sn
 }
 
 /** Attestation in force at block b = latest mined at or before b. `atts` sorted by mined. */
-function inForce(atts: Att[], b: number): Att | undefined {
+export function inForce(atts: Att[], b: number): Att | undefined {
   let lo = 0;
   let hi = atts.length - 1;
   let best: Att | undefined;
@@ -376,7 +460,7 @@ function inForce(atts: Att[], b: number): Att | undefined {
   }
   return best;
 }
-function firstAfter(atts: Att[], b: number): Att | undefined {
+export function firstAfter(atts: Att[], b: number): Att | undefined {
   const a = inForce(atts, b);
   const i = a ? atts.indexOf(a) + 1 : 0;
   return atts[i];
@@ -386,7 +470,7 @@ export async function getHistory(opts: { blocks?: number; regimeBlocks?: number;
   const c = await ctx();
   const o = order(c);
   const head = Number(await c.pc.getBlockNumber());
-  const s = await refresh(c, head);
+  const s = await loadStore(c, head);
   const cfg = await readConfig(c);
   const atts = [...s.atts].sort((a, b) => a.mined - b.mined);
   const d0 = 10 ** c.d.token0.decimals;
@@ -521,6 +605,8 @@ export async function getHistory(opts: { blocks?: number; regimeBlocks?: number;
       pToxicBps: a?.p ?? null,
       confidenceBps: a?.conf ?? null,
       kBps: stale ? cfg.kDefaultBps : (a?.k ?? null),
+      pJitBps: a?.pJit ?? null,
+      jitWindow: a?.jitWindow ?? null,
       model: modelKind(name) ?? (a ? a.node.slice(0, 10) : null),
       modelName: name ?? null,
       demoted,
@@ -544,7 +630,38 @@ export async function getHistory(opts: { blocks?: number; regimeBlocks?: number;
     zeroForOne: r.zeroForOne,
   }));
 
-  return jsonify({ head, from, baselineBlock, points, regime, totals, receipts, quote });
+  // ---------------- JIT penalties (v5) ----------------
+  // Valued at the attested CEX mid in force at the removal block. "caught by adaptive window" = the position was held
+  // for at least LEGACY_JIT_WALL blocks, i.e. it would have escaped the fixed 10-block LiquidityPenaltyHook wall.
+  const jitAll: JitPenaltyJson[] = [...s.jits]
+    .sort((a, b) => a.block - b.block)
+    .map((j) => {
+      const a = inForce(atts, j.block);
+      const held = j.block - j.addedBlock;
+      return {
+        tx: j.tx,
+        block: j.block,
+        addedBlock: j.addedBlock,
+        held,
+        window: j.window,
+        sender: j.sender,
+        positionKey: j.positionKey,
+        penalty0: j.p0.toString(),
+        penalty1: j.p1.toString(),
+        penalty0Human: Number(j.p0) / d0,
+        penalty1Human: Number(j.p1) / d1,
+        penaltyQuote: a ? valueAt(j.p0, j.p1, a.midX96) : null,
+        caughtByAdaptiveWindow: held >= LEGACY_JIT_WALL,
+      };
+    });
+  const jitTotals: HistoryJson['jitTotals'] = {
+    count: jitAll.length,
+    caughtByAdaptiveWindow: jitAll.filter((j) => j.caughtByAdaptiveWindow).length,
+    penaltyQuote: jitAll.reduce((x, j) => x + (j.penaltyQuote ?? 0), 0),
+  };
+  const jitPenalties = jitAll.slice(-12).reverse();
+
+  return jsonify({ head, from, baselineBlock, points, regime, totals, receipts, jitPenalties, jitTotals, quote });
 }
 
 export { hasFn };

@@ -5,12 +5,15 @@
  */
 import 'server-only';
 import { decodeEventLog, decodeFunctionData, namehash, type Address, type Hex } from 'viem';
-import { CALIBRATION_KEYS, ctx, ensAddr, ensAvailable, ensTexts, nameOf, tryRead, type Ctx } from './chain';
+import { LEGACY_JIT_WALL, type JitPenaltyJson, type VerdictJson } from '../types';
+import { CALIBRATION_KEYS, ctx, ensAddr, ensAvailable, ensTexts, JIT_CALIBRATION_KEYS, jitCalibrationKey, jitHeadSupported, nameOf, tryRead, type Ctx } from './chain';
 import { modelKind, order, readConfig, readConfigAt } from './live';
-import { priceX96ToMid, recoverAttestor } from './shared';
+import { ATTESTATION_TYPE_STRING, priceX96ToMid, recoverAttestor } from './shared';
+import { findVerdict } from './verdicts';
 
 type Args = Record<string, unknown>;
 const n = (x: unknown) => (typeof x === 'bigint' ? Number(x) : Number(x ?? 0));
+const optNum = (x: unknown): number | null => (x == null ? null : n(x));
 
 export interface AttestationView {
   tx: Hex;
@@ -21,6 +24,11 @@ export interface AttestationView {
   pToxicBps: number;
   confidenceBps: number;
   kBps: number;
+  /** v5 JIT head (null on pre-v5 events) */
+  pJitBps: number | null;
+  jitWindow: number | null;
+  /** EIP-712 type string as the hook defines it (ATTESTATION_TYPE), else the services constant */
+  typeString: string;
   modelNode: Hex;
   modelName?: string;
   model: string | null;
@@ -56,6 +64,13 @@ export interface ReceiptView {
   markout?: number;
 }
 
+interface HookCalibration {
+  brierBps: number;
+  hitRateBps: number;
+  n: number;
+  updatedBlock: number;
+}
+
 export interface ReceiptPage {
   tx: Hex;
   status: string;
@@ -66,12 +81,16 @@ export interface ReceiptPage {
   pair: { token0: string; token1: string; base: string; quote: string };
   config: Record<string, unknown>;
   receipts: ReceiptView[];
+  /** v5: JitPenalty events in this tx (a removeLiquidity inside the position's window) */
+  jitPenalties: JitPenaltyJson[];
   attestation?: AttestationView;
   postedInTx?: AttestationView;
+  /** v6: the keeper's verdict behind this tx (attestation tx) or behind the attestation that targeted this block (swap tx), if the verdicts file has it */
+  verdict?: VerdictJson;
   calibration?: {
     modelNode: Hex;
     modelName?: string;
-    hook?: { brierBps: number; hitRateBps: number; n: number; updatedBlock: number };
+    hook?: HookCalibration;
     demotedNow?: boolean;
     /** on probation: calibration n < poolConfig.minSamples (the hook caps k at kDefault) */
     unseasoned?: boolean;
@@ -79,6 +98,15 @@ export interface ReceiptPage {
     history: { block: number; brierBps: number; hitRateBps: number; n: number }[];
     ens?: Record<string, string>;
     ensNamehash?: Hex;
+    /** v5 JIT head of the same model (calibration(jitCalibrationKey(modelNode)), isJitDemoted, calibration.jit.* records) */
+    jit?: {
+      calibrationKey: Hex;
+      hook?: HookCalibration;
+      demotedNow?: boolean;
+      unseasoned?: boolean;
+      history: { block: number; brierBps: number; hitRateBps: number; n: number }[];
+      ens?: Record<string, string>;
+    };
   };
   notes: string[];
 }
@@ -96,6 +124,9 @@ async function attestationView(c: Ctx, log: { args: Args; blockNumber: bigint; t
     pToxicBps: n(a.pToxicBps),
     confidenceBps: n(a.confidenceBps),
     kBps: n(a.kBps),
+    pJitBps: optNum(a.pJitBps),
+    jitWindow: optNum(a.jitWindow),
+    typeString: (await tryRead<string>(c, 'ATTESTATION_TYPE', [])) ?? ATTESTATION_TYPE_STRING,
     modelNode: node,
     modelName: name,
     model: modelKind(name),
@@ -126,12 +157,15 @@ async function attestationView(c: Ctx, log: { args: Args; blockNumber: bigint; t
       if (e?.name) dom = { name: e.name, version: e.version ?? '1' };
     }
     view.domain = { ...dom, chainId: c.d.chainId, verifyingContract: c.d.hook };
+    // v5 struct order: blockNumber, oracleMidX96, pToxicBps, confidenceBps, pJitBps, modelNode, signature (pJitBps is
+    // part of the EIP-712 digest; a pre-v5 calldata decodes wrongly here and ends in verifyNote).
     const fields = {
       poolId: c.d.oniblock.poolId,
       blockNumber: BigInt(n(att.blockNumber)),
       oracleMidX96: att.oracleMidX96 as bigint,
       pToxicBps: n(att.pToxicBps),
       confidenceBps: n(att.confidenceBps),
+      pJitBps: n(att.pJitBps),
       modelNode: att.modelNode as Hex,
     };
     view.recovered = await recoverAttestor(c.d.chainId, c.d.hook, fields, sig, dom);
@@ -163,13 +197,33 @@ export async function getReceiptPage(txHash: Hex): Promise<ReceiptPage> {
   const d0 = 10 ** c.d.token0.decimals;
   const d1 = 10 ** c.d.token1.decimals;
   const receipts: ReceiptView[] = [];
+  const jitPenalties: JitPenaltyJson[] = [];
   let postedLog: { args: Args; blockNumber: bigint; transactionHash: Hex } | undefined;
   for (const l of rc.logs) {
     if (l.address.toLowerCase() !== c.d.hook.toLowerCase()) continue;
     try {
       const ev = decodeEventLog({ abi: c.hookAbi, data: l.data, topics: l.topics });
       const a = ev.args as unknown as Args;
-      if (ev.eventName === 'Receipt' && a.id === c.d.oniblock.poolId) {
+      if (ev.eventName === 'JitPenalty' && a.id === c.d.oniblock.poolId) {
+        const p0 = BigInt((a.penalty0 as bigint | undefined) ?? 0n);
+        const p1 = BigInt((a.penalty1 as bigint | undefined) ?? 0n);
+        const held = block - n(a.addedBlock);
+        jitPenalties.push({
+          tx: txHash,
+          block,
+          addedBlock: n(a.addedBlock),
+          held,
+          window: n(a.window),
+          sender: a.sender as Address,
+          positionKey: a.positionKey as Hex,
+          penalty0: p0.toString(),
+          penalty1: p1.toString(),
+          penalty0Human: Number(p0) / d0,
+          penalty1Human: Number(p1) / d1,
+          penaltyQuote: null, // filled below once the attestation in force is known
+          caughtByAdaptiveWindow: held >= LEGACY_JIT_WALL,
+        });
+      } else if (ev.eventName === 'Receipt' && a.id === c.d.oniblock.poolId) {
         receipts.push({
           logIndex: l.logIndex,
           block: n(a.blockNumber),
@@ -194,7 +248,7 @@ export async function getReceiptPage(txHash: Hex): Promise<ReceiptPage> {
       /* not a hook event we know */
     }
   }
-  if (!receipts.length && !postedLog) notes.push('This transaction emitted no Oniblock Receipt or AttestationPosted event.');
+  if (!receipts.length && !postedLog && !jitPenalties.length) notes.push('This transaction emitted no Oniblock Receipt, AttestationPosted or JitPenalty event.');
 
   // Attestation in force at the swap block (latest AttestationPosted mined at or before it).
   const look = BigInt(Math.max(0, block - Math.max(64, n(cfg.staleBlocks) * 4)));
@@ -216,6 +270,12 @@ export async function getReceiptPage(txHash: Hex): Promise<ReceiptPage> {
     const mid = priceX96ToMid(px, o);
     for (const r of receipts) r.markout = c.d.baseIsToken0 ? r.amount0Human * mid + r.amount1Human : r.amount1Human * mid + r.amount0Human;
   }
+  // JIT penalties valued at the attested mid in force at the removal block (same convention as the live page).
+  const midAtBlock = list.filter((l) => Number(l.blockNumber) <= block).at(-1);
+  if (midAtBlock) {
+    const mid = priceX96ToMid(midAtBlock.args.oracleMidX96 as bigint, o);
+    for (const j of jitPenalties) j.penaltyQuote = c.d.baseIsToken0 ? j.penalty0Human * mid + j.penalty1Human : j.penalty1Human * mid + j.penalty0Human;
+  }
   const attestation = receipts.length && inForce ? await attestationView(c, inForce, ens) : undefined;
   if (receipts.length && !inForce) notes.push('No attestation found before this swap (pool was in its conservative-fee state).');
   const postedInTx = postedLog ? await attestationView(c, postedLog, ens) : undefined;
@@ -225,24 +285,52 @@ export async function getReceiptPage(txHash: Hex): Promise<ReceiptPage> {
   let calibration: ReceiptPage['calibration'];
   if (node && !/^0x0+$/.test(node)) {
     const name = nameOf(c, node);
-    const [hookCal, demoted, hist, texts] = await Promise.all([
+    const jitKey = jitHeadSupported(c) ? jitCalibrationKey(node) : undefined;
+    const calEvents = (key: Hex) =>
+      c.pc.getContractEvents({ address: c.d.hook, abi: c.hookAbi, eventName: 'CalibrationUpdated', args: { modelNode: key }, fromBlock: BigInt(c.d.deployBlock), toBlock: 'latest' });
+    const toHist = (ls: unknown) => (ls as L[]).map((l) => ({ block: Number(l.blockNumber), brierBps: n(l.args.brierBps), hitRateBps: n(l.args.hitRateBps), n: n(l.args.n) }));
+    const toCal = (r: Args | undefined): HookCalibration | undefined =>
+      r ? { brierBps: n(r.brierBps), hitRateBps: n(r.hitRateBps), n: n(r.n), updatedBlock: n(r.updatedBlock) } : undefined;
+    const [hookCal, demoted, hist, texts, jitCal, jitDemoted, jitHist, jitTexts] = await Promise.all([
       tryRead<Args>(c, 'calibration', [node]),
       tryRead<boolean>(c, 'isDemoted', [c.d.oniblock.poolId, node]),
-      c.pc.getContractEvents({ address: c.d.hook, abi: c.hookAbi, eventName: 'CalibrationUpdated', args: { modelNode: node }, fromBlock: BigInt(c.d.deployBlock), toBlock: 'latest' }),
+      calEvents(node),
       ens && name ? ensTexts(c, name, CALIBRATION_KEYS) : Promise.resolve(undefined),
+      jitKey ? tryRead<Args>(c, 'calibration', [jitKey]) : Promise.resolve(undefined),
+      jitKey ? tryRead<boolean>(c, 'isJitDemoted', [c.d.oniblock.poolId, node]) : Promise.resolve(undefined),
+      jitKey ? calEvents(jitKey).catch(() => []) : Promise.resolve([]),
+      jitKey && ens && name ? ensTexts(c, name, JIT_CALIBRATION_KEYS) : Promise.resolve(undefined),
     ]);
     calibration = {
       modelNode: node,
       modelName: name,
-      hook: hookCal ? { brierBps: n(hookCal.brierBps), hitRateBps: n(hookCal.hitRateBps), n: n(hookCal.n), updatedBlock: n(hookCal.updatedBlock) } : undefined,
+      hook: toCal(hookCal),
       demotedNow: demoted,
       unseasoned: !!demoted && (hookCal ? n(hookCal.n) : 0) < n(cfg.minSamples),
       minSamples: n(cfg.minSamples),
-      history: (hist as unknown as L[]).map((l) => ({ block: Number(l.blockNumber), brierBps: n(l.args.brierBps), hitRateBps: n(l.args.hitRateBps), n: n(l.args.n) })),
+      history: toHist(hist),
       ens: texts,
       ensNamehash: name ? namehash(name) : undefined,
+      jit: jitKey
+        ? {
+            calibrationKey: jitKey,
+            hook: toCal(jitCal),
+            demotedNow: jitDemoted,
+            unseasoned: !!jitDemoted && (jitCal ? n(jitCal.n) : 0) < n(cfg.minSamples),
+            history: toHist(jitHist),
+            ens: jitTexts,
+          }
+        : undefined,
     };
     if (!ens) notes.push('No ENS on this chain (local anvil): names shown are labels from deployments matched by namehash.');
+  }
+
+  // v6 verdict: by attestation tx, else the attestation that targeted this block (the one in force for its swaps).
+  let verdict: VerdictJson | undefined;
+  try {
+    verdict = findVerdict({ tx: txHash, block: postedInTx ? postedInTx.attBlock : block });
+  } catch {
+    verdict = undefined;
   }
 
   return JSON.parse(
@@ -262,8 +350,10 @@ export async function getReceiptPage(txHash: Hex): Promise<ReceiptPage> {
         },
         config: cfgAt.cfg,
         receipts,
+        jitPenalties,
         attestation,
         postedInTx,
+        verdict,
         calibration,
         notes,
       } satisfies ReceiptPage,

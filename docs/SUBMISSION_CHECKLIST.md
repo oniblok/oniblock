@@ -26,7 +26,12 @@ Requirements (from the prize page; re-verify at ethglobal.com/events/tokyo2026/p
 | Live demo link | [ ] **USER** | Needs a Sepolia deploy (below) plus a hosted app. |
 | Open source | [ ] **USER** | Same public repo as §1. Consider adding a LICENSE file (none present). |
 
-### Sepolia deploy: exact steps (not done; deployer balance is 0)
+### Sepolia deploy: status
+
+- **v4 hook is live** (2026-09-27 00:08): hook `0x8A350b37Ae9B6d7502197db4A45Cd97E34CDB5c3`, EnsV2RoleOracle `0xda0078c14d57c93478fa07993188c4a82add5872`, `oniblock.eth` registered on ENSv2 Sepolia (`deployments/11155111*.json`).
+- **v5 (two knobs, `docs/review/V5_JIT_HEAD_SPEC.md`) needs a redeploy of the hook + pools**: the attestation struct gained `pJitBps`, so v5 services cannot post to the v4 hook. One command, rehearsed on a fork against the real ENS state (`REHEARSE=1`): `scripts/deploy-sepolia.sh` — it skips ENS registration (already done), runs the idempotent `ENS_PHASE=grant-jit` (settler roles for `calibration.jit.*`), keeps the v4 file as `11155111.prev.json`, deploys and verifies the new hook (~9M gas ≈ 0.009 ETH at 1 gwei) and rewrites the `weth-usdc.pools` records. Then restart `CHAIN=sepolia` keeper/settler (they preflight the ENS roles and refuse to start on a mismatch).
+
+### Sepolia deploy: exact steps (as scripted; manual equivalents below)
 
 The deployer `0x2Fd8…Fc73` has **0 Sepolia ETH** and nonce 0 (checked 2026-09-26). `oniblock.eth` and `oni-block.eth` are both **available** on the Sepolia ENSv2 `ETHRegistrar` (read-only `isAvailable` check). Registration is paid in the registrar's mintable MockUSDC, so the name itself costs no ETH.
 

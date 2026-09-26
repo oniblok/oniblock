@@ -1,8 +1,8 @@
 /**
  * EIP-712 attestation signing (attestor key = TEE stand-in).
  *
- * MUST match OniblockHook's typehash:
- *   Attestation(bytes32 poolId,uint64 blockNumber,uint256 oracleMidX96,uint32 pToxicBps,uint32 confidenceBps,bytes32 modelNode)
+ * MUST match OniblockHook's typehash (v5, docs/review/V5_JIT_HEAD_SPEC.md §2.1: `uint32 pJitBps` inserted BEFORE modelNode):
+ *   Attestation(bytes32 poolId,uint64 blockNumber,uint256 oracleMidX96,uint32 pToxicBps,uint32 confidenceBps,uint32 pJitBps,bytes32 modelNode)
  * domain: { name, version: "1", chainId, verifyingContract: hook }
  *
  * NOTE: BUILD_SPEC says name "OniblockHook", but the deployed contract uses EIP712("Oniblock", "1").
@@ -27,12 +27,13 @@ export const ATTESTATION_TYPES = {
     { name: 'oracleMidX96', type: 'uint256' },
     { name: 'pToxicBps', type: 'uint32' },
     { name: 'confidenceBps', type: 'uint32' },
+    { name: 'pJitBps', type: 'uint32' },
     { name: 'modelNode', type: 'bytes32' },
   ],
 } as const;
 
 export const ATTESTATION_TYPE_STRING =
-  'Attestation(bytes32 poolId,uint64 blockNumber,uint256 oracleMidX96,uint32 pToxicBps,uint32 confidenceBps,bytes32 modelNode)';
+  'Attestation(bytes32 poolId,uint64 blockNumber,uint256 oracleMidX96,uint32 pToxicBps,uint32 confidenceBps,uint32 pJitBps,bytes32 modelNode)';
 export const ATTESTATION_TYPEHASH = keccak256(toBytes(ATTESTATION_TYPE_STRING));
 
 export interface AttestationFields {
@@ -41,15 +42,18 @@ export interface AttestationFields {
   oracleMidX96: bigint;
   pToxicBps: number;
   confidenceBps: number;
+  /** v5 JIT head, 0..10000 (0 = no JIT signal => the hook uses jitWindowDefault only if the JIT head is demoted; else window = min). */
+  pJitBps: number;
   modelNode: Hex;
 }
 
-/** The on-chain struct passed to setAttestation (poolId is implied by the PoolKey). */
+/** The on-chain struct passed to setAttestation (poolId is implied by the PoolKey). Field order = struct order. */
 export interface AttestationStruct {
   blockNumber: bigint;
   oracleMidX96: bigint;
   pToxicBps: number;
   confidenceBps: number;
+  pJitBps: number;
   modelNode: Hex;
   signature: Hex;
 }
@@ -102,6 +106,7 @@ export async function signAttestation(
     oracleMidX96: a.oracleMidX96,
     pToxicBps: a.pToxicBps,
     confidenceBps: a.confidenceBps,
+    pJitBps: a.pJitBps,
     modelNode: a.modelNode,
     signature,
   };

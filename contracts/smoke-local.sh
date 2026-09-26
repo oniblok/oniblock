@@ -26,13 +26,13 @@ BN=$(( $(cast block-number --rpc-url "$RPC") + 1 ))
 MODEL=$(cast namehash "jev-v1.models.oniblock.eth")   # allowlisted by DeployLocal (R-01)
 cat > "$TMP/typed.json" <<JSON
 {"types":{"EIP712Domain":[{"name":"name","type":"string"},{"name":"version","type":"string"},{"name":"chainId","type":"uint256"},{"name":"verifyingContract","type":"address"}],
-"Attestation":[{"name":"poolId","type":"bytes32"},{"name":"blockNumber","type":"uint64"},{"name":"oracleMidX96","type":"uint256"},{"name":"pToxicBps","type":"uint32"},{"name":"confidenceBps","type":"uint32"},{"name":"modelNode","type":"bytes32"}]},
+"Attestation":[{"name":"poolId","type":"bytes32"},{"name":"blockNumber","type":"uint64"},{"name":"oracleMidX96","type":"uint256"},{"name":"pToxicBps","type":"uint32"},{"name":"confidenceBps","type":"uint32"},{"name":"pJitBps","type":"uint32"},{"name":"modelNode","type":"bytes32"}]},
 "primaryType":"Attestation","domain":{"name":"Oniblock","version":"1","chainId":31337,"verifyingContract":"$HOOK"},
-"message":{"poolId":"$PID","blockNumber":$BN,"oracleMidX96":"$MID","pToxicBps":10000,"confidenceBps":5000,"modelNode":"$MODEL"}}
+"message":{"poolId":"$PID","blockNumber":$BN,"oracleMidX96":"$MID","pToxicBps":10000,"confidenceBps":5000,"pJitBps":0,"modelNode":"$MODEL"}}
 JSON
 SIG=$(cast wallet sign --private-key "$PKA" --data --from-file "$TMP/typed.json")
 cast send -q --rpc-url "$RPC" --private-key "$PKQ" "$HOOK" \
-  "setAttestation((address,address,uint24,int24,address),(uint64,uint256,uint32,uint32,bytes32,bytes))" \
+  "setAttestation((address,address,uint24,int24,address),(uint64,uint256,uint32,uint32,uint32,bytes32,bytes))" \
   "$KEY" "($BN,$MID,10000,5000,$MODEL,$SIG)"
 echo "quoteFee(zeroForOne): $(cast call --rpc-url "$RPC" "$HOOK" "quoteFee((address,address,uint24,int24,address),bool)(uint24,bool,uint32,bool)" "$KEY" true | tr '\n' ' ')"
 cast send --rpc-url "$RPC" --private-key "$PKT" --json "$ROUTER" \

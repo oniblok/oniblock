@@ -19,7 +19,8 @@ import {IRoleOracle} from "../src/interfaces/IRoleOracle.sol";
 /// DEPLOYMENTS_OUT (default ../deployments/<chainId>.json), CONFIG_DELAY (default 0), MODEL_NODES (comma-separated
 /// bytes32; default namehash of jev-v1 / heuristic-v1 / kev-v1 .models.oniblock.eth, + rule-v1 if KEEPER_GATE=1), MIN_SAMPLES
 /// (default 10), ARB_THRESHOLD_PIPS (v4 default 0), K_MIN_BPS / K_DEFAULT_BPS (v4 default 0), K_MAX_BPS (8000),
-/// MAX_K_STEP_BPS (v4 default 8000), plus pool config overrides (see DeployBase).
+/// MAX_K_STEP_BPS (v4 default 8000), JIT_WINDOW_MIN / JIT_WINDOW_MAX / JIT_WINDOW_DEFAULT (v5, default 10/100/10),
+/// plus pool config overrides (see DeployBase).
 contract DeployLocal is DeployBase {
     uint256 internal constant ANVIL0_PK = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
 
