@@ -6,7 +6,7 @@ import { MidHistory } from '../src/cex.js';
 import { canonicalFeatures, computeFeatures, computeMidFeatures, featuresToState, type Features, type MidObs } from '../src/features.js';
 import { applyChargeThreshold, chargeThreshold, defaultModelName } from '../src/keeper.js';
 import { kevState, score, type ModelScore } from '../src/model/index.js';
-import { defaultTabularPath, loadTabularModel, predictTabular, scoreTabular, TABULAR_FEATURES, tabularInputs, TABULAR_V1_FEATURES } from '../src/model/tabular.js';
+import { defaultTabularPath, loadTabularModel, predictTabular, scoreTabular, TABULAR_FEATURES, tabularInputs, tabularVersion } from '../src/model/tabular.js';
 import { midToPriceX96 } from '../src/price.js';
 
 const base: Features = { gapPips: 0, gapSign: 0, imbalance: 0, sizeToDepth: 0, realizedVolBps: 0, attestationAge: 1, nSwaps: 5, arbShare: 0, baseFee: 500 };
@@ -173,8 +173,9 @@ describe('orientation: Kev and tabular inputs are canonicalised to the training 
     expect(kevState(f, false).split('\n')).toHaveLength(11);
     expect(kevState(f, false)).toBe(featuresToState(f, { format: 'kev2', baseIsToken0: false }));
   });
-  it('tabular inputs (v1 and v2 names) equal those of the mirrored pool; sgap = canonical gapSign * gapPips', () => {
-    const v2 = [...TABULAR_V1_FEATURES, 'edgeSigma', 'vol5mBps', 'ret12Bps', 'ret36Bps', 'ret900Bps', 'sgap'];
+  it('tabular inputs (oniblock1 names) equal those of the mirrored pool; sgap = canonical gapSign * gapPips', () => {
+    const v2 = loadTabularModel(defaultTabularPath('oniblock1'))!.features;
+    expect(v2.at(-1)).toBe('sgap');
     expect(tabularInputs(canonicalFeatures(f, true), v2)).toEqual(tabularInputs(mirrored, v2));
     expect(tabularInputs(canonicalFeatures(f, true), v2).at(-1)).toBe(-812);
     expect(tabularInputs(canonicalFeatures(f, false), v2).at(-1)).toBe(812);
@@ -183,7 +184,7 @@ describe('orientation: Kev and tabular inputs are canonicalised to the training 
   });
 });
 
-describe('tabular v2 (generic JSON feature list)', () => {
+describe('tabular JSON loader (generic feature list)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'tabv2-'));
   const write = (name: string, m: object) => {
     const p = join(dir, name);
@@ -192,7 +193,7 @@ describe('tabular v2 (generic JSON feature list)', () => {
   };
   it('loads any feature order from the JSON and evaluates by name; reads the charge threshold', () => {
     const p = write('m.json', {
-      version: 2, name: 'tabular-v2', model: 'lightgbm', features: ['sgap', 'ret900Bps', 'gapPips'], chargeThreshold: 0.61,
+      version: 2, name: 'm', model: 'lightgbm', features: ['sgap', 'ret900Bps', 'gapPips'], chargeThreshold: 0.61,
       trees: [{ f: 0, t: 0, l: { v: -1 }, r: { f: 1, t: 5, l: { v: 0.5 }, r: { v: 2 } } }],
     });
     const m = loadTabularModel(p)!;
@@ -212,42 +213,30 @@ describe('tabular v2 (generic JSON feature list)', () => {
     const p = write('bad.json', { version: 2, name: 'x', features: ['gapPips', 'mystery'], trees: [] });
     expect(() => loadTabularModel(p)).toThrow(/unknown features mystery/);
   });
-  it('every v2 name from the spec is known', () => {
-    for (const n of ['edgeSigma', 'vol5mBps', 'ret12Bps', 'ret36Bps', 'ret900Bps', 'sgap', ...TABULAR_V1_FEATURES]) expect(n in TABULAR_FEATURES).toBe(true);
-  });
-  it('TABULAR_MODEL=v2 selects the v2 file and the tabular-v2 node; default v1', () => {
-    delete process.env.TABULAR_MODEL;
-    expect(defaultModelName('tabular')).toBe('tabular-v1.models.oniblock.eth');
-    expect(defaultTabularPath()).toMatch(/services\/models\/tabular-v1\.json$/);
-    process.env.TABULAR_MODEL = 'v2';
-    expect(defaultModelName('tabular')).toBe('tabular-v2.models.oniblock.eth');
-    expect(defaultTabularPath()).toMatch(/models\/tabular-v2\.json$/);
-  });
-  const v2 = defaultTabularPath('v2');
-  it.skipIf(!existsSync(v2))(`the exported tabular-v2 model loads and scores (${existsSync(v2) ? v2 : 'SKIPPED: ml/models/tabular-v2.json not present yet'})`, async () => {
-    const m = loadTabularModel(v2)!;
-    expect(m.trees.length).toBeGreaterThan(0);
-    const p = predictTabular(m, { ...base, gapPips: 900, gapSign: 1, edgePips: 400, edgeSigma: 2, vol5mBps: 2, ret12Bps: 1, ret36Bps: 2, ret900Bps: 3 });
-    expect(p).toBeGreaterThan(0);
-    expect(p).toBeLessThan(1);
-    process.env.TABULAR_MODEL = 'v2';
-    expect((await score({ ...base, gapPips: 900 }, { mode: 'tabular' })).model).toBe('tabular');
+  it('every oniblock1 input name is known', () => {
+    for (const n of loadTabularModel(defaultTabularPath('oniblock1'))!.features) expect(n in TABULAR_FEATURES).toBe(true);
   });
 });
 
 describe('oniblock1 (the production tree model)', () => {
   const path = defaultTabularPath('oniblock1');
   const f = { ...base, gapPips: 900, gapSign: 1, nSwaps: 15, arbShare: 0.7, realizedVolBps: 2, sizeToDepth: 3e-5, edgeSigma: 2, vol5mBps: 2, ret12Bps: 1, ret36Bps: 2, ret900Bps: 3 };
-  it('MODEL_MODE=oniblock1 or TABULAR_MODEL=oniblock1 selects the oniblock1 file and node', () => {
+  it('MODEL_MODE=oniblock1, MODEL_MODE=tabular and TABULAR_MODEL (any value) all select the oniblock1 file and node', () => {
     delete process.env.TABULAR_MODEL;
     expect(path).toMatch(/ml\/models\/oniblock1\.json$/);
-    expect(defaultModelName('oniblock1')).toBe('oniblock1.models.oniblock.eth');
-    process.env.MODEL_MODE = 'oniblock1';
     expect(defaultTabularPath()).toBe(path);
+    for (const mode of ['oniblock1', 'tabular']) {
+      expect(defaultModelName(mode)).toBe('oniblock1.models.oniblock.eth');
+      process.env.MODEL_MODE = mode;
+      expect(tabularVersion(mode)).toBe('oniblock1');
+      expect(defaultTabularPath()).toBe(path);
+    }
     delete process.env.MODEL_MODE;
-    process.env.TABULAR_MODEL = 'oniblock1';
-    expect(defaultModelName('tabular')).toBe('oniblock1.models.oniblock.eth');
-    expect(defaultTabularPath()).toBe(path);
+    for (const v of ['oniblock1', 'v1', 'v2', 'tabular-v1']) {
+      process.env.TABULAR_MODEL = v; // the old v1 / v2 selectors are gone: oniblock1 is the only tree model
+      expect(defaultModelName('tabular')).toBe('oniblock1.models.oniblock.eth');
+      expect(defaultTabularPath()).toBe(path);
+    }
   });
   it('the file names itself oniblock1 and carries the charge threshold', () => {
     const m = loadTabularModel(path)! as ReturnType<typeof loadTabularModel> & { name: string; node: string };
@@ -256,13 +245,13 @@ describe('oniblock1 (the production tree model)', () => {
     expect(m.chargeThreshold).toBeCloseTo(0.8224, 4);
     expect(m.trees.length).toBeGreaterThan(0);
   });
-  it('score() with mode oniblock1 uses the oniblock1 trees (TABULAR_MODEL unset)', async () => {
+  it('score() with mode oniblock1 or tabular uses the oniblock1 trees (TABULAR_MODEL unset)', async () => {
     delete process.env.TABULAR_MODEL;
     const want = Math.round(predictTabular(loadTabularModel(path)!, f) * 10_000);
     const s = await score(f, { mode: 'oniblock1', baseIsToken0: false });
     expect(s.model).toBe('tabular');
     expect(s.pToxicBps).toBe(want);
-    expect(want).not.toBe((await score(f, { mode: 'tabular', baseIsToken0: false })).pToxicBps); // default tabular = v1
+    expect((await score(f, { mode: 'tabular', baseIsToken0: false })).pToxicBps).toBe(want);
   });
 });
 

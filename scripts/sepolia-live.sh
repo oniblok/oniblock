@@ -11,7 +11,8 @@
 #                               -> the model JSON's 0.8224 -> none (charge nothing)
 #   KEEPER_POST=change          post only when the hook would price swaps differently (+ heartbeat)
 #   KEEPER_FIRST_IN_BLOCK=1     oniblock1's training setup: Binance read + send KEEPER_READ_LEAD_MS (2000) before the
-#   KEEPER_READ_LEAD_MS=2000    next block, tx at the TOP of block N+1 so it prices N+1 itself (ATTEST_BLOCK_OFFSET=0)
+#   KEEPER_READ_LEAD_MS=2000    next block, tx at the TOP of block N+1 so it prices N+1 itself; ATTEST_BLOCK_OFFSET=1 signs for N+1, so a post
+#                               that slips to N+2 is still accepted (block.number - 1) instead of reverting
 #   KEEPER_PRIORITY_GWEI=2      tip of setAttestation: above the retail bot / app swaps (viem default, the node's
 #                               eth_maxPriorityFeePerGas, ~0.001 gwei on Sepolia) and the network's usual p90 (~1-1.5)
 #   KEEPER_BLOCK_TIME_MS        unset = 12000 on sepolia
@@ -31,7 +32,7 @@ trap 'echo; echo "[sepolia] stopping"; kill "${PIDS[@]}" 2>/dev/null; wait; exit
 # ${VAR-default}: unset -> default, explicitly empty -> stays empty (= that knob off in the keeper)
 KEEPER_ENV=(
   KEEPER_EVERY="${KEEPER_EVERY:-1}"
-  ATTEST_BLOCK_OFFSET="${ATTEST_BLOCK_OFFSET:-0}"
+  ATTEST_BLOCK_OFFSET="${ATTEST_BLOCK_OFFSET:-1}"
   MODEL_MODE="${MODEL_MODE:-oniblock1}"
   CHARGE_THRESHOLD="${CHARGE_THRESHOLD-auto}"
   KEEPER_POST="${KEEPER_POST:-change}"

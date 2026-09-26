@@ -16,11 +16,11 @@ export { scoreHeuristic, heuristicAttack, heuristicPJitBps } from './heuristic.j
 export { scoreWithJev, parseJev, JevCache, JEV_QUESTIONS, JEV_QUESTIONS_V1, JEV_QUESTIONS_V4, JEV_QUESTIONS_V5, JEV_QUESTIONS_V6, JEV_MODEL, jevCacheKey, jevQuestions, defaultJevPrompt, type JevPrompt } from './jev.js';
 
 export { scoreWithKev, parseKev, KEV_QUESTIONS, kevModelName, kevSize } from './kev.js';
-export { scoreTabular, predictTabular, loadTabularModel, tabularInputs, tabularVersion, tabularModelName, TABULAR_FEATURES, TABULAR_V1_FEATURES } from './tabular.js';
+export { scoreTabular, predictTabular, loadTabularModel, tabularInputs, tabularVersion, tabularModelName, TABULAR_FEATURES } from './tabular.js';
 
 /**
  * kev = local fine-tuned Kev server (KEV_URL, KEV_MODEL=0.8b|4b, KEV_STATE_FORMAT=auto|kev2); tabular = LightGBM trees in-process
- * (TABULAR_MODEL, default tabular-v1); oniblock1 = tabular with the oniblock1 model. All fall back to the heuristic.
+ * with the oniblock1 model (MODEL_MODE=tabular and MODEL_MODE=oniblock1 are the same). All fall back to the heuristic.
  */
 export type ModelMode = 'auto' | 'jev' | 'heuristic' | 'kev' | 'tabular' | 'oniblock1';
 

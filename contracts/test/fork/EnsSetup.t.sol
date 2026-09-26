@@ -90,7 +90,6 @@ contract EnsSetupForkTest is Test {
         cfg.policyUri = "urn:oniblock:fee-law:v1";
         cfg.modelHashJev = vm.toString(keccak256("typesafe-ai/jev"));
         cfg.modelHashHeuristic = vm.toString(keccak256("oniblock/heuristic-v1"));
-        cfg.modelHashKev = "0x24f0793d55e0fde516ebe4da1d187e0468a5f7c830ba9a9f4d48e43f007c88be";
         cfg.modelHashOniblock1 = "0x5a766bf0a501fddd296576baa3315e632fdec841faafd81259e5b3a7cedd32a9";
         cfg.poolLabel = "weth-usdc";
         cfg.endpointJev = "https://ai-gateway.vercel.sh/v1/evaluate";
@@ -128,9 +127,10 @@ contract EnsSetupForkTest is Test {
         assertEq(reg.getSubregistry("pools"), r.poolsRegistry);
         assertEq(IEnsPermissionedRegistry(r.modelsRegistry).getOwner(EnsV2Lib.labelId("jev-v1")), owner);
         assertEq(IEnsPermissionedRegistry(r.modelsRegistry).getOwner(EnsV2Lib.labelId("heuristic-v1")), owner);
-        assertEq(IEnsPermissionedRegistry(r.modelsRegistry).getOwner(EnsV2Lib.labelId("kev-v1")), owner);
         assertEq(IEnsPermissionedRegistry(r.modelsRegistry).getOwner(EnsV2Lib.labelId("oniblock1")), owner);
         assertEq(IEnsPermissionedRegistry(r.poolsRegistry).getOwner(EnsV2Lib.labelId("weth-usdc")), owner);
+        // kev-v1 is retired: new setups no longer register it
+        assertEq(IEnsPermissionedRegistry(r.modelsRegistry).getOwner(EnsV2Lib.labelId("kev-v1")), address(0));
 
         // resource of a fresh name = labelhash with low 32 bits = eacVersionId (0)
         assertEq(r.quoterResource, EnsV2Lib.resourceAt(EnsV2Lib.labelId("quoter"), 0));
@@ -223,16 +223,15 @@ contract EnsSetupForkTest is Test {
         res.setText(jev, "model-hash", "0xbeef");
         assertEq(_text(jev, "model-hash"), "0xbeef");
 
-        // per-key grants are name-independent: the settler can grade kev-v1 too; others still cannot
-        bytes memory kev = EnsV2Lib.dnsEncode("kev-v1.models.oniblock.eth");
+        // per-key grants are name-independent: the settler can grade oniblock1 too (k and JIT head keys); others
+        // still cannot
+        bytes memory oni = EnsV2Lib.dnsEncode("oniblock1.models.oniblock.eth");
         vm.prank(settler);
-        res.setText(kev, "calibration.n", "12");
-        assertEq(_text(kev, "calibration.n"), "12");
+        res.setText(oni, "calibration.n", "12");
+        assertEq(_text(oni, "calibration.n"), "12");
         vm.prank(owner);
         vm.expectRevert();
-        res.setText(kev, "calibration.n", "0");
-        // ... and oniblock1 (k and JIT head keys)
-        bytes memory oni = EnsV2Lib.dnsEncode("oniblock1.models.oniblock.eth");
+        res.setText(oni, "calibration.n", "0");
         vm.prank(settler);
         res.setText(oni, "calibration.brier", "1700");
         vm.prank(settler);
@@ -299,9 +298,6 @@ contract EnsSetupForkTest is Test {
 
         assertEq(_urText("jev-v1.models.oniblock.eth", "model-hash"), cfg.modelHashJev);
         assertEq(_urText("heuristic-v1.models.oniblock.eth", "model-hash"), cfg.modelHashHeuristic);
-        assertEq(_urText("kev-v1.models.oniblock.eth", "model-hash"), cfg.modelHashKev);
-        assertGt(bytes(_urText("kev-v1.models.oniblock.eth", "agent-context")).length, 0);
-        assertGt(bytes(_urText("kev-v1.models.oniblock.eth", "description")).length, 0);
         assertEq(_urText("oniblock1.models.oniblock.eth", "model-hash"), cfg.modelHashOniblock1);
         assertGt(bytes(_urText("oniblock1.models.oniblock.eth", "agent-context")).length, 0);
         assertGt(bytes(_urText("oniblock1.models.oniblock.eth", "description")).length, 0);
@@ -310,7 +306,6 @@ contract EnsSetupForkTest is Test {
         // ENSIP-26 agent-endpoint[<protocol>]
         assertEq(_urText("jev-v1.models.oniblock.eth", "agent-endpoint[web]"), cfg.endpointJev);
         assertEq(_urText("heuristic-v1.models.oniblock.eth", "agent-endpoint[web]"), "in-process");
-        assertEq(_urText("kev-v1.models.oniblock.eth", "agent-endpoint[web]"), "");
         assertEq(_urText("oniblock1.models.oniblock.eth", "agent-endpoint[web]"), "");
         assertEq(_urText("weth-usdc.pools.oniblock.eth", "hook"), vm.toString(address(0xB00C)));
         assertEq(_urText("weth-usdc.pools.oniblock.eth", "pool-id"), vm.toString(cfg.poolId));
@@ -341,7 +336,7 @@ contract EnsSetupForkTest is Test {
         assertEq(reg.getResolver("live"), live, "resolver of live repointed");
         assertEq(reg.getSubregistry("live"), address(0), "nothing registered under live");
         assertEq(OniblockLiveResolver(live).owner(), owner);
-        assertEq(OniblockLiveResolver(live).knownLabels().length, 5);
+        assertEq(OniblockLiveResolver(live).knownLabels().length, 4);
 
         // the UR walk stops at `live` (offset 7 = after "\x06jev-v1") and accepts the resolver as ENSIP-10
         (address found, bytes32 node, uint256 offset) = ur.findResolver(EnsV2Lib.dnsEncode("jev-v1.live.oniblock.eth"));
@@ -356,7 +351,6 @@ contract EnsSetupForkTest is Test {
         assertEq(_urText("jev-v1.live.oniblock.eth", "model-node"), Strings.toHexString(uint256(jev), 32));
         assertEq(_urText("jev-v1.live.oniblock.eth", "models-name"), "jev-v1.models.oniblock.eth");
         assertEq(_urText("nobody-v9.live.oniblock.eth", "status"), "unknown");
-        assertEq(_urText("kev-v1.live.oniblock.eth", "status"), "unknown"); // registered in ENS, not allowlisted
         assertEq(_urText("oniblock1.live.oniblock.eth", "status"), "unknown"); // known label, not allowlisted here
         assertEq(_urText("oniblock1.live.oniblock.eth", "models-name"), "oniblock1.models.oniblock.eth");
         // pool records
@@ -369,7 +363,7 @@ contract EnsSetupForkTest is Test {
         // current alias + the namespace itself
         assertEq(_urText("current.live.oniblock.eth", "status"), "unknown");
         assertEq(_urText("live.oniblock.eth", "pool"), "weth-usdc");
-        assertEq(_urText("live.oniblock.eth", "known-labels"), "jev-v1,heuristic-v1,kev-v1,oniblock1,rule-v1");
+        assertEq(_urText("live.oniblock.eth", "known-labels"), "jev-v1,heuristic-v1,oniblock1,rule-v1");
         // addr through the UR: the pool name resolves to the hook
         (bytes memory out, address via) = ur.resolve(
             EnsV2Lib.dnsEncode("weth-usdc.live.oniblock.eth"),
@@ -530,14 +524,6 @@ contract EnsSetupForkTest is Test {
         assertEq(writes, 1);
         assertEq(_urText("jev-v1.models.oniblock.eth", "agent-endpoint[web]"), cfg.endpointJev);
         assertEq(_urText("heuristic-v1.models.oniblock.eth", "agent-endpoint[web]"), "in-process");
-        // kev-v1: empty ENS_ENDPOINT_KEV (default) = skipped; set = written once
-        assertEq(_urText("kev-v1.models.oniblock.eth", "agent-endpoint[web]"), "");
-        cfg.endpointKev = "https://kev.example/evaluate";
-        (writes,) = setup.setEndpointsBroadcast(cfg, r.resolver);
-        assertEq(writes, 1);
-        assertEq(_urText("kev-v1.models.oniblock.eth", "agent-endpoint[web]"), cfg.endpointKev);
-        (writes,) = setup.setEndpointsBroadcast(cfg, r.resolver);
-        assertEq(writes, 0);
         // oniblock1: empty ENS_ENDPOINT_ONIBLOCK1 (default) = skipped; set (its System One URL) = written once
         assertEq(_urText("oniblock1.models.oniblock.eth", "agent-endpoint[web]"), "");
         cfg.endpointOniblock1 = "https://systemone.example/v1/systemone";

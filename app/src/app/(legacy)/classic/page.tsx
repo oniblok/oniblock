@@ -222,7 +222,7 @@ export default function Home() {
         </span>
         {mix ? (
           <span>
-            Keeper model calls: <b className="text-ink">{mixPct(mix.jev + mix.heuristic + mix.oniblock1 + mix.kev)}</b> of the last {mix.total} attestations ({mix.oniblock1 > 0 ? `oniblock1 ${mixPct(mix.oniblock1)}, ` : ''}{mix.kev > 0 ? `kev-v1 ${mixPct(mix.kev)}, ` : ''}Jev {mixPct(mix.jev)}, heuristic {mixPct(mix.heuristic)}{mix.rule > 0 ? `, rule-v1 ${mixPct(mix.rule)}` : ''}; last {mix.window} blocks)
+            Keeper model calls: <b className="text-ink">{mixPct(mix.jev + mix.heuristic + mix.oniblock1)}</b> of the last {mix.total} attestations ({mix.oniblock1 > 0 ? `oniblock1 ${mixPct(mix.oniblock1)}, ` : ''}Jev {mixPct(mix.jev)}, heuristic {mixPct(mix.heuristic)}{mix.rule > 0 ? `, rule-v1 ${mixPct(mix.rule)}` : ''}; last {mix.window} blocks)
           </span>
         ) : null}
         <span>

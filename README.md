@@ -90,7 +90,6 @@ oniblock.eth                    our own UserRegistry (VerifiableFactory proxy) +
 ├─ models.oniblock.eth          own subregistry
 │  ├─ jev-v1                    model-hash, agent-context (ENSIP-26), calibration.* (settler-only)
 │  ├─ heuristic-v1              model-hash, agent-context, calibration.* (settler-only)
-│  ├─ kev-v1                    Kev-0.8B fine-tune (open weights; registered, not allowlisted by default); model-hash = SHA-256 of the adapter, agent-context, calibration.* (settler-only)
 │  └─ oniblock1                 production LightGBM model; model-hash = SHA-256 of ml/models/oniblock1.json, agent-context, calibration.* (settler-only)
 └─ pools.oniblock.eth           own subregistry
    └─ weth-usdc                 hook, pool-id, fee-min, fee-max, policy-uri
@@ -233,7 +232,7 @@ Reproduce: `pnpm -C benchmark bench` (about 8 minutes). `pnpm -C benchmark run:q
 - **0.05% tier:** +0.507 bps/h [−0.21, 1.23] ≈ +$1,014/h, positive in 3/3 volatile windows.
 - **0.30% tier:** +0.289 bps/h [−0.14, 0.72] ≈ +$578/h, positive in 3/3 volatile windows.
 
-All of the gain comes in the volatile hours. In calm hours the pool is about −0.01 bps/h at 0.30% and −0.02 bps/h at 0.05%, mostly the keeper's gas. The 95% intervals include zero at both tiers: 6 windows, 3 of them calm. The gain comes from the fresh price and first position (a heuristic at the same timing earns about the same); oniblock1's edge is precision. Jev was not run in the mainnet-block benchmark.
+All of the gain comes in the volatile hours. In calm hours the pool is about −0.01 bps/h at 0.30% and −0.02 bps/h at 0.05%, mostly the keeper's gas. The 95% intervals include zero at both tiers: 6 windows, 3 of them calm. Without a builder deal, the same oniblock1 posts last in the previous block with a 13 s-old price (11 s older than the price it is trained on) and earns +0.037 bps/h [−0.045, 0.119] at 0.05% and +0.160 [−0.049, 0.368] at 0.30%; keeper first adds +0.470 [−0.170, 1.110] and +0.129 [−0.158, 0.417] bps/h, positive in 3/3 and 2/3 volatile windows, before any payment to the builder. The gain comes from the fresh price and first position (a heuristic at the same timing earns about the same); oniblock1's edge is precision. Jev was not run in the mainnet-block benchmark.
 
 **Full comparison.** [`docs/RESULTS_ONIBLOCK1.md`](docs/RESULTS_ONIBLOCK1.md) has the metric definitions, sources, the benchmark by regime and the reproduce commands.
 
@@ -288,7 +287,6 @@ Env for `pnpm -C services keeper` (all optional; unset = today's behaviour):
 
 - `MODEL_MODE=oniblock1`: score with oniblock1, the production model. It is LightGBM gradient-boosted trees over the pool and Binance features, evaluated in-process from `ml/models/oniblock1.json`, and the keeper posts under `oniblock1.models.oniblock.eth`. It is trained on a Binance read about 2 s before the block, so use it when the keeper's post lands first in the block. `MODEL_MODE=tabular TABULAR_MODEL=oniblock1` is the same; `TABULAR_MODEL_PATH` overrides the file.
 - `CHARGE_THRESHOLD=0.xx`: charge gate. The posted pToxic stays unchanged, and confidence becomes 10000 when p ≥ t and 0 otherwise. The hook's k = kMax·p·c is therefore 0 below t, so the pool acts like a vanilla pool. Each attestation logs `p`, `chargeThreshold` and `charged`. For oniblock1 use `CHARGE_THRESHOLD=0.8224`, the threshold stored in its JSON (5% false-positive rate on validation).
-- `KEV_STATE_FORMAT=auto|kev2`: the Kev state text (`MODEL_MODE=kev`). `auto` is the v1 adapter text. `kev2` appends three lines: the edge in volatility units, the 5-minute volatility and the 12 s / 36 s / 15 min trend.
 - `pnpm -C services systemone`: oniblock1 behind TypeSafe's System One API (`POST /v1/systemone` with `model: "oniblock1"`, the numeric Features as `state` and the `informed` noul question; `GET /health` lists each model's SHA-256, its ENS `model-hash`). Same prediction as the keeper's in-process scoring; port `SYSTEMONE_PORT` (8010).
 
 ### Tests
@@ -433,7 +431,7 @@ The keeper's probability comes from a model. `ml/` holds everything to build the
 - **Dead-band labels** — 59% of blocks have |markout| < $1 (price noise). Training and the on-chain calibration gate use only decisive blocks (|markout| > max($1, 1 bp of arb volume)): 26,925 / 11,842 / 12,837 rows.
 - **Baselines** (dead-band test set): base rate Brier 0.238 · heuristic 0.227 · logistic 0.207 · LightGBM 0.201 (AUC 0.72, ECE 0.018).
 - **oniblock1 (production model)** — LightGBM on 17 features. It is trained on the same blocks, with the Binance features read about 2 s before the block (`build_v2.py --query-lag 3`). Test AUC is 0.936. See [`docs/RESULTS_ONIBLOCK1.md`](docs/RESULTS_ONIBLOCK1.md).
-- **Kev-4B fine-tuning** — `ml/train_kev4b/README.md` is a self-contained, time-boxed guide (Kev = open-weight, Apache-2.0, Jev-compatible decision model). Data ships as `ml/train_kev4b.zip`. The shipped Kev-0.8B adapter (`ml/models/kev08b-v1/`) has its SHA-256 published as `model-hash` on `kev-v1.models.oniblock.eth`, so anyone can verify which model set each fee.
+- **Kev-4B fine-tuning** — `ml/train_kev4b/README.md` is a self-contained, time-boxed guide (Kev = open-weight, Apache-2.0, Jev-compatible decision model). Data ships as `ml/train_kev4b.zip`. No Kev weights ship in this repo: the only shipped model is oniblock1, whose SHA-256 is published as `model-hash` on `oniblock1.models.oniblock.eth`, so anyone can verify which model set each fee.
 
 See `ml/README.md` for the rebuild pipeline.
 
