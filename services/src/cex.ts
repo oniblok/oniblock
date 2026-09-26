@@ -214,6 +214,10 @@ export class MidHistory {
   mids(): number[] {
     return this.xs.map((x) => x.mid);
   }
+  /** Time-stamped mids (t = unix ms, oldest first; a copy) for the v2 past-only features (features.ts computeMidFeatures). */
+  entries(): { t: number; mid: number }[] {
+    return this.xs.map((x) => ({ t: x.t, mid: x.mid }));
+  }
   last(): number | undefined {
     return this.xs[this.xs.length - 1]?.mid;
   }

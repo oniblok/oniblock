@@ -29,7 +29,7 @@
  * <DEMO_RUNTIME_DIR|.runtime>/verdicts.<chainId>.jsonl, capped to the last 5000 lines) for the app (/api/verdicts).
  *
  * CLI: tsx src/keeper.ts [--chain local|fork|sepolia] [--once] [--degraded] [--every N]
- *                        [--mode auto|jev|heuristic|kev|tabular] [--pool NAME]   (kev/tabular: set MODEL_MODE env so the default model node is kev-v1 / kev4b-v1 / tabular-v1)
+ *                        [--mode auto|jev|heuristic|kev|tabular] [--pool NAME]   (kev/tabular: set MODEL_MODE env so the default model node is kev-v1 / kev4b-v1 / tabular-v1 / tabular-v2)
  * Env: KEEPER_EVERY (default 1), ATTEST_BLOCK_OFFSET (default 1), MODEL_NAME,
  *      FALLBACK_MODEL_NAME, RULE_MODEL_NAME (default rule-v1.models.oniblock.eth),
  *      KEEPER_GATE (default 0 = v4: the model is asked EVERY block; 1 = the v3 rule-v1 gate, kept for comparison),
@@ -40,7 +40,22 @@
  *      STALE_BLOCKS (fallback when poolConfig.staleBlocks is unreadable; decides whether the attested JIT window or the default is in force),
  *      KEEPER_STATS_EVERY (ticks between `jev_rate` summary lines, default 50),
  *      DEGRADED_FILE (touch file to toggle degraded mode live),
- *      KEEPER_FLAGS_FILE (default <root>/.runtime/keeper-flags.json), BACKUP_QUOTER_PK.
+ *      KEEPER_FLAGS_FILE (default <root>/.runtime/keeper-flags.json), BACKUP_QUOTER_PK,
+ *      CHARGE_THRESHOLD (model v2, 0..1; unset = off): after score()/degrade() the posted pToxic is unchanged and
+ *        confidenceBps = p >= t ? 10000 : 0, so the hook's k = kMax * p * c is 0 below t (vanilla pool) and the premium is
+ *        charged only on blocks the model calls toxic with p >= t. The settler grades pToxic only, so the posted
+ *        probability stays honest. Logged as p / chargeThreshold / charged (+ modelConfidenceBps). Not applied to rule-v1.
+ *        (c also scales the JIT window, so a gated block also posts the minimum JIT window.)
+ *      KEEPER_READ_LEAD_MS (slot clock, ms >= 0; unset = off = tick on block arrival): after block N arrives, the tick
+ *        (CEX read, features, model, sign, send) is scheduled for ts_N + KEEPER_BLOCK_TIME_MS - lead, so the tx still lands
+ *        in block N+1 but with a fresh mid (~blockTime + lead old at N+2's first swap instead of ~2 * blockTime - lag). A
+ *        block arriving before the timer cancels and re-arms from the new block (slot_rearmed); a block ticks at most once.
+ *        KEEPER_BLOCK_TIME_MS: default 12000 on sepolia, the observed header block time on local/fork chains.
+ *        In slot mode every attested line logs readLagMs (read - ts_N), expectedMidAgeMs (ts_N + 2 * blockTime - read);
+ *        unset, no header is read (zero extra RPC calls) and both are null.
+ *      KEV_STATE_FORMAT (auto = v1 adapter text, default | kev2 = + the 3 v2 lines), TABULAR_MODEL (v1 default | v2;
+ *        v2 = node tabular-v2), TABULAR_MODEL_PATH. Kev and tabular inputs are canonicalised to the training orientation
+ *        (USDC token0, WETH token1; features.ts canonicalFeatures); Jev's input is unchanged.
  *
  * v4 default ("the AI decides the fee", docs/review/V4_AI_DECIDES.md): no gate. Jev is asked every block and its
  * probability is the fee decision: with arbThresholdPips = 0 and kMin = kDefault = 0 the hook charges
@@ -71,6 +86,7 @@ import { namehash, parseEventLogs, type Address, type Hex, type PublicClient } f
 import { oniblockHookAbi, poolStateAbi, roleOracleAbi } from './abi/oniblockHook.js';
 import { resolveAttestDomain, signAttestation, type DomainOpts } from './attest.js';
 import { MidHistory } from './cex.js';
+import { BlockTimeEstimator, blockTimeEnvMs, expectedMidAgeMs, MAINNET_BLOCK_TIME_MS, readLagMs, readLeadMs, SlotScheduler } from './slotclock.js';
 import { lazyMidSource } from './pricesource.js';
 import {
   env,
@@ -93,7 +109,7 @@ import {
 } from './config.js';
 import { getAttestations, getJitPenalties, getModifyLiquidity, getReceipts, keyTuple, readPool, receiptToSwapObs, TxSender, virtualDepth0 } from './chain.js';
 import { computeFeatures, JIT_LABEL_BLOCKS_DEFAULT, type JitPenaltyObs, type LiquidityObs, type SwapObs } from './features.js';
-import { defaultJevPrompt, score, type AttackHead, type AttackType, type ModelMode, type ModelScore } from './model/index.js';
+import { defaultJevPrompt, kevStateFormat, score, tabularVersion, type AttackHead, type AttackType, type ModelMode, type ModelScore } from './model/index.js';
 import { midToPriceX96, sqrtPriceX96ToPriceX96 } from './price.js';
 import { createWalletClient, type Chain, type Transport, type Account, type WalletClient } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -136,11 +152,14 @@ const ANVIL_KEYS_BACKUP = '0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d
 /** `poolState` view: defined in abi/oniblockHook.ts (shared with the JIT bot); re-exported for existing importers. */
 export { poolStateAbi } from './abi/oniblockHook.js';
 
+/** CEX mids feeding realizedVolBps (the pre-v2 MidHistory size; unchanged). */
+const RECENT_MIDS = 120;
+
 export const DEFAULT_MODEL_NAME = 'jev-v1.models.oniblock.eth';
-/** Primary model node name per MODEL_MODE: kev -> kev-v1 (Kev-0.8B) / kev4b-v1 (KEV_MODEL=4b), tabular -> tabular-v1, else jev-v1. */
+/** Primary model node name per MODEL_MODE: kev -> kev-v1 (Kev-0.8B) / kev4b-v1 (KEV_MODEL=4b), tabular -> tabular-v1 / tabular-v2 (TABULAR_MODEL=v2), else jev-v1. */
 export function defaultModelName(mode = env('MODEL_MODE', 'auto')): string {
   if (mode === 'kev') return env('KEV_MODEL', '0.8b') === '4b' ? 'kev4b-v1.models.oniblock.eth' : 'kev-v1.models.oniblock.eth';
-  if (mode === 'tabular') return 'tabular-v1.models.oniblock.eth';
+  if (mode === 'tabular') return env('TABULAR_MODEL', 'v1') === 'v2' ? 'tabular-v2.models.oniblock.eth' : 'tabular-v1.models.oniblock.eth';
   return DEFAULT_MODEL_NAME;
 }
 export const DEFAULT_FALLBACK_MODEL_NAME = 'heuristic-v1.models.oniblock.eth';
@@ -167,6 +186,23 @@ export function assertGateConfig(gateOn: boolean, kDefaultBps: number | undefine
 export function gateDecision(gapPips: number, arbThresholdPips: number, hysteresisPips = 100): 'rule' | 'model' {
   if (!(arbThresholdPips > 0)) return 'model';
   return gapPips < arbThresholdPips - hysteresisPips ? 'rule' : 'model';
+}
+
+/** CHARGE_THRESHOLD env (header): undefined = unset/empty (gate off); anything outside a number in [0,1] is a ConfigError. */
+export function chargeThreshold(raw = env('CHARGE_THRESHOLD')): number | undefined {
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const t = Number(raw);
+  if (!Number.isFinite(t) || t < 0 || t > 1) throw new ConfigError(`CHARGE_THRESHOLD must be a number in [0,1] (got ${JSON.stringify(raw)})`, { chargeThreshold: raw });
+  return t;
+}
+
+/**
+ * Model v2 charge gate: pToxic unchanged (the settler grades it), confidence = 10000 if p >= t else 0, so the hook's
+ * k = kMax * p * c is 0 below t. t undefined = off: the score is returned unchanged (same object).
+ */
+export function applyChargeThreshold(s: ModelScore, t: number | undefined): ModelScore {
+  if (t === undefined) return s;
+  return { ...s, confidenceBps: s.pToxicBps / 10_000 >= t ? 10_000 : 0 };
 }
 
 export const JIT_CHURN_WEIGHT_DEFAULT = 0.5;
@@ -346,7 +382,9 @@ export class Keeper {
   private readonly sender: TxSender;
   private readonly backupSender: TxSender | undefined;
   private readonly attestor;
-  private readonly mids = new MidHistory(120);
+  /** Time-stamped CEX mids: the last RECENT_MIDS feed realizedVolBps (unchanged), the whole buffer the v2 features (ret900Bps
+   *  needs >= 900 s of history: 75 ticks at 12 s blocks; the extra room covers fast local chains). */
+  private readonly mids = new MidHistory(1_000);
   private swaps: SwapObs[] = [];
   /** v5: recent ModifyLiquidity (PoolManager) and JitPenalty (hook) logs of our pool (last ~400 blocks). */
   private liquidity: LiquidityObs[] = [];
@@ -355,6 +393,8 @@ export class Keeper {
   private lastAttestBlock = 0;
   private busy = false;
   private gen = 0;
+  /** Observed block time (local/fork chains without KEEPER_BLOCK_TIME_MS). */
+  private readonly blockTimes = new BlockTimeEstimator();
   private readonly nodes;
   private domain: Required<DomainOpts> | undefined;
   private readonly midSource: (block?: number) => Promise<number>;
@@ -476,16 +516,37 @@ export class Keeper {
     this.scannedTo = block;
   }
 
-  async tick(block: number): Promise<KeeperTickResult> {
+  /** KEEPER_EVERY filter (shared by tick and the slot scheduler, so a skipped block never cancels a pending tick). */
+  private skipsBlock(block: number): boolean {
     const every = this.o.every ?? envInt('KEEPER_EVERY', 1);
-    if (every > 1 && block % every !== 0) return { block, posted: false, reason: 'every' };
+    return every > 1 && block % every !== 0;
+  }
+
+  /** Block time for the slot clock / mid-age log: KEEPER_BLOCK_TIME_MS, else 12 s on sepolia, else observed (local/fork). */
+  blockTimeMs(): number {
+    return blockTimeEnvMs() ?? (this.o.chain === 'sepolia' ? MAINNET_BLOCK_TIME_MS : this.blockTimes.value());
+  }
+
+  /** Block header timestamp (ms), slot mode only; undefined if unreadable (the scheduler then uses the arrival time). */
+  private async blockTsMs(block: number): Promise<number | undefined> {
+    try {
+      return Number((await this.pc.getBlock({ blockNumber: BigInt(block) })).timestamp) * 1000;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** `slot.blockTsMs`: ts_N from the slot scheduler (slot mode only; without it no header is read and the lag fields are null). */
+  async tick(block: number, slot?: { blockTsMs?: number }): Promise<KeeperTickResult> {
+    if (this.skipsBlock(block)) return { block, posted: false, reason: 'every' };
     if (this.busy) return { block, posted: false, reason: 'busy' };
     this.busy = true;
     const gen = ++this.gen;
     const t0 = performance.now();
     try {
+      let tObs = Date.now();
       const [mid, pool, state, cfg] = await Promise.all([
-        this.mid(block),
+        this.mid(block).then((m) => ((tObs = Date.now()), m)), // t_obs = CEX read time (v2 features)
         readPool(this.pc, this.d.poolManager, this.pool.poolId),
         this.currentState(),
         this.refreshSwaps(block).then(() => this.poolCfg(block)), // a PoolConfigUpdated in range invalidates the cache first
@@ -494,7 +555,7 @@ export class Keeper {
       // Window in force for adds now: the attested one unless stale (then the pool's default), else unknown.
       const stale = this.lastAttestBlock > 0 && block - this.lastAttestBlock > (cfg.staleBlocks ?? envInt('STALE_BLOCKS', 5));
       const jitWindowNow = state && !stale ? state.jitWindow : (cfg.jitWindowDefault ?? state?.jitWindow);
-      this.mids.push(mid);
+      this.mids.push(mid, tObs);
       const oracleX96 = midToPriceX96(mid.toFixed(8), this.meta);
       const poolX96 = sqrtPriceX96ToPriceX96(pool.sqrtPriceX96);
       const target = block + envInt('ATTEST_BLOCK_OFFSET', 1);
@@ -503,7 +564,9 @@ export class Keeper {
         oracleX96,
         poolX96,
         depth0: virtualDepth0(pool),
-        recentMids: this.mids.mids(),
+        recentMids: this.mids.mids().slice(-RECENT_MIDS),
+        midHistory: this.mids.entries(),
+        tObsMs: tObs,
         currentBlock: block,
         lastAttestBlock: this.lastAttestBlock || block,
         baseFee: cfg.baseFee,
@@ -520,9 +583,12 @@ export class Keeper {
       const gated = keeperGateOn();
       assertGateConfig(gated, cfg.kDefaultBps);
       const rule = gated && gateDecision(f.gapPips, cfg.arbThresholdPips, envInt('KEEPER_HYSTERESIS_PIPS', 100)) === 'rule';
-      const s: ModelScore = rule
+      const scored: ModelScore = rule
         ? { ...RULE_SCORE, cls: 'unknown', latencyMs: 0, model: 'rule' }
         : await score(f, { mode: this.o.mode, degraded: this.isDegraded(), baseIsToken0: this.meta.baseIsToken0 });
+      // Model v2 charge gate (header CHARGE_THRESHOLD): after score()/degrade(), before signing. Unset = unchanged.
+      const chargeT = rule ? undefined : chargeThreshold();
+      const s = applyChargeThreshold(scored, chargeT);
       const st = this.stats;
       st.ticks++;
       if (rule) st.ruleTicks++;
@@ -576,6 +642,13 @@ export class Keeper {
           /* old hook without the v5 event fields: window unknown */
         }
       }
+      // Slot clock (header KEEPER_READ_LEAD_MS): how late after ts_N the mid was read, and how old it will be at the first
+      // swap of block N+2 (the first block this attestation fully prices, tx included at the end of N+1).
+      // Slot mode only: ts_N comes from the scheduler; on-arrival mode makes no extra RPC call and logs null.
+      const blockTs = slot?.blockTsMs;
+      const bt = this.blockTimeMs();
+      const lagMs = blockTs === undefined ? null : readLagMs(tObs, blockTs);
+      const midAgeMs = blockTs === undefined ? null : expectedMidAgeMs(tObs, blockTs, bt);
       // v6: the one score + the type that allocated it (null for models without the head: rule / kev / tabular)
       const pMalicious = s.pMaliciousBps === undefined ? null : Math.round(s.pMaliciousBps) / 10_000;
       const attackProbs = s.attack ? compactProbs(s.attack.probabilities) : null;
@@ -596,6 +669,11 @@ export class Keeper {
         degraded: !!s.degraded,
         pToxicBps: s.pToxicBps,
         confidenceBps: s.confidenceBps,
+        // v2 charge gate: p = posted pToxic, charged = p >= chargeThreshold (null = gate off); modelConfidenceBps = pre-gate
+        p: s.pToxicBps / 10_000,
+        chargeThreshold: chargeT ?? null,
+        charged: chargeT === undefined ? null : s.confidenceBps > 0,
+        modelConfidenceBps: scored.confidenceBps,
         // JIT head: pJitBps = posted = blend(pJitModel, pJitChurn, jitChurnWeight); pJitChurn null = no adds in 200 blocks (model unchanged)
         pJitModel: s.pJitBps,
         pJitChurn: pJitChurn ?? null,
@@ -616,6 +694,11 @@ export class Keeper {
         pJitShare: round4(s.pJitShare),
         jevPrompt: defaultJevPrompt(),
         modelLatencyMs: s.latencyMs,
+        // slot clock: readLagMs = CEX read - ts_N; expectedMidAgeMs = ts_N + 2 * blockTimeMs - read (age at N+2's first swap)
+        readLagMs: lagMs,
+        expectedMidAgeMs: midAgeMs,
+        blockTimeMs: bt,
+        readLeadMs: readLeadMs() ?? null,
         tickMs: Math.round(performance.now() - t0),
         quoter: sender.address,
         tx: rc?.hash,
@@ -655,6 +738,13 @@ export class Keeper {
   async checkConfig(): Promise<void> {
     const cfg = await this.poolCfg(Number(await this.pc.getBlockNumber()));
     assertGateConfig(keeperGateOn(), cfg.kDefaultBps);
+    chargeThreshold(); // throws ConfigError on an invalid CHARGE_THRESHOLD
+    try {
+      readLeadMs();
+      blockTimeEnvMs();
+    } catch (e) {
+      throw new ConfigError((e as Error).message);
+    }
     await this.checkRoles();
   }
 
@@ -696,17 +786,45 @@ export class Keeper {
       fallbackNode: this.nodes.fallback,
       ruleNode: this.nodes.rule,
       gate: keeperGateOn(),
+      chargeThreshold: chargeThreshold() ?? null,
+      readLeadMs: readLeadMs() ?? null,
+      kevStateFormat: kevStateFormat(),
+      tabularModel: tabularVersion(),
       jevPrompt: defaultJevPrompt(),
       jitLabelBlocks: envInt('JIT_LABEL_BLOCKS', JIT_LABEL_BLOCKS_DEFAULT),
       priceSource: env('PRICE_SOURCE', 'live'),
       verdictsFile: this.verdicts.path,
     });
-    return this.pc.watchBlockNumber({
+    const lead = readLeadMs();
+    if (lead === undefined) {
+      return this.pc.watchBlockNumber({
+        emitOnBegin: true,
+        emitMissed: false,
+        onBlockNumber: (bn) => void this.tick(Number(bn)),
+        onError: (e) => log('keeper', 'watch_error', { error: e.message.split('\n')[0] }),
+      });
+    }
+    // Slot clock: tick block N at ts_N + blockTime - lead; a newer block cancels and re-arms (each block ticks at most once).
+    const sched = new SlotScheduler({ leadMs: lead, blockTimeMs: () => this.blockTimeMs(), fire: (b, ts) => void this.tick(b, { blockTsMs: ts }) });
+    const unwatch = this.pc.watchBlockNumber({
       emitOnBegin: true,
       emitMissed: false,
-      onBlockNumber: (bn) => void this.tick(Number(bn)),
+      onBlockNumber: async (bn) => {
+        const block = Number(bn);
+        if (this.skipsBlock(block)) return;
+        const arrived = Date.now();
+        const ts = await this.blockTsMs(block);
+        if (ts !== undefined) this.blockTimes.observe(block, ts);
+        else log('keeper', 'slot_header_error', { block }); // arrival time as an upper bound of ts_N: schedules late, never early
+        const r = sched.arm(block, ts ?? arrived);
+        if (r.armed && r.replaced !== undefined) log('keeper', 'slot_rearmed', { block, cancelled: r.replaced, delayMs: r.delayMs });
+      },
       onError: (e) => log('keeper', 'watch_error', { error: e.message.split('\n')[0] }),
     });
+    return () => {
+      unwatch();
+      sched.cancel();
+    };
   }
 }
 

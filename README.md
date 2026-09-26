@@ -247,6 +247,14 @@ The script:
 
 Headless, it checks the `calibration.*` records through the UniversalResolverV2, then presses **Revoke quoter** (ENS `revokeRoles`): the pool goes stale at `conservativeFee`. It then presses **Grant backup** (ENS `grantRoles`), and attestations resume. Evidence from a full run: [`docs/review/INTEGRATION_1.md`](docs/review/INTEGRATION_1.md).
 
+### Keeper model options (model v2)
+
+Env for `pnpm -C services keeper` (all optional; unset = today's behaviour):
+
+- `CHARGE_THRESHOLD=0.xx`: charge gate. The posted pToxic stays unchanged, and confidence becomes 10000 when p ≥ t and 0 otherwise. The hook's k = kMax·p·c is therefore 0 below t, so the pool acts like a vanilla pool. Each attestation logs `p`, `chargeThreshold` and `charged`.
+- `KEV_STATE_FORMAT=auto|kev2`: the Kev state text (`MODEL_MODE=kev`). `auto` is the v1 adapter text. `kev2` appends three lines: the edge in volatility units, the 5-minute volatility and the 12 s / 36 s / 15 min trend.
+- `TABULAR_MODEL=v1|v2`: the tabular model (`MODEL_MODE=tabular`). `v2` reads `services/models/tabular-v2.json`, else `ml/models/tabular-v2.json`, and posts under `tabular-v2.models.oniblock.eth`. `TABULAR_MODEL_PATH` overrides the file.
+
 ### Tests
 
 ```bash
