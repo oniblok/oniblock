@@ -1,0 +1,15 @@
+.env
+node_modules
+out
+cache
+broadcast
+.next
+.runtime
+.env.*
+!.env.example
+*.tsbuildinfo
+.DS_Store
+*.log
+.cache/
+benchmark/results/quick/
+deployments/*.e2e.json
