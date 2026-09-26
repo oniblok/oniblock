@@ -354,8 +354,24 @@ export async function loadStore(c: Ctx, head: number): Promise<Store> {
   }
 }
 
+/**
+ * A head this far below the store is still treated as a lagging caller / RPC node, not a chain that went back.
+ * Callers read the head before taking the scan lock, so a slow request (or a lagging load-balanced node) routinely
+ * arrives with an older head than the store; that must not wipe it and rescan from deployBlock.
+ */
+const HEAD_LAG_TOLERANCE = 64;
+
 async function refresh(c: Ctx, head: number): Promise<Store> {
   const key = storeKey(c);
+  if (store && store.key === key && head < store.scannedTo) {
+    // Re-read the head inside the lock: only a chain that really went back (anvil restart, deep reorg) resets.
+    const now = await c.pc
+      .getBlockNumber()
+      .then(Number)
+      .catch(() => head);
+    if (now >= store.scannedTo - HEAD_LAG_TOLERANCE) return store;
+    head = now;
+  }
   if (!store || store.key !== key || head < store.scannedTo) {
     store = { key, scannedTo: c.d.deployBlock - 1, atts: [], rcpts: [], swaps: {}, cals: [], jits: [], snaps: new Map() };
   }
@@ -426,8 +442,9 @@ async function refresh(c: Ctx, head: number): Promise<Store> {
       const arr = (s.swaps[p.poolId] ??= []);
       for (const l of swaps[i] as unknown as L[]) arr.push({ block: Number(l.blockNumber), a0: l.args.amount0 as bigint, a1: l.args.amount1 as bigint, tx: l.transactionHash, fee: num(l.args.fee) });
     });
+    // Per chunk: if a later chunk's RPC call fails, the retry resumes after this one instead of storing it twice.
+    s.scannedTo = b;
   }
-  s.scannedTo = head;
   return s;
 }
 
