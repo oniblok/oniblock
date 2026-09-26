@@ -68,6 +68,8 @@ export default function Live() {
   }, []);
 
   const edge = feed ? feed.chart.oniTotal - feed.chart.vanTotal : 0;
+  // arbitrage-direction trades that paid more than the base fee on the Oniblock pool
+  const charged = feed ? feed.rows.filter((r) => r.arbDir && r.extraUsd > 0.005).length : 0;
   const chainLabel = !feed ? '' : feed.chain.name === 'sepolia' ? 'Ethereum Sepolia' : feed.chain.name === 'fork' ? 'Sepolia fork' : 'Local chain';
 
   return (
@@ -98,17 +100,26 @@ export default function Live() {
 
       {/* chart */}
       <section className="glass flex h-[36vh] min-h-[250px] flex-col px-5 pb-3 pt-4">
-        <div className="mb-2 flex flex-wrap items-end gap-x-8 gap-y-2">
-          <Figure color="var(--oni)" label="LPs with Oniblock" value={feed?.chart.oniTotal} solid />
-          <Figure color="var(--vanilla)" label="LPs without (plain pool)" value={feed?.chart.vanTotal} />
-          {feed && (
-            <div className={`rounded-md px-3 py-1 text-xs font-medium ${edge >= 0 ? 'bg-oni/12 text-oni' : 'bg-bad/12 text-bad-soft'}`}>
-              Oniblock edge {edge >= 0 ? '+' : '−'}
-              {usd(Math.abs(edge), 2)}
+        <div className="mb-2 flex flex-wrap items-start gap-x-8 gap-y-2">
+          <div>
+            <div className="mb-0.5 flex items-center gap-2 text-xs text-ink-2">
+              <span className="inline-block h-[2px] w-4 rounded" style={{ background: 'var(--oni)' }} />
+              Oniblock saved LPs
             </div>
-          )}
-          <div className="ml-auto text-right text-[11px] leading-tight text-muted">
+            <div className={`mono text-[34px] font-semibold leading-tight tracking-tight ${edge >= 0 ? 'text-oni' : 'text-bad'}`}>
+              {feed ? `${edge >= 0 ? '+' : '−'}${usd(Math.abs(edge), 2)}` : '—'}
+            </div>
+            <div className="text-[11px] text-muted">
+              vs a plain Uniswap pool on the <span className="text-ink-2">same trades</span>
+              {feed && charged > 0 && <> · {charged} arbitrage trade{charged === 1 ? '' : 's'} charged extra</>}
+            </div>
+          </div>
+          <div className="ml-auto text-right text-[11px] leading-relaxed text-muted">
             LP profit vs Binance
+            <br />
+            Oniblock LPs <span className="mono text-ink-2">{fmtUsd(feed?.chart.oniTotal)}</span>
+            <br />
+            Plain pool LPs <span className="mono text-ink-2">{fmtUsd(feed?.chart.vanTotal)}</span>
           </div>
         </div>
         <div className="min-h-0 flex-1">{feed ? <Chart buckets={feed.chart.buckets} quote={feed.pair.quote} /> : <Skeleton />}</div>
@@ -145,18 +156,8 @@ export default function Live() {
   );
 }
 
-function Figure({ color, label, value, solid }: { color: string; label: string; value?: number; solid?: boolean }) {
-  return (
-    <div>
-      <div className="mb-0.5 flex items-center gap-2 text-xs text-ink-2">
-        <span className="inline-block h-[2px] w-4 rounded" style={{ background: solid ? color : `repeating-linear-gradient(90deg, ${color} 0 4px, transparent 4px 7px)` }} />
-        {label}
-      </div>
-      <div className="mono text-2xl font-semibold tracking-tight" style={{ color: solid ? 'var(--text)' : 'var(--text-2)' }}>
-        {value == null ? '—' : `${value >= 0 ? '+' : '−'}${usd(Math.abs(value), 2)}`}
-      </div>
-    </div>
-  );
+function fmtUsd(v?: number) {
+  return v == null ? '—' : `${v >= 0 ? '+' : '−'}${usd(Math.abs(v), 2)}`;
 }
 
 function Skeleton() {
