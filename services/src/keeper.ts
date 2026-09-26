@@ -29,7 +29,7 @@
  * <DEMO_RUNTIME_DIR|.runtime>/verdicts.<chainId>.jsonl, capped to the last 5000 lines) for the app (/api/verdicts).
  *
  * CLI: tsx src/keeper.ts [--chain local|fork|sepolia] [--once] [--degraded] [--every N]
- *                        [--mode auto|jev|heuristic|kev|tabular|oniblock1] [--pool NAME]   (kev/tabular/oniblock1: set MODEL_MODE env so the default model node is kev-v1 / kev4b-v1 / tabular-v1 / oniblock1)
+ *                        [--mode auto|jev|heuristic|kev|tabular|oniblock1] [--pool NAME]   (kev/tabular/oniblock1: set MODEL_MODE env so the default model node is kev-v1 / kev4b-v1 / oniblock1)
  * Env: KEEPER_EVERY (default 1), ATTEST_BLOCK_OFFSET (default 1), MODEL_NAME (default per MODEL_MODE; MODEL_NODE overrides
  *      the node; the deployment json's modelNode, jev-v1's, is used only for the default Jev name),
  *      FALLBACK_MODEL_NAME, RULE_MODEL_NAME (default rule-v1.models.oniblock.eth),
@@ -85,8 +85,8 @@
  *        minedTxIndex and landedNext (mined in N+1).
  *      KEEPER_PRIORITY_GWEI (unset = viem's default, the node's eth_maxPriorityFeePerGas): maxPriorityFeePerGas of the
  *        keeper's setAttestation (quoter and backup quoter); maxFeePerGas = 1.2 x base fee + this.
- *      KEV_STATE_FORMAT (auto = v1 adapter text, default | kev2 = + the 3 v2 lines), MODEL_MODE=oniblock1 (= tabular with
- *        the oniblock1 model, node oniblock1), TABULAR_MODEL (v1 default | oniblock1), TABULAR_MODEL_PATH. Kev and tabular inputs are canonicalised to the training orientation
+ *      KEV_STATE_FORMAT (auto = v1 adapter text, default | kev2 = + the 3 v2 lines), MODEL_MODE=oniblock1 or tabular (both
+ *        load the oniblock1 model, node oniblock1), TABULAR_MODEL (oniblock1, the only one), TABULAR_MODEL_PATH. Kev and tabular inputs are canonicalised to the training orientation
  *        (USDC token0, WETH token1; features.ts canonicalFeatures); Jev's input is unchanged.
  *
  * v4 default ("the AI decides the fee", docs/review/V4_AI_DECIDES.md): no gate. Jev is asked every block and its
@@ -202,7 +202,7 @@ export { poolStateAbi } from './abi/oniblockHook.js';
 const RECENT_MIDS = 120;
 
 export const DEFAULT_MODEL_NAME = 'jev-v1.models.oniblock.eth';
-/** Primary model node name per MODEL_MODE: kev -> kev-v1 (Kev-0.8B) / kev4b-v1 (KEV_MODEL=4b), oniblock1 -> oniblock1, tabular -> tabular-v1 (or TABULAR_MODEL), else jev-v1. */
+/** Primary model node name per MODEL_MODE: kev -> kev-v1 (Kev-0.8B) / kev4b-v1 (KEV_MODEL=4b), oniblock1 / tabular -> oniblock1, else jev-v1. */
 export function defaultModelName(mode = env('MODEL_MODE', 'auto')): string {
   if (mode === 'kev') return env('KEV_MODEL', '0.8b') === '4b' ? 'kev4b-v1.models.oniblock.eth' : 'kev-v1.models.oniblock.eth';
   if (mode === 'tabular' || mode === 'oniblock1') return `${tabularModelName(tabularVersion(mode))}.models.oniblock.eth`;
@@ -879,7 +879,7 @@ export class Keeper {
     const t0 = performance.now();
     try {
       let tObs = Date.now();
-      // v2 models (kev2 / tabular-v2 / oniblock1) with a live mid: realizedVolBps + mid features from Binance klines at
+      // v2 models (kev2 / oniblock1) with a live mid: realizedVolBps + mid features from Binance klines at
       // exact offsets from t_obs (training's common.py Mids), not the jittered per-tick history; a fetch error fails the tick.
       const klineFeatures = klineMidFeaturesNeeded(this.o.mode ?? (env('MODEL_MODE', 'auto') as ModelMode), !this.o.midSource && env('PRICE_SOURCE', 'live') === 'live');
       let klineMids: KlineMids | undefined;

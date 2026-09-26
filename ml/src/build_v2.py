@@ -7,7 +7,7 @@ Outputs: ml/train_kev4b/data/v2/ (gitignored)
   train_20k.jsonl val_1k.jsonl test_3k.jsonl EXACTLY the (pool, block) rows of the v1 subsets (verified row by row)
   train_soft.jsonl                          train.jsonl + soft target {"true": q, "false": 1-q} in the question
   tabular_features.parquet                  every row of every split: ids, label columns, curation flags,
-                                            keeper Features (rounded like features.ts), tabular-v2 inputs
+                                            keeper Features (rounded like features.ts), v2 tabular inputs (oniblock1's)
   manifest.json                             counts, verification, soft-target stats, sha256
 Features (names = services/src/features.ts Features fields; canonical orientation baseIsToken0 = false):
   edgePips   = gapPips - baseFee
@@ -19,7 +19,7 @@ Features (names = services/src/features.ts Features fields; canonical orientatio
 Train curation: drop (a) rows whose previous slot was missed (ts(t) - ts(t-1) >= 24 s, t-1 known from any pool's row),
   (b) all copies of kev2 state strings that occur in train with conflicting labels. val / test are not curated.
 Soft target: q = clip(0.5 y + 0.5 oof, 0.02, 0.98); oof = out-of-fold LightGBM p on curated train from 5 contiguous
-  time-blocked folds, tabular-v2 inputs, dead-band rows (inner early stopping on the last 10% of each fold's train).
+  time-blocked folds, v2 tabular inputs, dead-band rows (inner early stopping on the last 10% of each fold's train).
 
 Fresh-CEX variant (--query-lag S, default 12 = the dataset's cex_mid_obs convention): the keeper reads Binance at
   t_obs = ts - S (Mids.mid(t) = close of the 1 s kline opening at t, known at t + 1, so the snapshot age at the block is S - 1 s;

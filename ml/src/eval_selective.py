@@ -47,7 +47,7 @@ def day_boot(c, y, day, seed=0):
 
 
 def jev():
-    ev = ML / "models/kev08b-v1/eval"
+    ev = ML / "models/jev-eval"
     rows = lambda f: json.load(open(ev / f / "rows.json"))
     raw, cal, val = rows("jev-test"), rows("jev-test-calibrated"), rows("jev-val")
     yr, pr = np.array([r["label"] for r in raw]), np.array([r["p"][1] for r in raw])

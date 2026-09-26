@@ -1,6 +1,7 @@
-"""tabular-v2: LightGBM on the v1 tabular inputs + edgeSigma, vol5mBps, ret12Bps, ret36Bps, ret900Bps, sgap.
+"""oniblock1 (the production model): LightGBM on the v1 tabular inputs + edgeSigma, vol5mBps, ret12Bps, ret36Bps, ret900Bps, sgap.
 
-Reads ml/train_kev4b/data/v2/tabular_features.parquet (build_v2.py). Never reads test.
+Reads <data>/tabular_features.parquet (build_v2.py; default ml/train_kev4b/data/v2-fresh = build_v2.py --query-lag 3, the
+Binance read ~2 s before the block). Never reads test.
   train  : curated train rows (build_v2.py); early stopping on a train-internal time holdout (latest 15% of train,
            dead-band rows, logloss), then refit on all of train with the best iteration count scaled by 1 / 0.85.
   variants: label design  "deadband" = dead-band rows only, unweighted
@@ -8,23 +9,24 @@ Reads ml/train_kev4b/data/v2/tabular_features.parquet (build_v2.py). Never reads
             x a small grid over num_leaves / min_child_samples.
   selection: on VALIDATION (dead-band rows, uncurated, same rows as v1) by TPR at the one-sided threshold with FPR <= 5%.
   threshold: smallest t on the 1e-4 grid with val FPR(p >= t) <= 5%, stored in the JSON as chargeThreshold.
-Compares with tabular-v1 (ml/models/tabular-v1.json, scored by the same tree evaluator the keeper uses) and with a v1-inputs
-LightGBM retrained in this pipeline. Writes ml/models/tabular-v2.json (format of services/src/model/tabular.ts) and
-ml/models/tabular_v2_results.json.
+Compares with a v1-inputs LightGBM retrained in this pipeline (and with tabular-v1, scored by the same tree evaluator the
+keeper uses, only if export_tabular.py's v1 JSON is at hand in ml/runs/tabular-v1/, after train_tabular.py; the repo
+no longer ships it). Writes ml/models/<name>.json (format of services/src/model/tabular.ts) and ml/models/<name>_results.json.
 
-usage: python train_tabular_v2.py
-       python train_tabular_v2.py --data ml/train_kev4b/data/v2-fresh --name oniblock1 \
-           --results ml/models/oniblock1_results.json      (oniblock1, the production model: fresh-CEX data, build_v2.py --query-lag 3)
+usage: python train_tabular_v2.py      (= --data ml/train_kev4b/data/v2-fresh --name oniblock1: rewrites ml/models/oniblock1.json)
+       python train_tabular_v2.py --data ml/train_kev4b/data/v2 --name <other>   (the 11 s-old-mid data; never name it oniblock1)
 """
 import argparse, json, math, hashlib
 from pathlib import Path
 import numpy as np, pandas as pd
 import lightgbm as lgb
 from sklearn.metrics import roc_auc_score
-from common import MODELS, ece
-from build_v2 import OUT, V1_INPUTS, V2_INPUTS
+from common import ML, MODELS, ece
+from build_v2 import V1_INPUTS, V2_INPUTS
 
-NODE = "tabular-v2.models.oniblock.eth"
+DATA_FRESH = ML / "train_kev4b" / "data" / "v2-fresh"
+V1_NAME = "tabular-v1"  # the v1 export (export_tabular.py), compared against only if at hand: the repo no longer ships it
+V1_JSON = [d / f"{V1_NAME}.json" for d in (MODELS, ML / "runs" / V1_NAME)]
 FPR_MAX = 0.05
 HOLD_FRAC = 0.15
 BASE = dict(n_estimators=4000, learning_rate=0.03, subsample=0.8, subsample_freq=1, colsample_bytree=0.8, reg_lambda=1.0, verbose=-1)
@@ -113,13 +115,13 @@ def fit(tr, feats, variant, hp):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data", type=Path, default=OUT, help="build_v2.py output directory (tabular_features.parquet)")
-    ap.add_argument("--name", default="tabular-v2", help="model name; writes ml/models/<name>.json, node <name>.models.oniblock.eth")
-    ap.add_argument("--results", type=Path, default=None, help="results JSON (default ml/models/tabular_v2_results.json)")
+    ap.add_argument("--data", type=Path, default=DATA_FRESH, help="build_v2.py output directory (tabular_features.parquet)")
+    ap.add_argument("--name", default="oniblock1", help="model name; writes ml/models/<name>.json, node <name>.models.oniblock.eth")
+    ap.add_argument("--results", type=Path, default=None, help="results JSON (default ml/models/<name>_results.json)")
     a = ap.parse_args()
     name = a.name
-    node = NODE if name == "tabular-v2" else f"{name}.models.oniblock.eth"
-    results = a.results or MODELS / "tabular_v2_results.json"
+    node = f"{name}.models.oniblock.eth"
+    results = a.results or MODELS / f"{name}_results.json"
     data = a.data.resolve()
     man = json.load(open(data / "manifest.json")) if (data / "manifest.json").exists() else {}
     lag = man.get("cex_query_lag_s")
@@ -131,11 +133,13 @@ def main():
     res = {"validation_rows": len(va), "val_base_rate": round(float(yv.mean()), 4), "train_rows_all": len(tr),
            "train_rows_deadband": int(tr.in_deadband.sum()), "runs": []}
 
-    v1 = json.load(open(MODELS / "tabular-v1.json"))
-    assert v1["features"] == V1_INPUTS
-    p_v1 = predict_json(v1, va[cols(V1_INPUTS)].to_numpy())
-    res["tabular-v1 (shipped json)"] = metrics(p_v1, yv)
-    print("tabular-v1", res["tabular-v1 (shipped json)"], flush=True)
+    v1_path = next((p for p in V1_JSON if p.exists()), None)
+    if v1_path is not None:
+        v1 = json.load(open(v1_path))
+        assert v1["features"] == V1_INPUTS
+        p_v1 = predict_json(v1, va[cols(V1_INPUTS)].to_numpy())
+        res["tabular-v1 (shipped json)"] = metrics(p_v1, yv)
+        print("tabular-v1", res["tabular-v1 (shipped json)"], flush=True)
 
     best = None
     for feats, fname in ((V1_INPUTS, "v1-inputs"), (V2_INPUTS, "v2-inputs")):
@@ -187,7 +191,7 @@ def main():
     imp = pd.Series(m.booster_.feature_importance("gain"), index=V2_INPUTS)
     res["importance_gain_pct"] = (100 * imp / imp.sum()).round(2).sort_values(ascending=False).to_dict()
     json.dump(res, open(results, "w"), indent=1)
-    print("SELECTED", json.dumps(r)); print("v1", json.dumps(res["tabular-v1 (shipped json)"]))
+    print("SELECTED", json.dumps(r)); print("v1", json.dumps(res.get("tabular-v1 (shipped json)")))
     print(json.dumps(res["best_per_inputs_variant"], indent=0)); print(res[f"{name}.json"]); print(res["importance_gain_pct"])
 
 
