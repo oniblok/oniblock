@@ -26,7 +26,7 @@ import { BENCH_DIR, ROOT, log } from '../util.js';
 import { loadPathV2, selectWindowsV2 } from '../v2/windows.js';
 import { aggWindows, type Agg } from '../v2/report2.js';
 import { runOneV4, type RunConfigV4, type RunResultV4 } from './sim4.js';
-import { keeperCost, marketMetrics, verdict } from './report4.js';
+import { keeperCost, marketMetrics } from './report4.js';
 import { BASE } from './base4.js';
 import type { Hooked, Pool } from './chain4.js';
 
@@ -117,7 +117,39 @@ const raws = readdirSync(outDir)
   .map((f) => JSON.parse(readFileSync(resolve(outDir, f), 'utf8')) as Raw);
 if (!raws.length) process.exit(0);
 const fmt = (x: number | null | undefined, d = 2) => (x === null || x === undefined || !Number.isFinite(x) ? '-' : x.toFixed(d));
-const fa = (g: Agg, d = 2) => `${fmt(g.mean, d)} [${fmt(g.lo, d)}, ${fmt(g.hi, d)}]`;
+
+// ---- statistics over windows. n = 6 windows, 3 of them calm hours where every arm sits at a near-constant small
+// value, so a percentile bootstrap over 6 points is far too narrow. Headline intervals are two-sided 95% Student-t over
+// windows (df = n - 1); the bootstrap interval (report2 aggWindows) is kept only as a labelled secondary column.
+/** Two-sided 95% Student-t quantile t(0.975, df). */
+const T975 = [NaN, 12.7062, 4.3027, 3.1824, 2.7764, 2.5706, 2.4469, 2.3646, 2.306, 2.2622, 2.2281, 2.201, 2.1788, 2.1604, 2.1448, 2.1314, 2.1199, 2.1098, 2.1009, 2.093, 2.086];
+const t975 = (df: number) => T975[df] ?? 1.96;
+type Regime = 'volatile' | 'calm';
+/** Mean, 95% t-interval, bootstrap interval (lo/hi), sign counts, and the per-window values split by regime. */
+type Stat = Agg & { tLo: number; tHi: number; vol: number[]; calm: number[] };
+function stat(xs: { v: number; regime: string }[]): Stat {
+  const ok = xs.filter((x) => Number.isFinite(x.v));
+  const v = ok.map((x) => x.v);
+  const b = aggWindows(v, seed++);
+  const n = v.length;
+  const sd = n > 1 ? Math.sqrt(v.reduce((s, x) => s + (x - b.mean) ** 2, 0) / (n - 1)) : NaN;
+  const h = t975(n - 1) * (sd / Math.sqrt(n));
+  return { ...b, tLo: b.mean - h, tHi: b.mean + h, vol: ok.filter((x) => x.regime === 'volatile').map((x) => x.v), calm: ok.filter((x) => x.regime === 'calm').map((x) => x.v) };
+}
+/** mean [95% t-interval] */
+const ft = (g: Stat, d = 2) => `${fmt(g.mean, d)} [${fmt(g.tLo, d)}, ${fmt(g.tHi, d)}]`;
+/** the percentile bootstrap interval, labelled wherever it is shown */
+const fb = (g: Stat, d = 2) => `[${fmt(g.lo, d)}, ${fmt(g.hi, d)}]`;
+const kPos = (x: number[]) => `${x.filter((v) => v > 1e-9).length}/${x.length}`;
+const fpos = (g: Stat) => `${kPos(g.vol)} / ${kPos(g.calm)}`;
+/** per-window values of one regime (3 points: values, not an interval) */
+const fvals = (g: Stat, r: Regime, d = 3) => {
+  const x = r === 'volatile' ? g.vol : g.calm;
+  return x.length ? `${x.map((v) => fmt(v, d)).join(', ')} (mean ${fmt(x.reduce((s, v) => s + v, 0) / x.length, d)})` : '-';
+};
+/** Reading driven by the t-interval and the per-regime sign counts (no YES/NO from the bootstrap). */
+const reading = (g: Stat) =>
+  `positive in ${kPos(g.vol)} volatile, ${kPos(g.calm)} calm windows; t-interval ${g.tLo > 0 ? 'excludes zero (> 0)' : g.tHi < 0 ? 'excludes zero (< 0)' : 'includes zero'}`;
 const pct = (x: number, d = 1) => (Number.isFinite(x) ? `${(x * 100).toFixed(d)}%` : '-');
 const MAINNET_GAS = 110_000;
 const BLOCKS_PER_HOUR = 300;
@@ -132,6 +164,21 @@ function selective(pairs: [number, number][], t: number) {
   const fp = ch.length - tp;
   const brier = n ? pairs.reduce((s, [p, y]) => s + (p - y) ** 2, 0) / n : NaN;
   return { n, toxic: tox, baseRate: n ? tox / n : NaN, charged: ch.length, tp, fp, pass: ch.length ? tp / ch.length : NaN, fpr: ben ? fp / ben : NaN, coverage: n ? ch.length / n : NaN, tpr: tox ? tp / tox : NaN, brier };
+}
+
+/**
+ * Share of k records with the model demoted, by half. Block-mode runs saved before sim4 wrote demotedDenom divided the
+ * per-block count by the half's length in SECONDS (blockSec x too small); the count is recovered exactly from the saved
+ * share and rescaled to blocks: blocks in the 1st half = ceil(degradeAtStep / blockSec).
+ */
+function demotedShare(r: RunResultV4, pool: 'ai' | 'aigated' | 'aiheur') {
+  const d = r.demoted[pool];
+  const bm = r.blockMode;
+  if (!bm || r.demotedDenom === 'records') return { ...d, rescaled: false };
+  const h1 = r.degradeAtStep;
+  const n1 = Math.ceil(h1 / bm.blockSec);
+  const n2 = bm.blocks - n1;
+  return { ...d, firstHalf: n1 > 0 ? (d.firstHalf * h1) / n1 : NaN, secondHalf: n2 > 0 ? (d.secondHalf * (r.config.steps - h1)) / n2 : NaN, rescaled: true };
 }
 
 function perRun(r: RunResultV4, pool: 'ai' | 'aigated' | 'aiheur') {
@@ -182,7 +229,7 @@ function perRun(r: RunResultV4, pool: 'ai' | 'aigated' | 'aiheur') {
     breakEvenPerPostUsd: postsPerHour > 0 ? kc.netUsdPerHour / postsPerHour : NaN,
     breakEvenPerBlockUsd110k: k110.netUsdPerHour / BLOCKS_PER_HOUR,
     tab: r.tabular?.[pool as 'ai' | 'aigated'],
-    demoted: r.demoted[pool as 'ai' | 'aigated' | 'aiheur'],
+    demoted: demotedShare(r, pool),
     reverts: r.reverts.length,
     runtimeSec: r.runtimeSec,
     bps,
@@ -218,7 +265,7 @@ for (const tier of tiers) {
     const rows = raw.results.map((r) => perRun(r, A.pool));
     const g = (sel: (x: Row) => boolean) => {
       const rs = rows.filter(sel);
-      const AG = (f: (x: Row) => number) => aggWindows(rs.map(f).filter(Number.isFinite), seed++);
+      const AG = (f: (x: Row) => number) => stat(rs.map((x) => ({ v: f(x), regime: x.regime })));
       const pairs = rs.flatMap((x) => x.tab?.pairs ?? []);
       const thr = rs[0]?.tab?.threshold;
       return {
@@ -251,22 +298,26 @@ for (const tier of tiers) {
   const model = armOut.filter((x) => x.all.sel);
   L.push(`## Base fee ${(tier / 1e4).toFixed(2)}% (every pool)`);
   L.push('');
-  L.push('### LP − HODL of the Oniblock pool vs its vanilla neighbour (per hour; 95% bootstrap CI over the 6 windows)');
+  const nW = armOut[0]?.all.n ?? 0;
+  const statNote = `Mean over the ${nW} windows with a **two-sided 95% Student-t interval over windows** (df = ${nW - 1}) in brackets. The 3 calm windows sit at a near-constant small value for every arm, so the percentile bootstrap over ${nW} points (report2 \`aggWindows\`, shown in its own column, labelled "bootstrap") is much too narrow and is not used for any reading. "positive" counts windows with a value > 0 at full precision (a calm value printed as 0.000 can count), split volatile / calm.`;
+  L.push('### LP − HODL of the Oniblock pool vs its vanilla neighbour (per hour)');
   L.push('');
-  L.push('| arm | gross bps/h [CI] | gross $/h | keeper $/h @1 gwei | net bps/h @1 gwei [CI] | net $/h | net bps/h, 110k gas | verdict (net) | windows +/− | posts/h | retail share % | retail cost bps: Oniblock / vanilla | market retail cost vs control bps | mean arb fee: Oniblock / vanilla | arb trades vs vanilla |');
-  L.push('|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|');
+  L.push(statNote + ' **The coop arms (C, C0, Ch) are before any payment to the builder** for first position (see the break-even payment below).');
+  L.push('');
+  L.push('| arm | gross bps/h [95% t] | gross $/h | keeper $/h @1 gwei | net bps/h @1 gwei [95% t] | net bps/h: 95% bootstrap (too narrow at n = 6) | net $/h | net bps/h, 110k gas [95% t] | reading (net @1 gwei) | windows positive (net): volatile / calm | posts/h | retail share % | retail cost bps: Oniblock / vanilla | market retail cost vs control bps | mean arb fee: Oniblock / vanilla | arb trades vs vanilla |');
+  L.push('|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|');
   for (const x of armOut) {
     const A = x.all;
     L.push(
-      `| ${x.label} | ${fa(A.grossBps, 3)} | ${fmt(A.grossUsd.mean, 0)} | ${fmt(A.keeperUsd.mean, 1)} | ${fa(A.netBps, 3)} | ${fmt(A.netUsd.mean, 0)} | ${fmt(A.netBps110k.mean, 3)} | ${verdict(A.netBps)} | ${A.netBps.pos}/${A.netBps.neg} | ${fmt(A.postsPerHour.mean, 0)} | ${fmt(A.share.mean, 1)} | ${fmt(A.compRetailCostBps.mean, 1)} / ${fmt(A.vanRetailCostBps.mean, 1)} | ${fmt(A.marketRetailCostVsControlBps.mean, 2)} | ${fmt(A.compArbFeePips.mean / 1e4, 3)}% / ${fmt(A.vanArbFeePips.mean / 1e4, 3)}% | ${fmt(A.arbRatio.mean * 100, 0)}% |`,
+      `| ${x.label} | ${ft(A.grossBps, 3)} | ${fmt(A.grossUsd.mean, 0)} | ${fmt(A.keeperUsd.mean, 1)} | ${ft(A.netBps, 3)} | ${fb(A.netBps, 3)} | ${fmt(A.netUsd.mean, 0)} | ${ft(A.netBps110k, 3)} | ${reading(A.netBps)} | ${fpos(A.netBps)} | ${fmt(A.postsPerHour.mean, 0)} | ${fmt(A.share.mean, 1)} | ${fmt(A.compRetailCostBps.mean, 1)} / ${fmt(A.vanRetailCostBps.mean, 1)} | ${fmt(A.marketRetailCostVsControlBps.mean, 2)} | ${fmt(A.compArbFeePips.mean / 1e4, 3)}% / ${fmt(A.vanArbFeePips.mean / 1e4, 3)}% | ${fmt(A.arbRatio.mean * 100, 0)}% |`,
     );
   }
   L.push('');
-  L.push('### By regime (net bps/h @1 gwei [CI])');
+  L.push('### By regime: per-window values (bps/h; 3 windows each, so values rather than an interval)');
   L.push('');
-  L.push('| arm | volatile gross | volatile net | calm gross | calm net |');
+  L.push('| arm | volatile gross | volatile net @1 gwei | calm gross | calm net @1 gwei |');
   L.push('|---|---|---|---|---|');
-  for (const x of armOut) L.push(`| ${x.arm} | ${fa(x.volatile.grossBps, 3)} | ${fa(x.volatile.netBps, 3)} | ${fa(x.calm.grossBps, 3)} | ${fa(x.calm.netBps, 3)} |`);
+  for (const x of armOut) L.push(`| ${x.arm} | ${fvals(x.all.grossBps, 'volatile')} | ${fvals(x.all.netBps, 'volatile')} | ${fvals(x.all.grossBps, 'calm')} | ${fvals(x.all.netBps, 'calm')} |`);
   L.push('');
   L.push('### The model on the sim\'s own graded blocks (settler labels, all windows pooled)');
   L.push('');
@@ -294,41 +345,43 @@ for (const tier of tiers) {
     ['R', 'Rh', 'tabular-v2 vs the heuristic, realistic timing'],
   ] as const;
   const paired: Record<string, unknown> = {};
-  L.push('### Paired differences (per window, then bootstrap over windows)');
+  L.push('### Paired differences (per window, then over windows)');
   L.push('');
-  L.push('| difference | net bps/h @1 gwei [CI] | net $/h | windows +/− | retail share pp | volatile net bps/h [CI] | calm net bps/h [CI] |');
-  L.push('|---|---|---|---|---|---|---|');
+  L.push(statNote);
+  L.push('');
+  L.push('| difference | net bps/h @1 gwei [95% t] | 95% bootstrap (too narrow at n = 6) | net $/h | reading | windows positive: volatile / calm | retail share pp | volatile net bps/h, per window | calm net bps/h, per window |');
+  L.push('|---|---|---|---|---|---|---|---|---|');
   for (const [x, y, what] of PAIRS) {
     const X = armBy[x];
     const Y = armBy[y];
     if (!X || !Y) continue;
-    const d = (sel: (r: Row) => boolean, f: (r: Row) => number) =>
-      aggWindows(
-        X.rows.filter(sel).map((r) => f(r) - f(Y.rows.find((q) => q.windowId === r.windowId)!)),
-        seed++,
-      );
-    const all = () => true;
-    const net = d(all, (r) => r.netBps);
-    const usd = d(all, (r) => r.netUsd);
-    const sh = d(all, (r) => r.share * 100);
-    const vol = d((r) => r.regime === 'volatile', (r) => r.netBps);
-    const calm = d((r) => r.regime === 'calm', (r) => r.netBps);
-    paired[`${x}-${y}`] = { what, net, usd, sh, vol, calm };
-    L.push(`| ${x} − ${y}: ${what} | ${fa(net, 3)} | ${fmt(usd.mean, 0)} | ${net.pos}/${net.neg} | ${fmt(sh.mean, 1)} | ${fa(vol, 3)} | ${fa(calm, 3)} |`);
+    const d = (f: (r: Row) => number) => stat(X.rows.map((r) => ({ v: f(r) - f(Y.rows.find((q) => q.windowId === r.windowId)!), regime: r.regime })));
+    const net = d((r) => r.netBps);
+    const usd = d((r) => r.netUsd);
+    const sh = d((r) => r.share * 100);
+    seed += 2; // the old per-regime bootstraps drew 2 seeds here; keep the later bootstrap seeds (and intervals) unchanged
+    paired[`${x}-${y}`] = { what, net, usd, sh };
+    L.push(`| ${x} − ${y}: ${what} | ${ft(net, 3)} | ${fb(net, 3)} | ${fmt(usd.mean, 0)} | ${reading(net)} | ${fpos(net)} | ${fmt(sh.mean, 1)} | ${fvals(net, 'volatile')} | ${fvals(net, 'calm')} |`);
   }
   (out.paired ??= {} as Record<string, unknown>);
   (out.paired as Record<string, unknown>)[tier] = paired;
   L.push('');
   const C = armOut.find((x) => x.arm === 'C');
   if (C) {
+    const cr = stat(C.rows.map((r) => { const q = armBy.R?.rows.find((z) => z.windowId === r.windowId); return { v: q && r.postsPerHour > 0 ? (r.netUsd - q.netUsd) / r.postsPerHour : NaN, regime: r.regime }; }));
     L.push('### Break-even payment to the builder (arm C)');
     L.push('');
     L.push(
-      `The most the LPs could pay the builder for first position before the hooked pool stops beating its vanilla neighbour = net LP gain vs vanilla (after keeper gas at 1 gwei). Per block if the slot is bought every block: **${fa(C.all.breakEvenPerBlockUsd, 2)} $/block** (volatile ${fa(C.volatile.breakEvenPerBlockUsd, 2)}, calm ${fa(C.calm.breakEvenPerBlockUsd, 2)}); per keeper post (post-on-change, ${fmt(C.all.postsPerHour.mean, 0)} posts/h): ${fa(C.all.breakEvenPerPostUsd, 2)} $/post; with 110k gas/post: ${fa(C.all.breakEvenPerBlockUsd110k, 2)} $/block. A negative value means the hook loses to vanilla even with first position for free. First position is only needed in blocks where the keeper posts. The part of that gain that first position itself buys (C − R, per window, over C's posts): ${fa(aggWindows(C.rows.map((r) => { const q = armBy.R?.rows.find((z) => z.windowId === r.windowId); return q && r.postsPerHour > 0 ? (r.netUsd - q.netUsd) / r.postsPerHour : NaN; }).filter(Number.isFinite), seed++), 2)} $/post. Pool TVL $${(r0.initialTvlUsd / 1e6).toFixed(0)}M per pool; the gain scales roughly with liquidity.`,
+      `**Every coop figure in this report (C, C0, Ch, C − R) is BEFORE any payment to the builder.** The most the LPs could pay the builder for first position before the hooked pool stops beating its vanilla neighbour = net LP gain vs vanilla (after keeper gas at 1 gwei); means with 95% t-intervals over windows. Per block if the slot is bought every block: **${ft(C.all.breakEvenPerBlockUsd, 2)} $/block** (${reading(C.all.breakEvenPerBlockUsd)}; per window: volatile ${fvals(C.all.breakEvenPerBlockUsd, 'volatile', 2)}, calm ${fvals(C.all.breakEvenPerBlockUsd, 'calm', 2)}); per keeper post (post-on-change, ${fmt(C.all.postsPerHour.mean, 0)} posts/h): ${ft(C.all.breakEvenPerPostUsd, 2)} $/post; with 110k gas/post: ${ft(C.all.breakEvenPerBlockUsd110k, 2)} $/block. A negative value means the hook loses to vanilla even with first position for free. First position is only needed in blocks where the keeper posts. The part of that gain that first position itself buys (C − R, per window, over C's posts): ${ft(cr, 2)} $/post (${reading(cr)}). Pool TVL $${(r0.initialTvlUsd / 1e6).toFixed(0)}M per pool; the gain scales roughly with liquidity.`,
     );
     L.push('');
   }
   L.push('### Model inputs seen by the keeper (means over decisions)');
+  L.push('');
+  const rescaled = model.some((x) => x.rows.some((r) => r.demoted.rescaled));
+  L.push(
+    `"demoted 1st / 2nd half" = share of the blocks in each half-hour with the model demoted or unseasoned (k = kDefault = 0), per window in the order of the per-run table.${rescaled ? ' The saved runs predate the sim4 fix of this diagnostic (it divided the per-block count by the half\'s length in seconds, 12x too small); the report recovers the exact block count from the saved share and rescales it, nothing was re-run.' : ''}`,
+  );
   L.push('');
   L.push('| arm | decisions/run | mean p | gap > base fee | gap pips | edgeSigma | abs ret12 bps | realizedVol bps | nSwaps (20 blocks) | heuristic fallbacks | seasoned at s | demoted 1st / 2nd half |');
   L.push('|---|---|---|---|---|---|---|---|---|---|---|---|');

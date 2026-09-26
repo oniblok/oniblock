@@ -217,8 +217,16 @@ export interface RunResultV4 {
   degradeAtStep: number;
   totals: Record<Pool, PoolTotals>;
   buckets: Record<Pool, PoolBuckets>;
-  /** Model pools: share of steps with k forced to kDefault by demotion/probation, by half. */
+  /**
+   * Model pools: share of k records (steps in the 1 s loop, blocks in block mode) with k forced to kDefault by
+   * demotion/probation, by half (t < degradeAtStep vs after).
+   */
   demoted: Record<ModelPool, { firstHalf: number; secondHalf: number; seasonedAtStep: number | null }>;
+  /**
+   * 'records': demoted.* is divided by the number of k records in each half. Absent (block-mode runs saved before this
+   * field existed): divided by the half's length in seconds, i.e. blockSec x too small in block mode.
+   */
+  demotedDenom?: 'records';
   /** v4: model pools' attested steps (the model is asked on every one) and steps with stored k = 0 (fee = base) */
   kZero: Record<Hooked, { zero: number; low: number; steps: number }>;
   /** mean p*c (bps) posted by each model pool, by regime of the underlying gap: edge > 0 (gap > base fee) vs edge <= 0 */
@@ -581,6 +589,7 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
     /** jitWindowFromScore with pJit = 0 (no JIT head in the benchmark; the JIT calibration key is never written). */
     const hookJit = (n: Hooked) => (0 < hcfg[n].minSamples ? hcfg[n].jitDefault : hcfg[n].jitMin);
     const demCount = Object.fromEntries(MODEL_POOLS.map((n) => [n, { a: 0, b: 0, seasoned: null as number | null }])) as Record<(typeof MODEL_POOLS)[number], { a: number; b: number; seasoned: number | null }>;
+    const demRecords = { a: 0, b: 0 }; // k records per half: one per step (1 s loop) or per block (block mode)
     const kBk = Object.fromEntries(HOOKED.map((n) => [n, new Array(nB).fill(0)])) as Record<Hooked, number[]>;
     let missedPosts = 0;
     const arbWins = new Array(cfg.arbs.length).fill(0);
@@ -819,8 +828,14 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
         }
       }
     };
-    /** Per-step k / demotion bookkeeping (the k in force for this step's swaps). */
-    const recordK = (t: number, bIdx: number) => {
+    /**
+     * Per-step k / demotion bookkeeping (the k in force for this step's swaps). secPerRecord = seconds this record
+     * stands for: 1 in the 1 s loop, blockSec in block mode (one call per block), so the per-bucket k mean is not
+     * blockSec x too small.
+     */
+    const recordK = (t: number, bIdx: number, secPerRecord = 1) => {
+      if (t < degradeAt) demRecords.a++;
+      else demRecords.b++;
       for (const n of MODEL_POOLS) {
         const dm = isDemoted(n);
         if (t < degradeAt) demCount[n].a += dm ? 1 : 0;
@@ -831,7 +846,7 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
         kZero[n].steps++;
         if (pools[n].kBps === 0) kZero[n].zero++;
         if (pools[n].kBps < 500) kZero[n].low++;
-        kBk[n][bIdx] += pools[n].kBps / cfg.bucketSteps;
+        kBk[n][bIdx] += (pools[n].kBps * secPerRecord) / cfg.bucketSteps;
         pools[n].kSum += pools[n].kBps;
         pools[n].kN++;
       }
@@ -1125,7 +1140,7 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
         const rk = await sendAndMine(txK, s);
         markCalibReverts(s);
         if (kt) afterKeeper(rk, kt.scores, kt.Mk, K);
-        recordK(s, bIdx);
+        recordK(s, bIdx, BS);
         // ---- S_b
         const S = head + 1;
         stepOfBlock.set(S, s);
@@ -1235,8 +1250,9 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
     const cnt = jevScorer.counts;
     const nScores = Object.values(cnt).reduce((a, b) => a + b, 0);
     const { path: _p, warmupMids: _w, ...rest } = cfg;
-    const h1 = degradeAt;
-    const h2 = T - degradeAt;
+    // 1 s loop: demRecords.a = degradeAt and demRecords.b = T - degradeAt (unchanged); block mode: blocks per half
+    const h1 = demRecords.a;
+    const h2 = demRecords.b;
     return {
       label: cfg.label,
       windowId: path.window.id,
@@ -1252,6 +1268,7 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
       demoted: Object.fromEntries(
         MODEL_POOLS.map((n) => [n, { firstHalf: demCount[n].a / Math.max(1, h1), secondHalf: demCount[n].b / Math.max(1, h2), seasonedAtStep: demCount[n].seasoned }]),
       ) as RunResultV4['demoted'],
+      demotedDenom: 'records',
       kZero,
       scoreByEdge,
       arbAtBase,
