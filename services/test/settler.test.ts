@@ -71,19 +71,57 @@ describe('settler labelling + calibration', () => {
     expect(gateBps(st.brier, st.ref, 'skill')).toBe(625);
     expect(gateBps(1, 0.01, 'skill')).toBe(10000);
   });
-  it('attestation index: p in force and next mid', () => {
-    const at = (mined: number, p: number, mid: bigint, node = NODE): AttestationLog => ({
-      poolId: '0x00', blockNumber: mined, minedBlock: mined, oracleMidX96: mid, pToxicBps: p, confidenceBps: 0, kBps: 0, modelNode: node, quoter: '0x0000000000000000000000000000000000000001', txHash: '0x00', pJitBps: 0, jitWindow: 10,
+  it('attestation index: receipt attestation by model + k + log order, and next mid', () => {
+    const at = (mined: number, p: number, mid: bigint, node = NODE, kBps = 0, logIndex = 0): AttestationLog => ({
+      poolId: '0x00', blockNumber: mined, minedBlock: mined, oracleMidX96: mid, pToxicBps: p, confidenceBps: 0, kBps, modelNode: node, quoter: '0x0000000000000000000000000000000000000001', txHash: `0x${mined.toString(16)}${logIndex}` as Hex, logIndex, pJitBps: 0, jitWindow: 10,
     });
+    const rc = (block: number, logIndex: number, node = NODE, kBps = 0) => ({ blockNumber: block, logIndex, modelNode: node, kBps });
     const idx = attestationIndex([at(10, 7000, 1n), at(12, 2000, 3n), at(11, 5000, 2n, NODE2)]);
-    expect(idx.pAt(9, NODE)).toBeUndefined();
-    expect(idx.pAt(11, NODE)).toBe(0.7);
-    expect(idx.pAt(12, NODE)).toBe(0.2);
+    expect(idx.forReceipt(rc(9, 5))).toBeUndefined();
+    expect(idx.forReceipt(rc(11, 5))!.pToxicBps).toBe(7000);
+    expect(idx.forReceipt(rc(12, 5))!.pToxicBps).toBe(2000);
+    expect(idx.forReceipt(rc(11, 5, NODE2))!.oracleMidX96).toBe(2n);
     expect(idx.midAfter(10)).toBe(2n);
     expect(idx.midAfter(12)).toBeUndefined();
-    expect(idx.midInForce(9)).toBeUndefined();
-    expect(idx.midInForce(11)).toBe(2n);
-    expect(idx.midInForce(20)).toBe(3n);
+    expect(idx.inForce(9)).toBeUndefined();
+    expect(idx.inForce(11)!.oracleMidX96).toBe(2n);
+    expect(idx.inForce(20)!.oracleMidX96).toBe(3n);
+  });
+
+  it('audit #3: a lower-k same-block attestation does not take over the anchor; one logged after the swap is not in force', () => {
+    const at = (mined: number, logIndex: number, p: number, kBps: number, mid: bigint, node = NODE): AttestationLog => ({
+      poolId: '0x00', blockNumber: mined, minedBlock: mined, oracleMidX96: mid, pToxicBps: p, confidenceBps: 0, kBps, modelNode: node, quoter: '0x0000000000000000000000000000000000000001', txHash: `0x${mined.toString(16)}${logIndex}` as Hex, logIndex, pJitBps: 0, jitWindow: 10,
+    });
+    // A (block 10, k 6000) is anchored in block 12 by a swap at log 1; B (block 12, log 3, k 4000) lands mid-block:
+    // lower k => the anchor keeps A (receipts at log 5 still say k 6000). C (block 12, log 8, k 6500) takes over.
+    const A = at(10, 0, 8000, 6000, 1n);
+    const B = at(12, 3, 1000, 4000, 2n);
+    const C = at(12, 8, 9000, 6500, 3n);
+    const idx = attestationIndex([C, B, A]);
+    const rc = (logIndex: number, kBps: number) => ({ blockNumber: 12, logIndex, modelNode: NODE, kBps });
+    expect(idx.forReceipt(rc(1, 6000))).toBe(A); // before B
+    expect(idx.forReceipt(rc(5, 6000))).toBe(A); // after lower-k B: still A (old code graded against B's p = 0.1)
+    expect(idx.forReceipt(rc(9, 6500))).toBe(C); // after higher-k C: C
+    // arb landing BEFORE a k-raising attestation in the same block is graded against the previous one
+    const D = at(13, 4, 9500, 7000, 4n);
+    expect(attestationIndex([A, D]).forReceipt({ blockNumber: 13, logIndex: 2, modelNode: NODE, kBps: 6000 })).toBe(A);
+    // next block: the stored state is the last accepted attestation (C), even though B was lower
+    expect(idx.forReceipt({ blockNumber: 13, logIndex: 0, modelNode: NODE, kBps: 6500 })).toBe(C);
+    // no attestation with that k (e.g. k clamped by a config update) => not graded
+    expect(idx.forReceipt({ blockNumber: 13, logIndex: 0, modelNode: NODE, kBps: 1234 })).toBeUndefined();
+  });
+
+  it('audit #3: labelBlocks splits a block per attestation via groupKey', () => {
+    const rs = [r(12, -100n, 101n, 3000, { logIndex: 1, kBps: 6000 }), r(12, -100n, 99n, 3000, { logIndex: 9, kBps: 6500 })];
+    const p = (x: ReceiptLog) => (x.kBps === 6000 ? 0.8 : 0.9);
+    const merged = labelBlocks(rs, () => Q96, p);
+    expect(merged).toHaveLength(1);
+    const split = labelBlocks(rs, () => Q96, p, { groupKey: (x) => `${x.blockNumber}:${x.kBps}` });
+    expect(split.map((l) => [l.p, l.y])).toEqual([[0.8, 1], [0.9, 0]]);
+    // the mid callback sees the group's receipt (attested-mid mode uses the receipt's own attestation mid)
+    const seen: number[] = [];
+    labelBlocks(rs, (_b, x) => (seen.push(x.kBps), Q96), p, { groupKey: (x) => `${x.blockNumber}:${x.kBps}` });
+    expect(seen.sort()).toEqual([6000, 6500]);
   });
 });
 
@@ -143,9 +181,9 @@ describe('v5: settler JIT label (docs/review/V5_JIT_HEAD_SPEC.md §3.4)', () => 
     block, sender, tickLower: ticks[0], tickUpper: ticks[1], liquidityDelta, salt, ...(logIndex !== undefined ? { logIndex } : {}),
   });
   const att = (mined: number, pJitBps: number, node = NODE): AttestationLog => ({
-    poolId: '0x00', blockNumber: mined, minedBlock: mined, oracleMidX96: Q96, pToxicBps: 0, confidenceBps: 0, kBps: 0, modelNode: node, quoter: OTHER, txHash: '0x00', pJitBps, jitWindow: 10,
+    poolId: '0x00', blockNumber: mined, minedBlock: mined, oracleMidX96: Q96, pToxicBps: 0, confidenceBps: 0, kBps: 0, modelNode: node, quoter: OTHER, txHash: `0x${mined.toString(16)}` as Hex, logIndex: 0, pJitBps, jitWindow: 10,
   });
-  const stats = (): JitLabelStats => ({ graded: 0, pending: 0, skippedNoLiquidity: 0, skippedNoAttestation: 0 });
+  const stats = (): JitLabelStats => ({ graded: 0, pending: 0, skippedNoLiquidity: 0, skippedNoAttestation: 0, skippedStale: 0 });
 
   it('y = 1 when a position added in b is removed within the window, 0 when removed after; blocks without adds are not graded', () => {
     const liq = [
@@ -157,7 +195,7 @@ describe('v5: settler JIT label (docs/review/V5_JIT_HEAD_SPEC.md §3.4)', () => 
     const labels = labelJitBlocks(liq, [att(10, 8000)], { labelBlocks: 100, head: 400, stats: st });
     expect(labels.map((l) => [l.block, l.y, l.p, l.nSwaps])).toEqual([[12, 1, 0.8, 1], [30, 0, 0.8, 1]]);
     expect(labels[0]!.modelNode).toBe(NODE);
-    expect(st).toEqual({ graded: 2, pending: 0, skippedNoLiquidity: 1, skippedNoAttestation: 0 }); // the attested block 10 had no adds
+    expect(st).toEqual({ graded: 2, pending: 0, skippedNoLiquidity: 1, skippedNoAttestation: 0, skippedStale: 0 }); // the attested block 10 had no adds
     expect(labelJitBlocks([], [att(10, 8000)], { labelBlocks: 100, head: 400 })).toEqual([]);
   });
 
@@ -197,6 +235,23 @@ describe('v5: settler JIT label (docs/review/V5_JIT_HEAD_SPEC.md §3.4)', () => 
     expect(st.skippedNoAttestation).toBe(2); // block 5 (before any attestation) and block 35 (rule-v1 in force)
     expect(attestationIndex(atts).inForce(9)).toBeUndefined();
     expect(attestationIndex(atts).inForce(20)!.pJitBps).toBe(9000);
+  });
+
+  it('audit #3: an add logged before a same-block attestation is graded against the previous attestation', () => {
+    const late = { ...att(12, 9000, NODE2), logIndex: 5 };
+    const liq = [lo(12, 1n, S(1), 2), lo(12, 1n, S(2), 7), lo(13, -1n, S(2), 0)];
+    const labels = labelJitBlocks(liq, [att(10, 1000), late], { labelBlocks: 100, head: 500 });
+    expect(labels.map((l) => [l.block, l.modelNode, l.p, l.y, l.nSwaps])).toEqual([[12, NODE, 0.1, 0, 1], [12, NODE2, 0.9, 1, 1]]);
+  });
+
+  it('audit #14: adds made while the attestation is stale are not graded (hook used jitWindowDefault)', () => {
+    const liq = [lo(15, 1n, S(1)), lo(16, -1n, S(1)), lo(40, 1n, S(2)), lo(41, -1n, S(2))];
+    const st = stats();
+    const labels = labelJitBlocks(liq, [att(10, 8000)], { labelBlocks: 100, head: 500, staleBlocks: 20, stats: st });
+    expect(labels.map((l) => l.block)).toEqual([15]); // 15 - 10 <= 20 fresh; 40 - 10 > 20 stale
+    expect(st.skippedStale).toBe(1);
+    // without staleBlocks (unknown config) both are graded, as before
+    expect(labelJitBlocks(liq, [att(10, 8000)], { labelBlocks: 100, head: 500 })).toHaveLength(2);
   });
 
   it('feeds calibrate() like the arb head, and jitCalibrationKey matches the contract derivation (cast vector)', () => {

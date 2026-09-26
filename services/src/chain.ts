@@ -106,6 +106,8 @@ export interface AttestationLog {
   modelNode: Hex;
   quoter: Address;
   txHash: Hex;
+  /** Log index within the mined block: orders an attestation against same-block swaps and liquidity changes. */
+  logIndex: number;
   /** v5 JIT head: attested pJit (bps) and the window (blocks) the hook set for liquidity added from now on. */
   pJitBps: number;
   jitWindow: number;
@@ -192,6 +194,7 @@ export async function getAttestations(pc: PublicClient, hook: Address, poolId: H
         modelNode: l.args.modelNode!,
         quoter: l.args.quoter!,
         txHash: l.transactionHash!,
+        logIndex: l.logIndex!,
         pJitBps: Number(l.args.pJitBps ?? 0),
         jitWindow: Number(l.args.jitWindow ?? 0),
       }),
