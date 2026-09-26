@@ -50,11 +50,16 @@ function hostnameOf(hostHeader: string | null): string | undefined {
 
 /**
  * Request checks for /api/dev/*: these routes sign owner/swapper txs server-side, so a page on another site must not
- * be able to drive them through the viewer's browser.
- *  - Host must be loopback (or listed in APP_DEV_HOSTS, comma-separated): blocks DNS rebinding and LAN callers.
+ * be able to drive them through the viewer's browser. What these checks protect against is browser-borne requests:
+ *  - Host must be loopback (or listed in APP_DEV_HOSTS, comma-separated): blocks DNS rebinding (an attacker's name
+ *    re-pointed at 127.0.0.1 still sends its own Host).
  *  - Writes: content-type must be application/json (a cross-site JSON POST needs a CORS preflight, which is never
  *    granted), and a browser's Origin / Sec-Fetch-Site must say same-origin. Non-browser local clients (curl) send
  *    neither header and pass.
+ * They do NOT keep out other machines: Host is chosen by the client, so a LAN peer with curl can send
+ * `Host: localhost:3000` and pass. What keeps LAN peers out is the loopback bind: `pnpm dev` / `pnpm start` listen on
+ * APP_HOST, default 127.0.0.1 (app/package.json). Binding elsewhere (APP_HOST=0.0.0.0) exposes these routes to the
+ * network.
  */
 export function assertDevRequest(req: Request, opts: { write: boolean }): void {
   const host = hostnameOf(req.headers.get('host'));

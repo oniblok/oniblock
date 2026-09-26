@@ -104,7 +104,7 @@ export interface StateJson {
     /** not stale and the live high-water gap is at/below the threshold => both directions pay exactly baseFee */
     belowThreshold: boolean;
     /** Model mix of the recent attestations (keeper v3 gate: rule-v1 below the threshold, Jev/heuristic above). */
-    attestMix: { window: number; total: number; jev: number; heuristic: number; oniblock1: number; rule: number; other: number } | null;
+    attestMix: { window: number; total: number; jev: number; heuristic: number; oniblock1: number; kev: number; rule: number; other: number } | null;
     calibration?: CalibrationJson;
     lastQuoter?: string;
     lastQuoterName?: string;

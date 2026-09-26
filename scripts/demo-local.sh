@@ -31,6 +31,7 @@
 #   MODEL_MODE=auto        keeper scorer: auto (Jev -> heuristic fallback) | jev | heuristic
 #   ARB_SPLIT=1            arb bot sub-swaps per tx (>1 exercises the per-block anchor)
 #   APP_CMD=dev            dev | start (start requires `pnpm -C app build` first)
+#   APP_HOST=127.0.0.1     app bind address (loopback keeps LAN peers off /api/dev/*; 0.0.0.0 exposes them)
 #   SKIP_APP=1             don't start the app
 #   DEMO_RUNTIME_DIR=.runtime        flags file + logs (use another dir to run next to a live demo)
 #   DEMO_DEPLOYMENTS_FILE=deployments/31337.json   deployment JSON written by DeployLocal / read by the services

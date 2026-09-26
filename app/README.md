@@ -47,13 +47,14 @@ Env:
 | `KEEPER_FLAGS_FILE` | `../.runtime/keeper-flags.json` | live keeper flags written by the dev panel |
 | `APP_HISTORY_BLOCKS` / `APP_REGIME_BLOCKS` | 900 / 120 | chart / regime-map windows |
 | `APP_MODEL_NAMES` | – | extra ENS names used to label namehashes when no ENS is on the chain |
+| `APP_HOST` / `APP_PORT` | `127.0.0.1` / `3000` | address `pnpm dev` / `pnpm start` bind to. Loopback by default so LAN peers cannot reach `/api/dev/*`; set e.g. `APP_HOST=0.0.0.0` only on a trusted network (and add that host name to `APP_DEV_HOSTS` if the dev controls must answer on it) |
 | `APP_DEV_CONTROLS` | on | `0` disables `/api/dev/*` |
 | `APP_DEV_HOSTS` | (none) | extra host names `/api/dev/*` answers on; by default only localhost / 127.0.0.1 / [::1] |
 | `APP_DEV_SWAP_MAX` | `100` | largest dev swap, in base-token units |
 
 ## How the dev controls work
 - Signing happens only in server routes, with anvil's public default keys (`src/lib/server/devkeys.ts`). The routes refuse to run unless the chain is local anvil (chainId 31337) or an anvil fork. No key ever reaches the browser.
-- The routes only answer on a loopback host name (`APP_DEV_HOSTS` adds more). Writes need `content-type: application/json` and, from a browser, a same-origin request, so another website cannot drive them through your browser. Swaps are capped at `APP_DEV_SWAP_MAX` base units.
+- The server binds to 127.0.0.1 (`APP_HOST`), which is what keeps other machines out. On top of that the routes only answer on a loopback `Host` name (`APP_DEV_HOSTS` adds more), which stops DNS rebinding; the `Host` header is client-chosen, so this check alone would not stop a LAN caller. Writes need `content-type: application/json` and, from a browser, a same-origin request, so another website cannot drive them through your browser. Swaps are capped at `APP_DEV_SWAP_MAX` base units.
 - **Degrade model** writes `{"degraded": true}` to `.runtime/keeper-flags.json`. The keeper (`services/src/keeper.ts`) re-reads that file every block and inverts its scores. The settler's Brier score then rises, and `hook.isDemoted` clamps k to kDefault. Nobody touches the contract.
 - **Revoke quoter**: locally this calls `MockRoleOracle.setQuoter(quoter,false)`. On a fork with our ENS deployment it calls `revokeRoles(labelId("quoter"), ROLE_QUOTER, quoter)` on our ENSv2 UserRegistry. Either way the next attestation reverts, the mid goes stale and the pool charges the conservative fee.
 - **Grant backup quoter** grants the role to anvil #6 and sets `useBackupQuoter: true`, so the keeper switches keys and attestations resume. **Restore** reverses both.

@@ -195,7 +195,7 @@ contract EnsSetup is Script {
             if (_broadcasting()) writeJson(cfg, r);
             else console2.log("finish: not broadcasting (no --broadcast), ens json not written");
         } else if (p == keccak256("grant-jit") || p == keccak256("grant-cal")) {
-            grantJitPhase(cfg);
+            grantJitPhase(cfg, phase);
         } else if (p == keccak256("add-live")) {
             addLivePhase(cfg);
         } else if (p == keccak256("add-model")) {
@@ -352,16 +352,17 @@ contract EnsSetup is Script {
     /// Grants the settler the calibration.* (incl. calibration.chargeThreshold) and calibration.jit.* setter roles on
     /// an already-deployed setup. Reads the resolver (and, unless ENS_SETTLER is set, the settler) from ENS_OUT /
     /// ../deployments/<chainId>.ens.json. Idempotent: keys the settler already holds are skipped.
-    function grantJitPhase(Config memory cfg) public {
+    /// `phase` ("grant-jit" or its alias "grant-cal") only labels the log lines.
+    function grantJitPhase(Config memory cfg, string memory phase) public {
         string memory j = _readEnsJson();
         address resolver = vm.parseJsonAddress(j, ".resolver");
         require(resolver != address(0), "EnsSetup: resolver missing in ens json");
         address settler = _settlerOf(cfg, j);
 
         uint256 granted = grantSettlerKeysBroadcast(cfg, resolver, settler);
-        console2.log("grant-jit: resolver", resolver);
-        console2.log("grant-jit: settler ", settler);
-        console2.log("grant-jit: new grants", granted);
+        console2.log(string.concat(phase, ": resolver"), resolver);
+        console2.log(string.concat(phase, ": settler "), settler);
+        console2.log(string.concat(phase, ": new grants"), granted);
     }
 
     /// Core of grant-jit, broadcast as `cfg.owner`: every settler-only key (calibration.* + calibration.jit.*) the

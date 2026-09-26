@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev -p ${APP_PORT:-3000}",
+    "dev": "next dev -H ${APP_HOST:-127.0.0.1} -p ${APP_PORT:-3000}",
     "build": "tsc --noEmit && eslint . && next build",
-    "start": "next start -p ${APP_PORT:-3000}",
+    "start": "next start -H ${APP_HOST:-127.0.0.1} -p ${APP_PORT:-3000}",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
