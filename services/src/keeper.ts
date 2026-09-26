@@ -46,11 +46,17 @@
  *        conservativeFee == baseFee — warned once otherwise), all four `change` mode only,
  *      DEGRADED_FILE (touch file to toggle degraded mode live),
  *      KEEPER_FLAGS_FILE (default <root>/.runtime/keeper-flags.json), BACKUP_QUOTER_PK,
- *      CHARGE_THRESHOLD (model v2, 0..1; unset = off): after score()/degrade() the posted pToxic is unchanged and
- *        confidenceBps = p >= t ? 10000 : 0, so the hook's k = kMax * p * c is 0 below t (vanilla pool) and the premium is
- *        charged only on blocks the model calls toxic with p >= t. The settler grades pToxic only, so the posted
- *        probability stays honest. Logged as p / chargeThreshold / charged (+ modelConfidenceBps). Not applied to rule-v1.
- *        (c also scales the JIT window, so a gated block also posts the minimum JIT window.)
+ *      CHARGE_THRESHOLD (model v2: 0..1 = fixed | auto = rolling; unset = off): after score()/degrade() the posted pToxic
+ *        is unchanged and confidenceBps = p >= t ? 10000 : 0, so the hook's k = kMax * p * c is 0 below t (vanilla pool)
+ *        and the premium is charged only on blocks the model calls toxic with p >= t. The settler grades pToxic only, so
+ *        the posted probability stays honest. Not applied to rule-v1. (c also scales the JIT window, so a gated block also
+ *        posts the minimum JIT window.) `auto` (resolveChargeThreshold): t = the settler's walk-forward threshold for this
+ *        tick's model node from CHARGE_THRESHOLD_FILE (default <ROOT>/.runtime/charge-threshold.json, re-read on mtime
+ *        change; FPR <= CHARGE_FPR_MAX on the trailing CHARGE_WINDOW_BLOCKS of labels, see chargeThreshold.ts); absent or
+ *        null -> CHARGE_THRESHOLD_FALLBACK (0..1), else for tabular models the model JSON's chargeThreshold, else source
+ *        `none` = charge nothing (fail-safe: confidence 0 => k = 0, vanilla pool; pToxic unchanged).
+ *        Logged as p / chargeThreshold / chargeThresholdSource (fixed | rolling | fallback | none | off) / charged
+ *        (+ modelConfidenceBps); a `charge_threshold` line whenever the threshold or its source changes.
  *      KEEPER_READ_LEAD_MS (slot clock, ms >= 0; unset = off = tick on block arrival): after block N arrives, the tick
  *        (CEX read, features, model, sign, send) is scheduled for ts_N + KEEPER_BLOCK_TIME_MS - lead, so the tx still lands
  *        in block N+1 but with a fresh mid (~blockTime + lead old at N+2's first swap instead of ~2 * blockTime - lag). A
@@ -124,7 +130,9 @@ import {
 } from './config.js';
 import { getAttestations, getJitPenalties, getModifyLiquidity, getReceipts, keyTuple, readPool, receiptToSwapObs, TxSender, virtualDepth0 } from './chain.js';
 import { computeFeatures, JIT_LABEL_BLOCKS_DEFAULT, type JitPenaltyObs, type LiquidityObs, type SwapObs } from './features.js';
-import { defaultJevPrompt, kevStateFormat, score, tabularModelName, tabularVersion, type AttackHead, type AttackType, type ModelMode, type ModelScore } from './model/index.js';
+import { chargeThresholdPath, rollingThresholdFor } from './chargeThreshold.js';
+import { defaultTabularPath } from './model/tabular.js';
+import { defaultJevPrompt, kevStateFormat, loadTabularModel, score, tabularModelName, tabularVersion, type AttackHead, type AttackType, type ModelMode, type ModelScore } from './model/index.js';
 import { midToPriceX96, sqrtPriceX96ToPriceX96 } from './price.js';
 import { postDecision, type PostedState, type PostPolicy, type PostReason } from './postPolicy.js';
 import { createWalletClient, type Chain, type Transport, type Account, type WalletClient } from 'viem';
@@ -204,12 +212,54 @@ export function gateDecision(gapPips: number, arbThresholdPips: number, hysteres
   return gapPips < arbThresholdPips - hysteresisPips ? 'rule' : 'model';
 }
 
-/** CHARGE_THRESHOLD env (header): undefined = unset/empty (gate off); anything outside a number in [0,1] is a ConfigError. */
-export function chargeThreshold(raw = env('CHARGE_THRESHOLD')): number | undefined {
-  if (raw === undefined || raw.trim() === '') return undefined;
+/**
+ * FIXED CHARGE_THRESHOLD (header): undefined = unset/empty (gate off) or `auto` (see chargeThresholdMode /
+ * resolveChargeThreshold); anything else outside a number in [0,1] is a ConfigError. `name` labels the error.
+ */
+export function chargeThreshold(raw = env('CHARGE_THRESHOLD'), name = 'CHARGE_THRESHOLD'): number | undefined {
+  if (raw === undefined || raw.trim() === '' || raw.trim().toLowerCase() === 'auto') return undefined;
   const t = Number(raw);
-  if (!Number.isFinite(t) || t < 0 || t > 1) throw new ConfigError(`CHARGE_THRESHOLD must be a number in [0,1] (got ${JSON.stringify(raw)})`, { chargeThreshold: raw });
+  if (!Number.isFinite(t) || t < 0 || t > 1) throw new ConfigError(`${name} must be a number in [0,1] or auto (got ${JSON.stringify(raw)})`, { [name]: raw });
   return t;
+}
+
+/** CHARGE_THRESHOLD mode: 'off' (unset/empty), 'auto' (rolling), or the fixed number. Invalid => ConfigError. */
+export function chargeThresholdMode(raw = env('CHARGE_THRESHOLD')): 'off' | 'auto' | number {
+  if (raw === undefined || raw.trim() === '') return 'off';
+  if (raw.trim().toLowerCase() === 'auto') return 'auto';
+  return chargeThreshold(raw)!;
+}
+
+export type ChargeThresholdSource = 'off' | 'fixed' | 'rolling' | 'fallback' | 'none';
+
+/**
+ * Threshold in force for one tick (header CHARGE_THRESHOLD): a fixed number wins; `auto` -> the rolling threshold
+ * published for `modelNode` in `file` -> CHARGE_THRESHOLD_FALLBACK -> `modelThreshold()` (tabular JSON's chargeThreshold)
+ * -> none = +Infinity (charge nothing: confidence 0, k = 0, vanilla pool); unset -> off. threshold undefined = no gate.
+ */
+export function resolveChargeThreshold(o: {
+  modelNode: Hex | string;
+  raw?: string;
+  file?: string;
+  fallbackRaw?: string;
+  modelThreshold?: () => number | undefined;
+}): { threshold: number | undefined; source: ChargeThresholdSource } {
+  const mode = chargeThresholdMode('raw' in o ? o.raw : env('CHARGE_THRESHOLD'));
+  if (mode === 'off') return { threshold: undefined, source: 'off' };
+  if (typeof mode === 'number') return { threshold: mode, source: 'fixed' };
+  const rolling = rollingThresholdFor(o.modelNode, o.file);
+  if (rolling) return { threshold: rolling.threshold, source: 'rolling' };
+  const fb = chargeThreshold('fallbackRaw' in o ? o.fallbackRaw : env('CHARGE_THRESHOLD_FALLBACK'), 'CHARGE_THRESHOLD_FALLBACK');
+  if (fb !== undefined) return { threshold: fb, source: 'fallback' };
+  let mt: number | undefined;
+  try {
+    mt = o.modelThreshold?.();
+  } catch {
+    mt = undefined; // unreadable model file: no fallback from it
+  }
+  if (typeof mt === 'number' && Number.isFinite(mt) && mt >= 0) return { threshold: mt, source: 'fallback' };
+  // Fail-safe: auto with no trusted threshold charges nothing (c = 0 => k = 0, vanilla pool), never a premium everywhere.
+  return { threshold: Number.POSITIVE_INFINITY, source: 'none' };
 }
 
 /**
@@ -550,6 +600,27 @@ export class Keeper {
     return readKeeperFlags().degraded === true;
   }
 
+  private lastCharge: string | undefined;
+  /**
+   * Charge threshold for this tick's model node (resolveChargeThreshold; CHARGE_THRESHOLD=auto reads the settler's file,
+   * cached on mtime). Tabular answers fall back to the model JSON's chargeThreshold. Logs `charge_threshold` on change.
+   */
+  private chargeThresholdFor(node: Hex, scored: ModelScore): { threshold: number | undefined; source: ChargeThresholdSource } {
+    const mode = this.o.mode ?? (env('MODEL_MODE', 'auto') as ModelMode);
+    const r = resolveChargeThreshold({
+      modelNode: node,
+      file: env('CHARGE_THRESHOLD_FILE'),
+      modelThreshold: () =>
+        scored.model === 'tabular' ? (loadTabularModel(env('TABULAR_MODEL_PATH') ?? defaultTabularPath(tabularVersion(mode)))?.chargeThreshold ?? undefined) : undefined,
+    });
+    const key = `${node}:${r.source}:${r.threshold}`;
+    if (key !== this.lastCharge) {
+      this.lastCharge = key;
+      log('keeper', 'charge_threshold', { modelNode: node, threshold: r.threshold ?? null, source: r.source, mode: chargeThresholdMode() });
+    }
+    return r;
+  }
+
   /** Quoter used for this tick: backup key if the live flag asks for it (and one is configured). */
   private quoterSender(): TxSender {
     return readKeeperFlags().useBackupQuoter && this.backupSender ? this.backupSender : this.sender;
@@ -757,8 +828,14 @@ export class Keeper {
       const scored: ModelScore = rule
         ? { ...RULE_SCORE, cls: 'unknown', latencyMs: 0, model: 'rule' }
         : await score(f, { mode: this.o.mode, degraded: this.isDegraded(), baseIsToken0: this.meta.baseIsToken0 });
+      const node = rule
+        ? this.nodes.rule
+        : scored.model === 'jev' || scored.model === 'kev' || scored.model === 'tabular' || env('FALLBACK_SAME_NODE') === '1'
+          ? this.nodes.primary
+          : this.nodes.fallback;
       // Model v2 charge gate (header CHARGE_THRESHOLD): after score()/degrade(), before signing. Unset = unchanged.
-      const chargeT = rule ? undefined : chargeThreshold();
+      const charge = rule ? { threshold: undefined, source: 'off' as const } : this.chargeThresholdFor(node, scored);
+      const chargeT = charge.threshold;
       const s = applyChargeThreshold(scored, chargeT);
       const st = this.stats;
       st.ticks++;
@@ -768,11 +845,6 @@ export class Keeper {
         if (s.model === 'jev') st.jevAnswers++;
       }
       st.jevCallRate = st.modelTicks / st.ticks;
-      const node = rule
-        ? this.nodes.rule
-        : s.model === 'jev' || s.model === 'kev' || s.model === 'tabular' || env('FALLBACK_SAME_NODE') === '1'
-          ? this.nodes.primary
-          : this.nodes.fallback;
       // v5 online calibration of the JIT head (header): shrink the model's pJit toward the observed churn of recent
       // liquidity. The churn is only a base rate when there were adds in the last 200 blocks (same window as the feature).
       const adds200 = this.liquidity.filter((o) => o.liquidityDelta > 0n && o.block > block - 200 && o.block <= block).length;
@@ -800,6 +872,8 @@ export class Keeper {
           degraded: !!s.degraded,
           pToxicBps: s.pToxicBps,
           confidenceBps: s.confidenceBps,
+          chargeThreshold: chargeT ?? null,
+          chargeThresholdSource: charge.source,
           pJitBps: pJitPosted,
           pMalicious: s.pMaliciousBps === undefined ? null : Math.round(s.pMaliciousBps) / 10_000,
           attack: s.attack?.choice ?? null,
@@ -877,6 +951,7 @@ export class Keeper {
         // v2 charge gate: p = posted pToxic, charged = p >= chargeThreshold (null = gate off); modelConfidenceBps = pre-gate
         p: s.pToxicBps / 10_000,
         chargeThreshold: chargeT ?? null,
+        chargeThresholdSource: charge.source,
         charged: chargeT === undefined ? null : s.confidenceBps > 0,
         modelConfidenceBps: scored.confidenceBps,
         // JIT head: pJitBps = posted = blend(pJitModel, pJitChurn, jitChurnWeight); pJitChurn null = no adds in 200 blocks (model unchanged)
@@ -942,7 +1017,8 @@ export class Keeper {
   async checkConfig(): Promise<void> {
     const cfg = await this.poolCfg(Number(await this.pc.getBlockNumber()));
     assertGateConfig(keeperGateOn(), cfg.kDefaultBps);
-    chargeThreshold(); // throws ConfigError on an invalid CHARGE_THRESHOLD
+    chargeThresholdMode(); // throws ConfigError on an invalid CHARGE_THRESHOLD
+    chargeThreshold(env('CHARGE_THRESHOLD_FALLBACK'), 'CHARGE_THRESHOLD_FALLBACK');
     try {
       readLeadMs();
       blockTimeEnvMs();
@@ -990,7 +1066,8 @@ export class Keeper {
       fallbackNode: this.nodes.fallback,
       ruleNode: this.nodes.rule,
       gate: keeperGateOn(),
-      chargeThreshold: chargeThreshold() ?? null,
+      chargeThreshold: chargeThresholdMode(),
+      chargeThresholdFile: chargeThresholdMode() === 'auto' ? (env('CHARGE_THRESHOLD_FILE') ?? chargeThresholdPath()) : null,
       readLeadMs: readLeadMs() ?? null,
       kevStateFormat: kevStateFormat(),
       tabularModel: tabularModelName(tabularVersion(this.o.mode ?? env('MODEL_MODE', 'auto'))),

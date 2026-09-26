@@ -71,6 +71,20 @@
  * the existing setCalibration under hook.jitCalibrationKey(modelNode) and mirrored as calibration.jit.* ENS records
  * on the model name. Log lines: jit_graded, jit_calibration_posted.
  *
+ * Rolling charge threshold (model v2 charge gate, chargeThreshold.ts): on every settle, per model node, the arb head's
+ * labelled (p, y) of the trailing CHARGE_WINDOW_BLOCKS (default 50400 = 7 days of 12 s blocks; 0 = all) give the
+ * threshold t such that charging p >= t has FPR <= CHARGE_FPR_MAX (default 0.05) on those labels (null with fewer than
+ * CHARGE_MIN_BENIGN benign labels, default 200). Published to CHARGE_THRESHOLD_FILE (default
+ * <ROOT>/.runtime/charge-threshold.json, atomic; the keeper's CHARGE_THRESHOLD=auto reads it) and, when the resolver
+ * grants the settler the key, as the ENS text record calibration.chargeThreshold (bps; a refusal is logged once and the
+ * file keeps being written; the calibration.* write is a separate tx and unaffected). Log line: charge_threshold.
+ *
+ * Env: CALIB_WINDOW (30), JIT_CALIB_WINDOW (= CALIB_WINDOW), CALIB_MIN_N (3), CALIB_GATE (raw | skill), SETTLE_EVERY (10),
+ *      SETTLER_LABEL_MID (cex | attested), MARKOUT_HORIZON (0 | 1), SETTLER_BINANCE_FALLBACK (1), SETTLER_LABEL_FEE
+ *      (base | paid), SETTLER_DEADBAND_USD (1), SETTLER_DEADBAND_BPS (1), SETTLER_JIT_LABEL_BLOCKS (100), RULE_MODEL_NAME,
+ *      RECEIPT_AMOUNT_SIGN (1), PRICE_SOURCE, ENS_WRITE (1), ENS_DEPLOYMENT_FILE, CHARGE_WINDOW_BLOCKS (50400),
+ *      CHARGE_FPR_MAX (0.05), CHARGE_MIN_BENIGN (200), CHARGE_THRESHOLD_FILE.
+ *
  * CLI: tsx src/settler.ts [--chain local] [--once] [--every M] [--from BLOCK]
  */
 import { namehash, type Address, type Hex, type PublicClient } from 'viem';
@@ -93,6 +107,7 @@ import {
   type PoolEntry,
 } from './config.js';
 import { getAttestations, getModifyLiquidity, getReceipts, jitCalibrationKey, TxSender, type AttestationLog, type ReceiptLog } from './chain.js';
+import { ChargeThresholdPublisher, chargeWindowOpts, type ChargeWindowOpts } from './chargeThreshold.js';
 import { EnsV2CalibrationWriter, loadEnsDeployment, NoopCalibrationWriter, type CalibrationHead, type CalibrationRecordWriter } from './ens.js';
 import { byPositionKey, JIT_LABEL_BLOCKS_DEFAULT, liquidityObsKey, removedWithin, type LiquidityObs } from './features.js';
 import { midToPriceX96, Q96 } from './price.js';
@@ -397,6 +412,8 @@ export interface SettlerOpts {
   poolName?: string;
   /** v5: blocks after an add within which a remove counts as JIT (default SETTLER_JIT_LABEL_BLOCKS / 100). */
   jitLabelBlocks?: number;
+  /** Rolling charge threshold overrides (default: CHARGE_WINDOW_BLOCKS / CHARGE_FPR_MAX / CHARGE_MIN_BENIGN / CHARGE_THRESHOLD_FILE). */
+  charge?: Partial<ChargeWindowOpts>;
 }
 
 export class Settler {
@@ -406,6 +423,8 @@ export class Settler {
   readonly meta: PairMeta;
   private readonly sender: TxSender;
   private readonly ens: CalibrationRecordWriter;
+  /** Rolling charge threshold (header): file + ENS calibration.chargeThreshold. */
+  readonly charge: ChargeThresholdPublisher;
   private lastSettled = -1;
   private busy = false;
   private tsCache = new Map<number, number>();
@@ -423,6 +442,7 @@ export class Settler {
     this.replayMid = env('PRICE_SOURCE') === 'replay' ? lazyMidSource(this.d.startBlock ?? 0, 'settler') : undefined;
     const ensDep = env('ENS_WRITE', '1') === '1' ? loadEnsDeployment(sel.chain.id) : undefined;
     this.ens = o.ens ?? (ensDep ? new EnsV2CalibrationWriter(this.sender, ensDep) : new NoopCalibrationWriter());
+    this.charge = new ChargeThresholdPublisher({ ...chargeWindowOpts(), ...o.charge }, this.ens);
   }
 
   /**
@@ -674,6 +694,12 @@ export class Settler {
         }
         await this.post(head, c, 'arb', { labelled: labels.length, skippedAmbiguous: this.lastStats.skippedAmbiguous });
       }
+      // Rolling charge threshold (header): never lets a file / ENS problem stop the calibration heads.
+      try {
+        await this.charge.publish(head, labels);
+      } catch (e) {
+        log('settler', 'charge_threshold_error', { head, error: (e as Error).message.split('\n')[0] });
+      }
       // v5 JIT head: same min-n discipline; skipped entirely while nothing is graded (no adds / windows still open).
       for (const c of jitCal) {
         if (c.n < minN) {
@@ -705,6 +731,7 @@ export class Settler {
       deadband: { usd: Number(env('SETTLER_DEADBAND_USD', '1')), bps: Number(env('SETTLER_DEADBAND_BPS', '1')) },
       skip: ruleModelNode(),
       jitLabelBlocks: this.jitLabelBlocks,
+      chargeThresholdFile: this.charge.path,
     });
     return this.pc.watchBlockNumber({
       emitOnBegin: true,

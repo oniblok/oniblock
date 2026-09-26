@@ -47,9 +47,18 @@ export const CALIBRATION_PREFIX: Record<CalibrationHead, string> = { arb: 'calib
 /** The seven calibration.jit.* keys EnsSetup grants the settler (mirror of the arb keys). */
 export const JIT_CALIBRATION_KEYS = ['brier', 'hitRate', 'n', 'epoch', 'brierRaw', 'skill', 'baseRate'].map((k) => `calibration.jit.${k}`);
 
+/**
+ * Rolling charge threshold (settler, chargeThreshold.ts), bps: the keeper's CHARGE_THRESHOLD=auto gate charges iff
+ * pToxicBps >= value; '' = no threshold (too few benign labels). Written in its own tx (writeText) so a resolver without
+ * the per-key grant never breaks the calibration.* write.
+ */
+export const CHARGE_THRESHOLD_KEY = 'calibration.chargeThreshold';
+
 export interface CalibrationRecordWriter {
   readonly kind: string;
   write(modelNode: Hex, rec: CalibrationRecord, head?: CalibrationHead): Promise<boolean>;
+  /** Arbitrary text records on the model's name, one multicall (false if unknown node / refused / no ENS). */
+  writeText?(modelNode: Hex, records: [string, string][]): Promise<boolean>;
 }
 
 export const resolverAbi = parseAbi([
@@ -128,6 +137,10 @@ export class NoopCalibrationWriter implements CalibrationRecordWriter {
     log('ens', 'would_write_text_records', { modelNode, head, records: Object.fromEntries(calibrationTextRecords(rec, true, head)) });
     return false;
   }
+  async writeText(modelNode: Hex, records: [string, string][]): Promise<boolean> {
+    log('ens', 'would_write_text_records', { modelNode, records: Object.fromEntries(records) });
+    return false;
+  }
 }
 
 /** Writes calibration.* on the model's ENS name through our PermissionedResolver (one tx). */
@@ -167,6 +180,25 @@ export class EnsV2CalibrationWriter implements CalibrationRecordWriter {
     }
     const ok = rc?.status === 'success';
     log('ens', ok ? 'text_records_written' : 'text_records_failed', { name, head, ...rec, detail: this.detail[head], tx: rc?.hash });
+    return ok;
+  }
+  /** One multicall of setText(name, key, value) for `records` (e.g. calibration.chargeThreshold); no fallback. */
+  async writeText(modelNode: Hex, records: [string, string][]): Promise<boolean> {
+    const name = this.nameOf.get(modelNode.toLowerCase());
+    if (!name) {
+      log('ens', 'unknown_model_node', { modelNode, keys: records.map(([k]) => k) });
+      return false;
+    }
+    const dns = dnsEncode(name);
+    const rc = await this.sender.send({
+      address: this.ens.resolver,
+      abi: resolverAbi,
+      functionName: 'multicall',
+      args: [records.map(([k, v]) => encodeFunctionData({ abi: resolverAbi, functionName: 'setText', args: [dns, k, v] }))],
+      label: `ens ${records.map(([k]) => k).join(',')} ${name}`,
+    });
+    const ok = rc?.status === 'success';
+    log('ens', ok ? 'text_records_written' : 'text_records_failed', { name, records: Object.fromEntries(records), tx: rc?.hash });
     return ok;
   }
 }
