@@ -166,11 +166,10 @@ export async function getState(): Promise<StateJson> {
   const lastAttArgs = (lastAtt as { args?: Record<string, unknown> } | undefined)?.args;
   let attestMix: StateJson['status']['attestMix'] = null;
   if (recentAtts.length) {
-    const m = { window: MIX_WINDOW, total: recentAtts.length, jev: 0, heuristic: 0, oniblock1: 0, kev: 0, rule: 0, other: 0 };
+    const m = { window: MIX_WINDOW, total: recentAtts.length, jev: 0, heuristic: 0, oniblock1: 0, rule: 0, other: 0 };
     for (const l of recentAtts as unknown as { args: { modelNode?: Hex } }[]) {
       const k = modelKind(nameOf(c, l.args.modelNode));
       if (k === 'jev' || k === 'heuristic' || k === 'oniblock1' || k === 'rule') m[k]++;
-      else if (k === 'kev-v1') m.kev++; // modelKind keeps the label for kev-v1 (Kev-0.8B fine-tune)
       else m.other++;
     }
     attestMix = m;

@@ -17,8 +17,7 @@ import {IRoleOracle} from "../src/interfaces/IRoleOracle.sol";
 /// INIT_PRICE_USD (default 2500), INIT_PRICE_USD_E8 (overrides), LIQUIDITY (default 5e16 ~ 1000 ETH full range),
 /// JIT_OFFSET (default 10), CHAINLINK_FEED (default disabled — no mocked price data locally),
 /// DEPLOYMENTS_OUT (default ../deployments/<chainId>.json), CONFIG_DELAY (default 0), MODEL_NODES (comma-separated
-/// bytes32; default namehash of jev-v1 / heuristic-v1 / oniblock1 .models.oniblock.eth, + rule-v1 if KEEPER_GATE=1;
-/// kev-v1 is registered in ENS but not allowlisted by default),
+/// bytes32; default namehash of jev-v1 / heuristic-v1 / oniblock1 .models.oniblock.eth, + rule-v1 if KEEPER_GATE=1),
 /// ARB_THRESHOLD_PIPS (v4 default 0), K_MIN_BPS / K_DEFAULT_BPS (v4 default 0), K_MAX_BPS (8000),
 /// MAX_K_STEP_BPS (v4 default 8000), JIT_WINDOW_MIN / JIT_WINDOW_MAX / JIT_WINDOW_DEFAULT (v5, default 10/100/10),
 /// plus pool config overrides (see DeployBase).

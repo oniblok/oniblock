@@ -103,7 +103,7 @@ export interface StateJson {
     /** not stale and the live high-water gap is at/below the threshold => both directions pay exactly baseFee */
     belowThreshold: boolean;
     /** Model mix of the recent attestations (keeper v3 gate: rule-v1 below the threshold, Jev/heuristic above). */
-    attestMix: { window: number; total: number; jev: number; heuristic: number; oniblock1: number; kev: number; rule: number; other: number } | null;
+    attestMix: { window: number; total: number; jev: number; heuristic: number; oniblock1: number; rule: number; other: number } | null;
     calibration?: CalibrationJson;
     lastQuoter?: string;
     lastQuoterName?: string;
@@ -329,7 +329,7 @@ export const attackLabel = (t: string | null | undefined) => (t == null ? '—' 
 
 /**
  * One line of the keeper's verdicts file (services/src/keeper.ts VerdictLog): the v6 model answer behind a posted
- * attestation. pMalicious / attack / attackProbs are null for models without the v6 head (rule-v1, kev, tabular).
+ * attestation. pMalicious / attack / attackProbs are null for models without the v6 head (rule-v1, tabular).
  */
 export interface VerdictJson {
   /** observed block (features) and the attested target block */
