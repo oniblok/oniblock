@@ -79,24 +79,95 @@ async function allowed(c: Ctx, node: Hex): Promise<boolean | null> {
 
 const optNum = (x: unknown): number | null => (x == null ? null : n(x));
 
+type L = { args: Args; blockNumber: bigint };
+
+/**
+ * Incremental event cache per chain + hook: CalibrationUpdated and AttestationPosted logs scanned so far. Each poll
+ * only fetches (scannedTo, head], in chunks, instead of the whole history from the deploy block. A failed chunk keeps
+ * the progress made so far (the next poll resumes from there).
+ */
+interface EventCache {
+  key: string;
+  scannedTo: number;
+  cals: L[];
+  atts: L[];
+}
+const caches = new Map<string, EventCache>();
+let scanning: Promise<unknown> | undefined;
+const CHUNK = 2_000;
+
+async function scanEvents(c: Ctx, head: number): Promise<EventCache> {
+  const key = `${c.d.chainId}|${c.d.hook.toLowerCase()}|${c.d.deployBlock}|${c.sel.rpcUrl}|${c.d.mtime}`;
+  // serialise concurrent polls so they share one scan instead of racing on the cache
+  while (scanning) await scanning.catch(() => undefined);
+  const run = (async () => {
+    let s = caches.get(key);
+    if (!s || head < s.scannedTo - 64) {
+      // first scan, or the chain was reset (local anvil): start over
+      s = { key, scannedTo: c.d.deployBlock - 1, cals: [], atts: [] };
+      caches.set(key, s);
+    }
+    for (let a = s.scannedTo + 1; a <= head; a += CHUNK) {
+      const b = Math.min(head, a + CHUNK - 1);
+      const range = { fromBlock: BigInt(a), toBlock: BigInt(b) };
+      const [cals, atts] = await Promise.all([
+        c.pc.getContractEvents({ address: c.d.hook, abi: c.hookAbi, eventName: 'CalibrationUpdated', ...range }),
+        c.pc.getContractEvents({ address: c.d.hook, abi: c.hookAbi, eventName: 'AttestationPosted', args: { id: c.d.oniblock.poolId }, ...range }),
+      ]);
+      s.cals.push(...(cals as unknown as L[]));
+      s.atts.push(...(atts as unknown as L[]));
+      s.scannedTo = b;
+    }
+    return s;
+  })();
+  scanning = run;
+  try {
+    return await run;
+  } catch (e) {
+    // keep partial progress: serve what was scanned so far once anything is cached
+    const s = caches.get(key);
+    if (s && s.scannedTo >= c.d.deployBlock) return s;
+    throw e;
+  } finally {
+    scanning = undefined;
+  }
+}
+
+/** Last good page per chain + hook: served when a poll fails (RPC hiccup) instead of a 500. */
+const lastGood = new Map<string, ModelsPage>();
+
 export async function getModels(): Promise<ModelsPage> {
   const c = await ctx();
-  const head = Number(await c.pc.getBlockNumber());
-  const [cfg, ens, cals, atts, ps] = await Promise.all([
+  const k = `${c.d.chainId}|${c.d.hook.toLowerCase()}`;
+  try {
+    const page = await buildModels(c);
+    lastGood.set(k, page);
+    return page;
+  } catch (e) {
+    const prev = lastGood.get(k);
+    if (prev) return prev;
+    throw e;
+  }
+}
+
+async function buildModels(c: Ctx): Promise<ModelsPage> {
+  const [headBn, cfg, ens, ps] = await Promise.all([
+    c.pc.getBlockNumber(),
     readConfig(c),
     ensAvailable(c),
-    c.pc.getContractEvents({ address: c.d.hook, abi: c.hookAbi, eventName: 'CalibrationUpdated', fromBlock: BigInt(c.d.deployBlock), toBlock: BigInt(head) }),
-    c.pc.getContractEvents({ address: c.d.hook, abi: c.hookAbi, eventName: 'AttestationPosted', args: { id: c.d.oniblock.poolId }, fromBlock: BigInt(c.d.deployBlock), toBlock: BigInt(head) }),
     tryRead<readonly [Args, Args, boolean]>(c, 'poolState', [c.d.oniblock.poolId]),
   ]);
-  type L = { args: Args; blockNumber: bigint };
+  const ev = await scanEvents(c, Number(headBn));
+  const head = Math.max(ev.scannedTo, 0);
+  const cals = ev.cals;
+  const atts = ev.atts;
   const minSamples = Number(cfg.minSamples ?? 0);
   const jitHead = jitHeadSupported(c);
   // c.names maps namehash -> name; models = known *.models.* names + every node seen on-chain
   const modelHashes = new Set<Hex>();
   for (const [h, name] of c.names) if (/\.models\./.test(name)) modelHashes.add(h as Hex);
-  for (const l of cals as unknown as L[]) modelHashes.add((l.args.modelNode as Hex).toLowerCase() as Hex);
-  for (const l of atts as unknown as L[]) modelHashes.add((l.args.modelNode as Hex).toLowerCase() as Hex);
+  for (const l of cals) modelHashes.add((l.args.modelNode as Hex).toLowerCase() as Hex);
+  for (const l of atts) modelHashes.add((l.args.modelNode as Hex).toLowerCase() as Hex);
   // v5: the settler posts the JIT head under jitCalibrationKey(modelNode), so CalibrationUpdated also carries those
   // derived keys. They belong to their parent model's row, never to a row of their own.
   if (jitHead) {
@@ -105,7 +176,7 @@ export async function getModels(): Promise<ModelsPage> {
   }
 
   const histOf = (key: Hex): CalibrationPoint[] =>
-    (cals as unknown as L[])
+    cals
       .filter((l) => (l.args.modelNode as string).toLowerCase() === key)
       .map((l) => ({ block: Number(l.blockNumber), brierBps: n(l.args.brierBps), hitRateBps: n(l.args.hitRateBps), n: n(l.args.n) }));
   const pick = (t: Record<string, string> | undefined, keys: string[]) => (t ? Object.fromEntries(keys.filter((k) => k in t).map((k) => [k, t[k]!])) : undefined);
@@ -113,7 +184,7 @@ export async function getModels(): Promise<ModelsPage> {
   const models: ModelRow[] = [];
   for (const node of modelHashes) {
     const name = nameOf(c, node);
-    const myAtts = (atts as unknown as L[]).filter((l) => (l.args.modelNode as string).toLowerCase() === node);
+    const myAtts = atts.filter((l) => (l.args.modelNode as string).toLowerCase() === node);
     const jitKey = jitHead ? (jitCalibrationKey(node).toLowerCase() as Hex) : undefined;
     const textKeys = jitKey ? [...MODEL_KEYS, ...JIT_CALIBRATION_KEYS] : MODEL_KEYS;
     const [cal, demoted, allow, texts, jitCal, jitDemoted] = await Promise.all([

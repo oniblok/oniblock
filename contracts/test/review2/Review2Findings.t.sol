@@ -83,24 +83,21 @@ contract Review2FindingsTest is OniblockTestBase {
         assertEq(_k(), 8000, "demoted model's scores reach kMax under the fallback node");
     }
 
-    /// FIXED N-04: minSamples = 0 is rejected by _validateConfig (registerPool and updatePoolConfig), so a node with
-    /// no record (n = 0) is always demoted and a settler reset to n = 0 re-demotes.
-    function test_r2_R01_minSamplesZero_rejected_fixed() public {
+    /// v5 demo decision (reverses N-04): minSamples = 0 is ALLOWED and means "no probation": an allowlisted node with
+    /// no record has power over k from its first attestation. Brier demotion still applies once graded, the
+    /// allowlist still gates which nodes may post, and minSamples >= 1 restores probation.
+    function test_r2_R01_minSamplesZero_meansNoProbation() public {
         OniblockHook.PoolConfig memory c = defaultConfig();
         c.minSamples = 0;
-        vm.expectRevert(OniblockHook.InvalidConfig.selector);
         hook.updatePoolConfig(pid, c);
-        PoolKey memory k2 = PoolKey(currency0, currency1, LPFeeLibrary.DYNAMIC_FEE_FLAG, 10, IHooks(address(hook)));
-        vm.expectRevert(OniblockHook.InvalidConfig.selector);
-        hook.registerPool(k2, c);
+        hook.setModelAllowed(pid, MODEL2, true); // brand-new node, no record
+        assertFalse(hook.isDemoted(pid, MODEL2), "no probation: unrecorded allowlisted node is active");
+        _season(MODEL, 4000); // Brier 0.40 > brierDemoteBps
+        assertTrue(hook.isDemoted(pid, MODEL), "Brier demotion still applies");
+        assertTrue(hook.isDemoted(pid, bytes32(uint256(0xdead))), "not allowlisted => demoted");
         c.minSamples = 1;
         hook.updatePoolConfig(pid, c);
-        _season(MODEL, 4000);
-        vm.prank(settler);
-        hook.setCalibration(MODEL, 4000, 0, 0); // n reset
-        assertTrue(hook.isDemoted(pid, MODEL), "reset keeps the node demoted");
-        hook.setModelAllowed(pid, MODEL2, true); // brand-new node, no record
-        assertTrue(hook.isDemoted(pid, MODEL2), "fresh node has no power");
+        assertTrue(hook.isDemoted(pid, MODEL2), "minSamples >= 1 restores probation");
     }
 
     /// INFO: calibration is keyed by modelNode only (global); the allowlist / minSamples / Brier threshold are

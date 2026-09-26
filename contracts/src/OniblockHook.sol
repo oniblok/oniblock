@@ -124,7 +124,7 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
         address chainlinkFeed; // address(0) = disabled
         bool chainlinkInverted; // true if feed price must be inverted to match priceX96 convention
         uint32 brierDemoteBps; // if model brier > this => k forced to kDefault (0 = Brier demotion disabled)
-        uint32 minSamples; // calibration samples (n) a model needs before it can move k off kDefault (>= 1)
+        uint32 minSamples; // calibration samples (n) a model needs before it can move k off kDefault (0 = no probation)
         uint32 chainlinkMaxAge; // seconds; Chainlink answers older than this are invalid (required if feed set)
         uint24 arbThresholdPips; // gap (pips) below which no profitable arb exists: the premium only prices the
         // excess gap above it (0 = premium from the first pip, the v2 law). Typically baseFee + ~300. <= feeMax.
@@ -1010,7 +1010,7 @@ contract OniblockHook is LiquidityPenaltyHook, Ownable2Step, EIP712 {
             c.feeMax > FEE_MAX_CAP || c.baseFee > c.feeMax || c.conservativeFee > c.feeMax || c.kMaxBps >= BPS
                 || c.kMinBps > c.kMaxBps || c.kDefaultBps < c.kMinBps || c.kDefaultBps > c.kMaxBps
                 || c.sanityBandBps > BPS || c.brierDemoteBps > BPS || c.staleBlocks == 0
-                || (c.chainlinkFeed != address(0) && c.chainlinkMaxAge == 0) || c.minSamples == 0
+                || (c.chainlinkFeed != address(0) && c.chainlinkMaxAge == 0)
                 || c.arbThresholdPips > c.feeMax || c.jitWindowMin == 0 || c.jitWindowMin > c.jitWindowDefault
                 || c.jitWindowDefault > c.jitWindowMax
         ) revert InvalidConfig();

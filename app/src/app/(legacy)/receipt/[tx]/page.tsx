@@ -138,7 +138,7 @@ export default async function ReceiptPageView({ params }: { params: Promise<{ tx
     <div className="space-y-4">
       <div className="flex items-baseline gap-3">
         <Link href="/" className="text-sm text-ink-2 hover:text-ink">← live</Link>
-        <h1 className="text-xl font-semibold">Receipt</h1>
+        <h1 className="font-display text-2xl uppercase">Receipt</h1>
         <span className="mono text-xs text-muted">{p.tx}</span>
         <span className="ml-auto text-xs text-muted">block {p.block} · {p.chain.name} ({p.chain.chainId}) · {p.status}</span>
       </div>

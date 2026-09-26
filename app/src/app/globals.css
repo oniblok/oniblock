@@ -1,29 +1,43 @@
 @import 'tailwindcss';
 
 /* Dark-only UI. Tokens on :root. */
+/* Dark-only UI. Tokens on :root. Palette follows UniPerp (uniperp.live): flat near-black, thin grey borders,
+   saturated blue primary, TradingView teal / red for up / down, Roboto Mono throughout. */
 :root {
   color-scheme: dark;
-  --bg: #07080b;
-  --surface: #0d0f14;
-  --surface-2: #141821;
-  --border: #1d222c;
-  --text: #eef0f4;
-  --text-2: #a7aebb;
-  --muted: #687181;
-  --vanilla: #8a94a6; /* without Oniblock (plain Uniswap pool) */
-  --oni: #3ee6b0; /* with Oniblock */
-  --good: #3ee6b0;
-  --warn: #f5b041;
-  --bad: #ff4d5e;
-  --grid: #171b23;
-  --toxic: 255 77 94; /* rgb triplet for score tints */
+  --bg: #141314;
+  --surface: #181617; /* uniperp --card */
+  --surface-2: #1f1f1f; /* uniperp --muted (dark pills / tabs) */
+  --surface-3: #262626; /* uniperp --secondary */
+  --border: #2f2d2e; /* uniperp --border (white / 10 on card) */
+  --border-strong: #3a3839; /* uniperp --input (white / 15) */
+  --text: #fafafa;
+  --text-2: #d4d4d4;
+  --muted: #a1a1a1; /* uniperp --muted-foreground */
+  --primary: #0344dc; /* uniperp --primary */
+  --primary-hover: #1a56eb;
+  --vanilla: #8a8a8a; /* without Oniblock (plain Uniswap pool) */
+  --oni: #26a69a; /* with Oniblock: teal-green (uniperp up candle) */
+  --good: #00c950; /* uniperp green text */
+  --warn: #fe9a00; /* uniperp --warning */
+  --bad: #ef5350; /* uniperp down candle */
+  --bad-soft: #f47c79;
+  --bad-softer: #f6a3a0;
+  --sell: #dc4003; /* uniperp --destructive (sell) */
+  --grid: #232122;
+  --axis: #3a3839;
+  --toxic: 239 83 80; /* rgb triplet for score tints (= --bad) */
 }
 
 @theme inline {
   --color-bg: var(--bg);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
   --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
   --color-ink: var(--text);
   --color-ink-2: var(--text-2);
   --color-muted: var(--muted);
@@ -32,8 +46,20 @@
   --color-good: var(--good);
   --color-warn: var(--warn);
   --color-bad: var(--bad);
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-mono: var(--font-jb), ui-monospace, 'SF Mono', Menlo, monospace;
+  --color-bad-soft: var(--bad-soft);
+  --color-bad-softer: var(--bad-softer);
+  --color-sell: var(--sell);
+  /* monospace everywhere, like UniPerp; font-display = bold condensed for the wordmark / titles */
+  --font-sans: var(--font-mono-ui), ui-monospace, 'SF Mono', Menlo, monospace;
+  --font-mono: var(--font-mono-ui), ui-monospace, 'SF Mono', Menlo, monospace;
+  --font-display: var(--font-display-ui), 'Arial Narrow', sans-serif;
+  /* small, flat radii (uniperp: 3px chips, 5.5px buttons, ~7.5px panels) */
+  --radius-sm: 3px;
+  --radius: 3px;
+  --radius-md: 5px;
+  --radius-lg: 6px;
+  --radius-xl: 6px;
+  --radius-2xl: 8px;
 }
 
 body {
@@ -43,15 +69,21 @@ body {
   font-feature-settings: 'tnum' 1;
 }
 
+.font-display {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 8px;
 }
 
 .label {
-  font-size: 11px;
-  letter-spacing: 0.06em;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--muted);
 }
@@ -62,10 +94,10 @@ body {
 
 /* ---------------------------------------------------------------- live screen */
 .glass {
-  background: linear-gradient(180deg, rgba(20, 24, 33, 0.72), rgba(13, 15, 20, 0.72));
+  /* flat panel: no blur, no gradient */
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 16px;
-  backdrop-filter: blur(12px);
+  border-radius: 8px;
 }
 .row-enter {
   animation: row-in 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
@@ -81,22 +113,23 @@ body {
   }
 }
 .live-dot {
-  box-shadow: 0 0 0 0 rgba(62, 230, 176, 0.6);
+  box-shadow: 0 0 0 0 rgba(0, 201, 80, 0.5);
   animation: pulse 1.8s infinite;
 }
 @keyframes pulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(62, 230, 176, 0.55);
+    box-shadow: 0 0 0 0 rgba(0, 201, 80, 0.45);
   }
   70% {
-    box-shadow: 0 0 0 8px rgba(62, 230, 176, 0);
+    box-shadow: 0 0 0 5px rgba(0, 201, 80, 0);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(62, 230, 176, 0);
+    box-shadow: 0 0 0 0 rgba(0, 201, 80, 0);
   }
 }
 .you-glow {
-  box-shadow: inset 0 0 0 1px rgba(62, 230, 176, 0.55), 0 0 24px -6px rgba(62, 230, 176, 0.45);
+  /* "your swap" highlight: thin primary outline, no glow */
+  box-shadow: inset 0 0 0 1px var(--primary);
 }
 .fade-in {
   animation: fade 180ms ease-out both;

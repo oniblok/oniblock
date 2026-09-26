@@ -119,7 +119,7 @@ abstract contract DeployBase is Script {
         c.chainlinkFeed = feed;
         c.chainlinkInverted = inverted;
         c.brierDemoteBps = uint32(vm.envOr("BRIER_DEMOTE_BPS", uint256(2500)));
-        c.minSamples = uint32(vm.envOr("MIN_SAMPLES", uint256(10)));
+        c.minSamples = uint32(vm.envOr("MIN_SAMPLES", uint256(0))); // 0 = no probation: the model has power from its first attestation (Brier demotion still applies)
         // Sepolia ETH/USD heartbeat ~1h => 2h max age. Ignored (but harmless) when the feed is disabled.
         c.chainlinkMaxAge = uint32(vm.envOr("CHAINLINK_MAX_AGE", uint256(2 hours)));
         // v4 default 0: no hard-coded gap threshold, the model decides (v3 used baseFee + 300; still settable).

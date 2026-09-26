@@ -312,7 +312,6 @@ export interface FeedJson {
   chart: { buckets: FeedBucket[]; oniTotal: number; vanTotal: number; windowBlocks: number };
   rows: FeedRow[];
   swapEnabled: boolean;
-  swapLimits: { maxBase: number; maxQuote: number };
 }
 
 // ============================================================================================ v6 verdicts (/api/verdicts)

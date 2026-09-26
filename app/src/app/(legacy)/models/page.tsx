@@ -9,11 +9,17 @@ import { usePoll } from '@/lib/usePoll';
 export default function Models() {
   const { data, error } = usePoll<ModelsPage>('/api/models', 4000);
   const en = usePoll<EnsNamespaceJson>('/api/ens', 10_000);
-  if (!data) return <div className="card p-6 text-ink-2">{error ? <span className="text-bad">{error}</span> : 'Loading models…'}</div>;
+  // usePoll keeps the last good data on a failed poll; before the first success keep polling instead of a dead error
+  if (!data)
+    return (
+      <div className="card p-6 text-ink-2">
+        Loading models…{error ? <span className="ml-2 text-xs text-muted">(RPC hiccup, retrying)</span> : null}
+      </div>
+    );
   return (
     <div className="space-y-4">
       <div className="flex items-baseline gap-3">
-        <h1 className="text-xl font-semibold">Model nodes</h1>
+        <h1 className="font-display text-2xl uppercase">Model nodes</h1>
         <span className="text-sm text-ink-2">
           Scored by the settler against next-block markouts. Score = 0.25 × Brier ÷ Brier of the base-rate predictor (0.25 = no better than always guessing the base rate; raw Brier and skill are in the ENS records). Score above {brier(data.brierDemoteBps)} → k forced to kDefault on-chain, no admin step. New models start on probation until n ≥ {data.minSamples}.
           {data.jitHead ? (
