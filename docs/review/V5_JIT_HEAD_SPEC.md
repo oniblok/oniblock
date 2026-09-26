@@ -1,5 +1,7 @@
 # V5: the model decides two knobs — k (arbitrage) and the JIT window (opportunistic liquidity)
 
+> Note (later change): the `minSamples` probation ("unseasoned") described in this historic document has since been removed from the hook; the calibration gate is now the pool allowlist + Brier demotion only, and a model with no calibration record is active.
+
 Status: spec (build in progress). Everything in v4 (`docs/review/V4_AI_DECIDES.md`) stays. This adds a second typed
 question to the SAME per-block Jev call, a second attested number, a second on-chain knob and a second calibration
 record. Nothing about the fee law for swaps changes.

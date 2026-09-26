@@ -19,10 +19,9 @@ export interface PoolConfigJson {
   sanityBandBps: number;
   chainlinkFeed: string;
   brierDemoteBps: number;
-  minSamples?: number;
   /** v3: gap (pips) below which the hook charges exactly baseFee (absent on pre-v3 hooks => 0) */
   arbThresholdPips?: number;
-  /** v5 JIT head: window = jitWindowMin + (jitWindowMax − jitWindowMin)·p_jit·confidence; demoted/unseasoned/stale => jitWindowDefault (absent on pre-v5 hooks) */
+  /** v5 JIT head: window = jitWindowMin + (jitWindowMax − jitWindowMin)·p_jit·confidence; demoted/stale => jitWindowDefault (absent on pre-v5 hooks) */
   jitWindowMin?: number;
   jitWindowMax?: number;
   jitWindowDefault?: number;
@@ -89,8 +88,8 @@ export interface StateJson {
     oracleMid: number | null;
     modelNode: string;
     modelName?: string;
+    /** hook.isDemoted: not allowlisted, or Brier above brierDemoteBps (a model with no record is active) */
     demoted: boolean;
-    unseasoned: boolean;
     /** model allowlisted on this pool (null if the hook has no allowlist) */
     allowed: boolean | null;
     stale: boolean;
@@ -116,10 +115,8 @@ export interface StateJson {
       jitWindow: number | null;
       /** window applied to liquidity added now: jitWindow, or jitWindowDefault while the attestation is stale */
       jitWindowEffective: number | null;
-      /** hook.isJitDemoted minus the unseasoned case (bad JIT calibration) */
+      /** hook.isJitDemoted: parent not allowlisted, or JIT Brier above brierDemoteBps */
       demoted: boolean;
-      /** JIT head on probation: calibration(jitCalibrationKey).n < minSamples */
-      unseasoned: boolean;
       /** derived calibration key of the JIT head (keccak(modelNode ‖ keccak("jit"))) */
       calibrationKey: string | null;
       calibration?: CalibrationJson;
@@ -166,8 +163,6 @@ export interface RegimeCell {
   model: string | null;
   modelName: string | null;
   demoted: boolean;
-  /** model on probation (calibration n < minSamples) -> kDefault */
-  unseasoned: boolean;
   /** regime fee for the arb direction (pips): exact from Receipts when swaps happened, else quoted */
   feePips: number | null;
   feeSource: 'receipt' | 'quoted' | null;

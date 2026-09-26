@@ -181,13 +181,9 @@ export async function getState(): Promise<StateJson> {
   });
   const f0 = fq(q0);
   const f1 = fq(q1);
-  // "Unseasoned": has no (or too few) calibration records yet — k capped at kDefault by newer hook versions.
-  // Newer hooks: isDemoted also covers "unseasoned" (calibration.n < minSamples) and non-allowlisted nodes.
-  const minSamples = Number(cfg.minSamples ?? 0);
+  // Gate = pool allowlist + Brier demotion: hook.isDemoted is true iff the node is not allowlisted or its calibration
+  // record (n > 0) has Brier above brierDemoteBps. A model with no record yet is active.
   const allowed = await tryRead<boolean>(c, 'modelAllowed', [id, modelNode]);
-  const nCal = calibration?.n ?? 0;
-  const unseasoned = !!demoted && allowed !== false && nCal < minSamples;
-  const badCalibration = !!demoted && !unseasoned;
   const lastQuoter = lastAttArgs?.quoter as Address | undefined;
   const lastQuoterName = ens && lastQuoter ? ((await ensReverse(c, lastQuoter)) ?? undefined) : undefined;
   const stale = !!ps?.[2];
@@ -195,8 +191,6 @@ export async function getState(): Promise<StateJson> {
   const pJitBps = optNum(st.pJitBps) ?? optNum(lastAttArgs?.pJitBps);
   const jitWindow = optNum(st.jitWindow) ?? optNum(lastAttArgs?.jitWindow);
   const jitWindowDefault = optNum(cfg.jitWindowDefault);
-  const jitUnseasoned = !!jitDemoted && allowed !== false && (jitCalibration?.n ?? 0) < minSamples;
-  const jitBad = !!jitDemoted && !jitUnseasoned;
   const flags = readFlags();
   const res: StateJson = {
     chain: { name: c.sel.name, chainId: c.d.chainId, isDev: c.sel.isDev, block: head, timestamp: Number(blk.timestamp), ens },
@@ -220,8 +214,7 @@ export async function getState(): Promise<StateJson> {
       oracleMid: oracleX96 > 0n ? priceX96ToMid(oracleX96, o) : null,
       modelNode,
       modelName: nameOf(c, modelNode),
-      demoted: badCalibration,
-      unseasoned,
+      demoted: !!demoted,
       allowed: allowed ?? null,
       stale,
       feeZeroForOne: f0,
@@ -239,8 +232,7 @@ export async function getState(): Promise<StateJson> {
         jitWindow,
         // adds while the attestation is stale get jitWindowDefault (contract: _windowFor / effective window now)
         jitWindowEffective: stale ? jitWindowDefault : (jitWindow ?? jitWindowDefault),
-        demoted: jitBad,
-        unseasoned: jitUnseasoned,
+        demoted: !!jitDemoted,
         calibrationKey: jitKey,
         calibration: jitCalibration,
         supported: jitSupported,
@@ -601,7 +593,6 @@ export async function getHistory(opts: { blocks?: number; regimeBlocks?: number;
     let cal: Cal | undefined;
     if (a) for (const x of cals) if (x.mined <= b && x.node === a.node) cal = x;
     const demoted = !!(cal && cal.n > 0 && cfg.brierDemoteBps > 0 && cal.brier > cfg.brierDemoteBps);
-    const unseasoned = !!a && !demoted && (cal?.n ?? 0) < Number(cfg.minSamples ?? 0);
     const rs = rByBlock.get(b) ?? [];
     const arbR = rs.find((r) => r.arbDir) ?? rs.find((r) => r.stale);
     let feePips: number | null = null;
@@ -635,7 +626,6 @@ export async function getHistory(opts: { blocks?: number; regimeBlocks?: number;
       model: modelKind(name) ?? (a ? a.node.slice(0, 10) : null),
       modelName: name ?? null,
       demoted,
-      unseasoned,
       feePips,
       feeSource: src,
       gapPips: gap,

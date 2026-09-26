@@ -1,5 +1,7 @@
 # Oniblock contract fixes #1 (response to CONTRACT_REVIEW_1.md)
 
+> Note (later change): the `minSamples` probation ("unseasoned") described in this historic document has since been removed from the hook; the calibration gate is now the pool allowlist + Brier demotion only, and a model with no calibration record is active.
+
 Status: all review items addressed except R-08, which is documented only. `forge test` gives 62 passed, 1 skipped (the fork suite). The same holds with `FOUNDRY_FUZZ_RUNS=2000`, where the review sequence fuzz ran 2,004 runs × 16 steps. `smoke-local.sh` passes. The services local e2e passes, and so do the services unit tests (`OFFLINE=1`, 45 passed, 4 skipped) and `tsc`.
 
 ## CHANGELOG for downstream agents (ABI / deploy changes)

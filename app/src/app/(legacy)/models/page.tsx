@@ -21,7 +21,7 @@ export default function Models() {
       <div className="flex items-baseline gap-3">
         <h1 className="font-display text-2xl uppercase">Model nodes</h1>
         <span className="text-sm text-ink-2">
-          Scored by the settler against next-block markouts. Score = 0.25 × Brier ÷ Brier of the base-rate predictor (0.25 = no better than always guessing the base rate; raw Brier and skill are in the ENS records). Score above {brier(data.brierDemoteBps)} → k forced to kDefault on-chain, no admin step. New models start on probation until n ≥ {data.minSamples}.
+          Scored by the settler against next-block markouts. Score = 0.25 × Brier ÷ Brier of the base-rate predictor (0.25 = no better than always guessing the base rate; raw Brier and skill are in the ENS records). Score above {brier(data.brierDemoteBps)} → k forced to kDefault on-chain, no admin step. A new model is active from its first attestation (the pool allowlist gates which models may post).
           {data.jitHead ? (
             <>
               {' '}
@@ -56,8 +56,6 @@ export default function Models() {
               {current && <span className="rounded bg-oni/20 px-2 py-0.5 text-xs text-oni">in force</span>}
               {m.demoted ? (
                 <span className="rounded bg-bad/15 px-2 py-0.5 text-xs text-bad">demoted</span>
-              ) : m.unseasoned ? (
-                <span className="rounded bg-warn/15 px-2 py-0.5 text-xs text-warn">unseasoned (n &lt; {data.minSamples}) → kDefault</span>
               ) : (
                 <span className="rounded bg-good/15 px-2 py-0.5 text-xs text-good">active</span>
               )}
@@ -93,8 +91,6 @@ export default function Models() {
                   <span className="text-xs text-ink-2">second knob: window = min + (max − min) · p_jit · confidence, {data.jitWindow.min ?? '—'}–{data.jitWindow.max ?? '—'} blocks</span>
                   {m.jit.demoted ? (
                     <span className="rounded bg-bad/15 px-2 py-0.5 text-xs text-bad">demoted → default {data.jitWindow.default ?? '—'} blk</span>
-                  ) : m.jit.unseasoned ? (
-                    <span className="rounded bg-warn/15 px-2 py-0.5 text-xs text-warn">unseasoned (n &lt; {data.minSamples}) → default {data.jitWindow.default ?? '—'} blk</span>
                   ) : (
                     <span className="rounded bg-good/15 px-2 py-0.5 text-xs text-good">active</span>
                   )}
@@ -105,7 +101,7 @@ export default function Models() {
                 <div className="grid grid-cols-[repeat(5,minmax(0,1fr))_2fr] divide-x divide-line">
                   <Cell label="JIT score" value={brier(m.jit.brierBps)} tone={m.jit.demoted ? 'text-bad' : ''} />
                   <Cell label="Hit rate" value={bpsPct(m.jit.hitRateBps, 0)} />
-                  <Cell label="n (scored blocks)" value={m.jit.n} sub={m.jit.unseasoned ? `unseasoned until n ≥ ${data.minSamples}` : undefined} />
+                  <Cell label="n (scored blocks)" value={m.jit.n} sub={m.jit.n === 0 ? 'not graded yet' : undefined} />
                   <Cell label="Window in force" value={current && data.jitWindow.now != null ? `${data.jitWindow.now} blk` : '—'} sub={current ? 'poolState.jitWindow' : 'not the model in force'} />
                   <Cell label="Updated" value={m.jit.updatedBlock ?? '—'} sub="block" />
                   <div className="px-4 py-3 text-xs">

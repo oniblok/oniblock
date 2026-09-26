@@ -236,9 +236,9 @@ export default async function ReceiptPageView({ params }: { params: Promise<{ tx
           <div className="card p-4">
             <h3 className="mb-2 font-semibold">Running calibration · {p.calibration.modelName ?? short(p.calibration.modelNode)}</h3>
             <div className="grid grid-cols-3 divide-x divide-line rounded-md border border-line">
-              <Big label="Calibration score" value={brier(p.calibration.hook?.n ? p.calibration.hook.brierBps : null)} sub={`demote above ${brier(cfg.brierDemoteBps)}`} tone={p.calibration.demotedNow && !p.calibration.unseasoned ? 'text-bad' : ''} />
+              <Big label="Calibration score" value={brier(p.calibration.hook?.n ? p.calibration.hook.brierBps : null)} sub={`demote above ${brier(cfg.brierDemoteBps)}`} tone={p.calibration.demotedNow ? 'text-bad' : ''} />
               <Big label="Hit rate" value={p.calibration.hook?.n ? bpsPct(p.calibration.hook.hitRateBps, 0) : '—'} />
-              <Big label="n" value={p.calibration.hook?.n ?? 0} sub={p.calibration.unseasoned ? `unseasoned (n < ${p.calibration.minSamples}) → kDefault` : p.calibration.demotedNow ? 'DEMOTED → kDefault' : 'active'} tone={p.calibration.unseasoned ? 'text-warn' : p.calibration.demotedNow ? 'text-bad' : ''} />
+              <Big label="n" value={p.calibration.hook?.n ?? 0} sub={p.calibration.demotedNow ? 'DEMOTED → kDefault' : p.calibration.hook?.n ? 'active' : 'active · not graded yet'} tone={p.calibration.demotedNow ? 'text-bad' : ''} />
             </div>
             <div className="mt-3 label">Source</div>
             <Row k="hook.calibration()" v={p.calibration.hook ? `updated block ${p.calibration.hook.updatedBlock}` : '—'} />
@@ -265,13 +265,13 @@ export default async function ReceiptPageView({ params }: { params: Promise<{ tx
               <>
                 <div className="mt-4 label">JIT head · calibration(jitCalibrationKey(modelNode))</div>
                 <div className="mt-1 grid grid-cols-3 divide-x divide-line rounded-md border border-line">
-                  <Big label="JIT score" value={brier(p.calibration.jit.hook?.n ? p.calibration.jit.hook.brierBps : null)} sub={`demote above ${brier(cfg.brierDemoteBps)}`} tone={p.calibration.jit.demotedNow && !p.calibration.jit.unseasoned ? 'text-bad' : ''} />
+                  <Big label="JIT score" value={brier(p.calibration.jit.hook?.n ? p.calibration.jit.hook.brierBps : null)} sub={`demote above ${brier(cfg.brierDemoteBps)}`} tone={p.calibration.jit.demotedNow ? 'text-bad' : ''} />
                   <Big label="Hit rate" value={p.calibration.jit.hook?.n ? bpsPct(p.calibration.jit.hook.hitRateBps, 0) : '—'} />
                   <Big
                     label="n"
                     value={p.calibration.jit.hook?.n ?? 0}
-                    sub={p.calibration.jit.unseasoned ? `unseasoned (n < ${p.calibration.minSamples}) → default window` : p.calibration.jit.demotedNow ? 'DEMOTED → default window' : 'active'}
-                    tone={p.calibration.jit.unseasoned ? 'text-warn' : p.calibration.jit.demotedNow ? 'text-bad' : ''}
+                    sub={p.calibration.jit.demotedNow ? 'DEMOTED → default window' : p.calibration.jit.hook?.n ? 'active' : 'active · not graded yet'}
+                    tone={p.calibration.jit.demotedNow ? 'text-bad' : ''}
                   />
                 </div>
                 <Row k="calibration key" v={p.calibration.jit.calibrationKey} mono />

@@ -1,5 +1,7 @@
 # Oniblock E2E report: live Sepolia app (http://localhost:3001)
 
+> Note (later change): the `minSamples` probation ("unseasoned") described in this historic document has since been removed from the hook; the calibration gate is now the pool allowlist + Brier demotion only, and a model with no calibration record is active.
+
 - Date: 2026-09-27, Sepolia blocks ~11788305 to 11788375. Hook `0x8dAcd25138e902D7755E75d91cE1AEA12f5C75C3` (deploy block 11788205).
 - Tooling: Playwright 1.x with headless Chromium (installed OK), Node scripts, `cast` against the `.env` RPC (ethereum-sepolia-rpc.publicnode.com), curl.
 - Scripts and screenshots: `/private/tmp/claude-501/-Users-akshat-Desktop-et/8ca8eb79-529b-467f-8e6c-a45c8e6238bc/scratchpad/e2e/` (`pages.js`, `swapui.js`, `judge.js`, `invalid.js`, `mobile.js`, `api.py`, `verify.sh`, `ens.sh`, `shots/`).

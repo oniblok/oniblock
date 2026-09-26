@@ -62,7 +62,6 @@ export interface PoolJson {
   feeMax?: number;
   baseFee?: number;
   staleBlocks?: number;
-  minSamples?: number;
   brierDemoteBps?: number;
   arbThresholdPips?: number;
 }
@@ -78,7 +77,7 @@ export interface DeploymentV4 {
 
 export async function deployV4(
   anvil: Anvil,
-  env: { initMid: number; liquidity: bigint; minSamples: number; staleBlocks: number; baseFee: number; thrPips: number; aiKMax: number; aiKStep: number; aiKDefault: number },
+  env: { initMid: number; liquidity: bigint; staleBlocks: number; baseFee: number; thrPips: number; aiKMax: number; aiKStep: number; aiKDefault: number },
 ): Promise<DeploymentV4> {
   const out = resolve(ROOT, 'deployments', `bench-v4-${anvil.port}.json`);
   for (let attempt = 0; attempt < 4; attempt++) {
@@ -91,7 +90,6 @@ export async function deployV4(
         DEPLOYER_PK: ANVIL0_PK,
         INIT_PRICE_USD_E8: String(Math.round(env.initMid * 1e8)),
         LIQUIDITY: env.liquidity.toString(),
-        MIN_SAMPLES: String(env.minSamples),
         STALE_BLOCKS: String(env.staleBlocks),
         BASE_FEE: String(env.baseFee),
         ARB_THRESHOLD_PIPS: String(env.thrPips),

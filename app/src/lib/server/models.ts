@@ -25,10 +25,8 @@ export interface JitHeadRow {
   hitRateBps: number | null;
   n: number;
   updatedBlock: number | null;
-  /** demoted for bad JIT calibration (window forced to jitWindowDefault) */
+  /** demoted for bad JIT calibration (window forced to jitWindowDefault); no record yet => active */
   demoted: boolean | null;
-  /** on probation: n < minSamples (window = jitWindowDefault) */
-  unseasoned: boolean;
   history: CalibrationPoint[];
   ens?: Record<string, string>;
 }
@@ -41,10 +39,8 @@ export interface ModelRow {
   hitRateBps: number | null;
   n: number;
   updatedBlock: number | null;
-  /** demoted for bad calibration (Brier above threshold) */
+  /** demoted for bad calibration (Brier above threshold); no record yet => active */
   demoted: boolean | null;
-  /** on probation: n < minSamples (hook caps k at kDefault) */
-  unseasoned: boolean;
   allowed: boolean | null;
   attestations: number;
   lastAttestBlock: number | null;
@@ -59,7 +55,6 @@ export interface ModelsPage {
   chain: { name: string; chainId: number; ens: boolean; ensName?: string };
   brierDemoteBps: number;
   kDefaultBps: number;
-  minSamples: number;
   currentModelNode?: Hex;
   /** the deployed ABI carries the v5 JIT head */
   jitHead: boolean;
@@ -161,7 +156,6 @@ async function buildModels(c: Ctx): Promise<ModelsPage> {
   const head = Math.max(ev.scannedTo, 0);
   const cals = ev.cals;
   const atts = ev.atts;
-  const minSamples = Number(cfg.minSamples ?? 0);
   const jitHead = jitHeadSupported(c);
   // c.names maps namehash -> name; models = known *.models.* names + every node seen on-chain
   const modelHashes = new Set<Hex>();
@@ -199,15 +193,13 @@ async function buildModels(c: Ctx): Promise<ModelsPage> {
     let jit: JitHeadRow | undefined;
     if (jitKey) {
       const jn = jitCal ? n(jitCal.n) : 0;
-      const jitUnseasoned = allow !== false && jn < minSamples;
       jit = {
         calibrationKey: jitKey,
         brierBps: jitCal && jn > 0 ? n(jitCal.brierBps) : null,
         hitRateBps: jitCal && jn > 0 ? n(jitCal.hitRateBps) : null,
         n: jn,
         updatedBlock: jitCal && jn > 0 ? n(jitCal.updatedBlock) : null,
-        demoted: jitDemoted == null ? null : jitDemoted && allow !== false && !jitUnseasoned,
-        unseasoned: jitUnseasoned,
+        demoted: jitDemoted == null ? null : jitDemoted && allow !== false,
         history: histOf(jitKey),
         ens: pick(texts, JIT_CALIBRATION_KEYS),
       };
@@ -220,8 +212,7 @@ async function buildModels(c: Ctx): Promise<ModelsPage> {
       hitRateBps: cal && nn > 0 ? n(cal.hitRateBps) : null,
       n: nn,
       updatedBlock: cal && nn > 0 ? n(cal.updatedBlock) : null,
-      unseasoned: allow !== false && nn < minSamples,
-      demoted: demoted == null ? null : demoted && allow !== false && !(nn < minSamples),
+      demoted: demoted == null ? null : demoted && allow !== false,
       allowed: allow,
       attestations: myAtts.length,
       lastAttestBlock: myAtts.length ? Number(myAtts.at(-1)!.blockNumber) : null,
@@ -237,7 +228,6 @@ async function buildModels(c: Ctx): Promise<ModelsPage> {
       chain: { name: c.sel.name, chainId: c.d.chainId, ens, ensName: c.ens?.name },
       brierDemoteBps: cfg.brierDemoteBps,
       kDefaultBps: cfg.kDefaultBps,
-      minSamples,
       currentModelNode: (ps?.[0]?.modelNode as Hex | undefined)?.toLowerCase() as Hex | undefined,
       jitHead,
       jitWindow: { min: optNum(cfg.jitWindowMin), max: optNum(cfg.jitWindowMax), default: optNum(cfg.jitWindowDefault), now: optNum(ps?.[0]?.jitWindow) },

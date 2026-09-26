@@ -55,7 +55,7 @@ export function JudgementModal({ row, feed, you, onClose }: { row: FeedRow | nul
   // "" (unset ENS record) and 0 both mean the settler has not graded this model yet
   const calN = ens['calibration.n'] ? Number(ens['calibration.n']) : cal?.hook?.n;
   const graded = calN != null && Number.isFinite(calN) && calN > 0;
-  const status = cal?.demotedNow ? (cal.unseasoned ? 'On probation' : 'Demoted') : cal ? 'Active' : null;
+  const status = cal?.demotedNow ? 'Demoted' : cal ? 'Active' : null;
   const outcome = row.markoutUsd;
   const judgedToxic = row.arbDir && !row.stale && row.score >= 0.5;
   const correct = outcome === null || !row.arbDir || row.stale ? null : judgedToxic === outcome > 0;
@@ -80,7 +80,6 @@ export function JudgementModal({ row, feed, you, onClose }: { row: FeedRow | nul
             <div className="mono text-4xl font-semibold" style={{ color: row.score >= 0.15 ? t.text : 'var(--text)' }}>
               {row.arbDir && !row.stale ? row.score.toFixed(2) : '—'}
             </div>
-            <div className="text-[11px] text-muted">score = p × confidence</div>
           </div>
         </div>
         <div className="mt-3 text-sm text-ink-2">
@@ -110,7 +109,7 @@ export function JudgementModal({ row, feed, you, onClose }: { row: FeedRow | nul
               <>
                 Pool price was <b className="text-ink">{(row.gapPips / 100).toFixed(1)} bps</b> off Binance and this trade closed the gap.
                 {row.kBps === 0 && (
-                  <> The fee slope k was 0 at this block (the model was still on probation or demoted by its calibration), so only the base fee applied.</>
+                  <> The fee slope k was 0 at this block (the model was demoted by its calibration), so only the base fee applied.</>
                 )}
                 <div className="mono mt-2 text-[11px] text-muted">
                   fee = base {(row.baseFeePips / 10_000).toFixed(2)}% + k·(gap{thr ? ` − ${(thr / 100).toFixed(1)} bps` : ''}) = <span className="text-ink">{(row.feePips / 10_000).toFixed(2)}%</span>
@@ -166,9 +165,7 @@ export function JudgementModal({ row, feed, you, onClose }: { row: FeedRow | nul
                       {calN}
                     </span>
                   ) : (
-                    <span className="text-muted">
-                      not graded yet{cal?.minSamples ? <span className="mono"> (n 0 / {cal.minSamples})</span> : null}
-                    </span>
+                    <span className="text-muted">not graded yet</span>
                   )
                 }
               />
@@ -194,9 +191,6 @@ export function JudgementModal({ row, feed, you, onClose }: { row: FeedRow | nul
           ) : (
             <span className="mono text-muted">{short(row.tx)}</span>
           )}
-          <a href={`/receipt/${row.tx}`} target="_blank" rel="noreferrer" className="text-muted hover:text-ink-2">
-            Full receipt ↗
-          </a>
         </div>
       </div>
     </Modal>

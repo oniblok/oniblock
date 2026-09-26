@@ -68,13 +68,13 @@ contract Review2FindingsTest is OniblockTestBase {
 
     // ================================================================== R-01 variants
 
-    /// FINDING N-03 (trust): the keeper can post a demoted model's scores under ANOTHER allowlisted, seasoned node.
+    /// FINDING N-03 (trust): the keeper can post a demoted model's scores under ANOTHER allowlisted, well-calibrated node.
     /// The allowlist bounds *which* identities it can claim, not *which model produced the score*.
-    function test_r2_R01_keeperRelabelsScoresAsOtherSeasonedNode() public {
+    function test_r2_R01_keeperRelabelsScoresAsOtherCalibratedNode() public {
         uint256 mid = _poolX96(pid);
         hook.setModelAllowed(pid, MODEL2, true);
-        _season(MODEL2, 1000); // the fallback node is seasoned and good
-        _season(MODEL, 4000); // primary is demoted
+        _calibrate(MODEL2, 1000); // the fallback node is well calibrated
+        _calibrate(MODEL, 4000); // primary is demoted
         assertTrue(hook.isDemoted(pid, MODEL));
         for (uint256 i; i < 3; i++) {
             _postAs(MODEL2, mid, 10000, 10000); // same (demoted) scores, relabelled
@@ -83,32 +83,29 @@ contract Review2FindingsTest is OniblockTestBase {
         assertEq(_k(), 8000, "demoted model's scores reach kMax under the fallback node");
     }
 
-    /// v5 demo decision (reverses N-04): minSamples = 0 is ALLOWED and means "no probation": an allowlisted node with
-    /// no record has power over k from its first attestation. Brier demotion still applies once graded, the
-    /// allowlist still gates which nodes may post, and minSamples >= 1 restores probation.
-    function test_r2_R01_minSamplesZero_meansNoProbation() public {
-        OniblockHook.PoolConfig memory c = defaultConfig();
-        c.minSamples = 0;
-        hook.updatePoolConfig(pid, c);
+    /// The gate is allowlist + Brier demotion only (no sample minimum): an allowlisted node with no record has power
+    /// over k from its first attestation; Brier demotion applies once graded; the allowlist gates which nodes post.
+    function test_r2_R01_gate_isAllowlistPlusBrier() public {
         hook.setModelAllowed(pid, MODEL2, true); // brand-new node, no record
-        assertFalse(hook.isDemoted(pid, MODEL2), "no probation: unrecorded allowlisted node is active");
-        _season(MODEL, 4000); // Brier 0.40 > brierDemoteBps
-        assertTrue(hook.isDemoted(pid, MODEL), "Brier demotion still applies");
+        assertFalse(hook.isDemoted(pid, MODEL2), "no record => active");
+        _calibrate(MODEL, 4000); // Brier 0.40 > brierDemoteBps
+        assertTrue(hook.isDemoted(pid, MODEL), "Brier demotion applies");
         assertTrue(hook.isDemoted(pid, bytes32(uint256(0xdead))), "not allowlisted => demoted");
-        c.minSamples = 1;
+        OniblockHook.PoolConfig memory c = defaultConfig();
+        c.brierDemoteBps = 0; // Brier demotion disabled
         hook.updatePoolConfig(pid, c);
-        assertTrue(hook.isDemoted(pid, MODEL2), "minSamples >= 1 restores probation");
+        assertFalse(hook.isDemoted(pid, MODEL), "brierDemoteBps = 0 => no Brier demotion");
     }
 
-    /// INFO: calibration is keyed by modelNode only (global); the allowlist / minSamples / Brier threshold are
-    /// per pool. A node seasoned anywhere has instant (step-limited) power on any pool that allowlists it.
+    /// INFO: calibration is keyed by modelNode only (global); the allowlist / Brier threshold are
+    /// per pool. A node calibrated anywhere has instant (step-limited) power on any pool that allowlists it.
     function test_r2_R01_calibrationIsGlobal() public {
         PoolKey memory k2 = PoolKey(currency0, currency1, LPFeeLibrary.DYNAMIC_FEE_FLAG, 10, IHooks(address(hook)));
         hook.registerPool(k2, defaultConfig());
         manager.initialize(k2, _sqrtAtUsd(USD_E8));
         hook.setModelAllowed(k2.toId(), MODEL, true);
-        assertFalse(hook.isDemoted(k2.toId(), MODEL), "seasoned on pool 1 => seasoned on pool 2");
-        _season(MODEL, 4000);
+        assertFalse(hook.isDemoted(k2.toId(), MODEL), "calibrated on pool 1 => active on pool 2");
+        _calibrate(MODEL, 4000);
         assertTrue(hook.isDemoted(k2.toId(), MODEL) && hook.isDemoted(pid, MODEL), "demotion is global too");
     }
 
@@ -315,7 +312,7 @@ contract Review2FindingsTest is OniblockTestBase {
     /// Receipts of this block reflect exactly the anchored attestation; the new one applies from the next block.
     function test_r2_A02_lowerKAttestation_doesNotMixAttribution_fixed() public {
         hook.setModelAllowed(pid, MODEL2, true);
-        _season(MODEL2, 1000);
+        _calibrate(MODEL2, 1000);
         _postGap(100);
         vm.roll(vm.getBlockNumber() + 1);
         _postAs(MODEL, _mid(), 10000, 10000); // k 6000 under MODEL, block B

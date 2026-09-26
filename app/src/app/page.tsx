@@ -69,7 +69,6 @@ export default function Live() {
 
   const edge = feed ? feed.chart.oniTotal - feed.chart.vanTotal : 0;
   const chainLabel = !feed ? '' : feed.chain.name === 'sepolia' ? 'Ethereum Sepolia' : feed.chain.name === 'fork' ? 'Sepolia fork' : 'Local chain';
-  const minutes = feed ? Math.round((feed.chart.windowBlocks * (feed.chain.name === 'sepolia' ? 12 : 3)) / 60) : 0;
 
   return (
     <div className="mx-auto flex h-screen max-w-[1240px] flex-col gap-4 px-5 py-4">
@@ -110,8 +109,6 @@ export default function Live() {
           )}
           <div className="ml-auto text-right text-[11px] leading-tight text-muted">
             LP profit vs Binance
-            <br />
-            last ~{minutes} min · bars = edge per interval
           </div>
         </div>
         <div className="min-h-0 flex-1">{feed ? <Chart buckets={feed.chart.buckets} quote={feed.pair.quote} /> : <Skeleton />}</div>

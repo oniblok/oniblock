@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Live Oniblock on Ethereum Sepolia: keeper (Jev every block), settler, arb + retail bots, and the app on :3001.
+# Live Oniblock on Ethereum Sepolia: keeper (Jev every block), settler, retail bot, and the app on :3001.
 # RPC: SEPOLIA_RPC_ALCHEMY carries everything except eth_getLogs (SEPOLIA_RPC_HTTPS), see services/src/config.ts.
 # Needs the v5 hook (deployments/11155111.json from scripts/deploy-sepolia.sh); keeper/settler preflight the ENS roles.
 # SEPOLIA_JIT=1 also runs the jit bot (JIT_PK, funded) so the JIT head sees churn and seasons; off by default (gas).
@@ -14,7 +14,6 @@ trap 'echo; echo "[sepolia] stopping"; kill "${PIDS[@]}" 2>/dev/null; wait; exit
 
 start keeper  services env KEEPER_EVERY="${KEEPER_EVERY:-1}" ATTEST_BLOCK_OFFSET=0 MODEL_MODE="${MODEL_MODE:-auto}" pnpm keeper
 start settler services pnpm settler
-start arb     services pnpm arb --all
 start retail  services pnpm retail --all --lambda "${RETAIL_LAMBDA:-0.15}"
 [ "${SEPOLIA_JIT:-0}" = 1 ] && start jit services pnpm jit --hold "${JIT_HOLD:-12}" --every "${JIT_EVERY:-30}"
 [ -f "$ROOT/app/.next/BUILD_ID" ] || (cd "$ROOT/app" && pnpm build >"$L/app-build.log" 2>&1)

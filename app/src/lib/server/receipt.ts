@@ -91,10 +91,8 @@ export interface ReceiptPage {
     modelNode: Hex;
     modelName?: string;
     hook?: HookCalibration;
+    /** hook.isDemoted now: not allowlisted, or Brier above brierDemoteBps (no record yet => active) */
     demotedNow?: boolean;
-    /** on probation: calibration n < poolConfig.minSamples (the hook caps k at kDefault) */
-    unseasoned?: boolean;
-    minSamples?: number;
     history: { block: number; brierBps: number; hitRateBps: number; n: number }[];
     ens?: Record<string, string>;
     ensNamehash?: Hex;
@@ -103,7 +101,6 @@ export interface ReceiptPage {
       calibrationKey: Hex;
       hook?: HookCalibration;
       demotedNow?: boolean;
-      unseasoned?: boolean;
       history: { block: number; brierBps: number; hitRateBps: number; n: number }[];
       ens?: Record<string, string>;
     };
@@ -316,8 +313,6 @@ export async function getReceiptPage(txHash: Hex): Promise<ReceiptPage> {
       modelName: name,
       hook: toCal(hookCal),
       demotedNow: demoted,
-      unseasoned: !!demoted && (hookCal ? n(hookCal.n) : 0) < n(cfg.minSamples),
-      minSamples: n(cfg.minSamples),
       history: toHist(hist),
       ens: texts,
       ensNamehash: name ? namehash(name) : undefined,
@@ -326,7 +321,6 @@ export async function getReceiptPage(txHash: Hex): Promise<ReceiptPage> {
             calibrationKey: jitKey,
             hook: toCal(jitCal),
             demotedNow: jitDemoted,
-            unseasoned: !!jitDemoted && (jitCal ? n(jitCal.n) : 0) < n(cfg.minSamples),
             history: toHist(jitHist),
             ens: jitTexts,
           }

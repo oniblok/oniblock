@@ -36,7 +36,6 @@ export const poolConfigComponents = [
   { name: 'chainlinkFeed', type: 'address' },
   { name: 'chainlinkInverted', type: 'bool' },
   { name: 'brierDemoteBps', type: 'uint32' },
-  { name: 'minSamples', type: 'uint32' },
   { name: 'chainlinkMaxAge', type: 'uint32' },
   { name: 'arbThresholdPips', type: 'uint24' },
   // v5: JIT penalty window bounds (blocks); window = min + (max - min) * pJit * c / 1e8, default when the JIT head is demoted.
@@ -229,7 +228,7 @@ export const oniblockHookAbi = [
       { name: 'n', type: 'uint32', indexed: false },
     ],
   },
-  // CONTRACT_FIXES_1 (R-01): per-pool model allowlist; unseasoned/non-allowlisted nodes run at kDefault.
+  // CONTRACT_FIXES_1 (R-01): per-pool model allowlist; non-allowlisted (and Brier-demoted) nodes run at kDefault.
   {
     type: 'function',
     name: 'modelAllowed',

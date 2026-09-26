@@ -1,5 +1,7 @@
 # Integration pass #1: demo liveliness, narrative, deployBlock, ENS on a fork, calibration gate
 
+> Note (later change): the `minSamples` probation ("unseasoned") described in this historic document has since been removed from the hook; the calibration gate is now the pool allowlist + Brier demotion only, and a model with no calibration record is active.
+
 Date: 2026-09-26. Nothing was broadcast to Sepolia; all ENS/v4 work ran on local Anvil forks. `contracts/src` and `benchmark/` were not edited.
 
 ## Summary

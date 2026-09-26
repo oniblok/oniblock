@@ -1,5 +1,7 @@
 # Final acceptance review
 
+> Note (later change): the `minSamples` probation ("unseasoned") described in this historic document has since been removed from the hook; the calibration gate is now the pool allowlist + Brier demotion only, and a model with no calibration record is active.
+
 Date: 2026-09-26. Reviewer: final acceptance agent. Constraints followed: no git, no Sepolia broadcasts, no `.env` values printed, every Anvil run used `--prune-history`, every started process was stopped (checked with `pgrep` afterwards), and `contracts/src` was not modified. Disk: 39 GiB free on `/System/Volumes/Data` before and after.
 
 ## 1. Acceptance commands (BUILD_SPEC "Acceptance" + README "Run it")

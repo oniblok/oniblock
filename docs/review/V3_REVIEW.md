@@ -1,5 +1,7 @@
 # Oniblock v3 review (threshold fee law + gated Jev keeper)
 
+> Note (later change): the `minSamples` probation ("unseasoned") described in this historic document has since been removed from the hook; the calibration gate is now the pool allowlist + Brier demotion only, and a model with no calibration record is active.
+
 Date: 2026-09-26. Independent reviewer. Scope: `contracts/src/OniblockHook.sol` (arbThresholdPips + law), `contracts/test/ThresholdLaw.t.sol`,
 `services/src/{keeper,settler,price,features}.ts`, app status strip / receipt page, deploy scripts, e2e/story, benchmark v3 conclusion.
 No source files under `contracts/src` or `services/src` were edited. PoCs: `contracts/test/review3/V3Review.t.sol` (7 tests, all pass).

@@ -142,7 +142,7 @@ export function writeReportV4(results: RunResultV4[], outDir: string, meta: Meta
         aiPcEdge: aggOf(rs, (r) => D(r).aiPcEdge, seed++),
         labelledAi: aggOf(rs, (r) => r.labelDiag.ai.n, seed++),
         labelledGated: aggOf(rs, (r) => r.labelDiag.aigated.n, seed++),
-        seasonedAt: aggOf(rs, (r) => r.demoted.ai.seasonedAtStep ?? NaN, seed++),
+        activeAt: aggOf(rs, (r) => r.demoted.ai.activeAtStep ?? NaN, seed++),
       };
       agg[v]![g] = x;
     }
@@ -222,9 +222,9 @@ export function writeReportV4(results: RunResultV4[], outDir: string, meta: Meta
       L.push('');
       L.push(claim('(c) Jev minus (d) heuristic', A.model!.aiMinusHeurBps, `Volatile ${fa(V.model!.aiMinusHeurBps)}, calm ${fa(C.model!.aiMinusHeurBps)}.`));
       L.push(claim('(d) heuristic minus (b) threshold', A.model!.heurMinusThrkBps, `Volatile ${fa(V.model!.heurMinusThrkBps)}, calm ${fa(C.model!.heurMinusThrkBps)}.`));
-      L.push(`- What Jev decided (pool c): stored k = 0 on ${fmt(A.model!.aiKZeroPct.mean, 1)}% of steps and k < 0.05 on ${fmt(A.model!.aiKLowPct.mean, 1)}% (calm ${fmt(C.model!.aiKLowPct.mean, 1)}%, volatile ${fmt(V.model!.aiKLowPct.mean, 1)}%). Mean posted p·c when the gap was ≤ the base fee (no profitable arbitrage): ${fmt(A.model!.aiPcNoEdge.mean / 100, 2)}% (→ k ≈ ${fmt((A.model!.aiPcNoEdge.mean * cfg.aiKMax) / 1e4, 0)} bps); when the gap exceeded the base fee: ${fmt(A.model!.aiPcEdge.mean / 100, 1)}% (→ k ≈ ${fmt((A.model!.aiPcEdge.mean * cfg.aiKMax) / 1e4, 0)} bps). The model has no power until seasoned: first seasoned step ${fmt(A.model!.seasonedAt.mean, 0)} on average (calm ${fmt(C.model!.seasonedAt.mean, 0)}, volatile ${fmt(V.model!.seasonedAt.mean, 0)}); until then k = kDefault = ${cfg.aiKDefault}.`);
+      L.push(`- What Jev decided (pool c): stored k = 0 on ${fmt(A.model!.aiKZeroPct.mean, 1)}% of steps and k < 0.05 on ${fmt(A.model!.aiKLowPct.mean, 1)}% (calm ${fmt(C.model!.aiKLowPct.mean, 1)}%, volatile ${fmt(V.model!.aiKLowPct.mean, 1)}%). Mean posted p·c when the gap was ≤ the base fee (no profitable arbitrage): ${fmt(A.model!.aiPcNoEdge.mean / 100, 2)}% (→ k ≈ ${fmt((A.model!.aiPcNoEdge.mean * cfg.aiKMax) / 1e4, 0)} bps); when the gap exceeded the base fee: ${fmt(A.model!.aiPcEdge.mean / 100, 1)}% (→ k ≈ ${fmt((A.model!.aiPcEdge.mean * cfg.aiKMax) / 1e4, 0)} bps). First step with the node active (not demoted): ${fmt(A.model!.activeAt.mean, 0)} on average (calm ${fmt(C.model!.activeAt.mean, 0)}, volatile ${fmt(V.model!.activeAt.mean, 0)}); while demoted k = kDefault = ${cfg.aiKDefault}.`);
       L.push('');
-      L.push('**4. Calibration gate** (arm e: Jev inverted from mid-window; share of 2nd-half steps with the node demoted or unseasoned, i.e. k = kDefault = 0 = a vanilla pool)');
+      L.push('**4. Calibration gate** (arm e: Jev inverted from mid-window; share of 2nd-half steps with the node demoted, i.e. k = kDefault = 0 = a vanilla pool)');
       L.push('');
       L.push(claim('Degraded minus honest demotion share', A.model!.gateSeparationPp, `Degraded ${fa(A.model!.degradedDemoted2ndPct, 1)}% vs honest ${fa(A.model!.honestDemoted2ndPct, 1)}% (volatile ${fa(V.model!.degradedDemoted2ndPct, 1)}% vs ${fa(V.model!.honestDemoted2ndPct, 1)}%; calm ${fa(C.model!.degradedDemoted2ndPct, 1)}% vs ${fa(C.model!.honestDemoted2ndPct, 1)}%). Graded blocks per window: honest ${fmt(A.model!.labelledAi.mean, 0)} (calm ${fmt(C.model!.labelledAi.mean, 0)}, volatile ${fmt(V.model!.labelledAi.mean, 0)}). LP of the gated pool minus the honest pool, 2nd half: ${fa(A.model!.gatedMinusAi2ndHalfBps)} bps; gated pool vs its vanilla neighbour: ${fa(A.aigated!.withinBps)} bps.`, 'pp'));
       L.push('');
@@ -255,7 +255,7 @@ export function writeReportV4(results: RunResultV4[], outDir: string, meta: Meta
   L.push(`- Keeper posts the mid of the previous 1s step (lag ${cfg.keeperLag}), misses ${cfg.missProb * 100}% of steps; arbitrageurs see the true 1s kline close (${cfg.arbLateProb * 100}% "late" draw); kline closes stand in for the CEX mid; CEX taker ${cfg.arbs.map((a) => a.cexBps + ' bps').join(' / ')}, gas $${cfg.arbs.map((a) => a.gasUsd).join(' / $')}.`);
   L.push(`- Retail demand fixed (Poisson ${cfg.lambda}/s per market, lognormal median $${cfg.retailMedianUsd}, sigma ${cfg.retailSigma}); elasticity only via routing between the two pools of a market (${cfg.routing}, ${cfg.minSplitFrac * 100}% minimum leg), no retail gas / aggregator fees; ${cfg.informedFrac * 100}% informed orders.`);
   L.push('- Full-range liquidity, one LP per pool, no JIT, no LP re-allocation; two pools per market.');
-  L.push(`- v4 keeper: no gate, the model is asked on every attested step; Jev sees the k-free v4 state (gap, base fee, edge at the base fee, flow, volatility) with the v4 question; states are quantized (0.01% gap buckets within ±0.10% of the base fee) for the cache. Settler labels: CEX mid at the swap's block time (--label-mid ${cfg.labelMid}); calibration every ${cfg.settleEvery} steps over the last ${cfg.calibWindow} graded blocks, minSamples ${cfg.minSamples}, Brier gate 0.25.`);
+  L.push(`- v4 keeper: no gate, the model is asked on every attested step; Jev sees the k-free v4 state (gap, base fee, edge at the base fee, flow, volatility) with the v4 question; states are quantized (0.01% gap buckets within ±0.10% of the base fee) for the cache. Settler labels: CEX mid at the swap's block time (--label-mid ${cfg.labelMid}); calibration every ${cfg.settleEvery} steps over the last ${cfg.calibWindow} graded blocks, posting after ${cfg.calibMinN} graded blocks, Brier gate 0.25.`);
   L.push('- 12 one-hour windows (most volatile / typical-quiet hours of the last 60 days, data/windows_v2.json): small sample; volatile rows are stress tests.');
 
   // ---------------- tables
@@ -269,7 +269,7 @@ export function writeReportV4(results: RunResultV4[], outDir: string, meta: Meta
   T.push('## Setup');
   T.push('');
   T.push(
-    `Fresh anvil per run (\`--prune-history\`), \`contracts/script/bench/DeployBenchV4.s.sol\`: one OniblockHook, seven markets = 14 v4 pools with identical full-range liquidity (~$${fmt(tvl, 0)} per pool) and the same initial price. Markets: ${MARKETS.map((m) => `**${m.name}** ${m.label}`).join('; ')}. Hooked pools: baseFee = the vanilla fee tier, feeMax 1%, conservativeFee = base + 0.20%, stale after ${cfg.staleSteps} steps. Fee law (arb direction): fee = min(base + k * max(0, gapHW - arbThresholdPips), feeMax); k = kMin + (kMax - kMin) * p * c for a seasoned model, kDefault otherwise.`,
+    `Fresh anvil per run (\`--prune-history\`), \`contracts/script/bench/DeployBenchV4.s.sol\`: one OniblockHook, seven markets = 14 v4 pools with identical full-range liquidity (~$${fmt(tvl, 0)} per pool) and the same initial price. Markets: ${MARKETS.map((m) => `**${m.name}** ${m.label}`).join('; ')}. Hooked pools: baseFee = the vanilla fee tier, feeMax 1%, conservativeFee = base + 0.20%, stale after ${cfg.staleSteps} steps. Fee law (arb direction): fee = min(base + k * max(0, gapHW - arbThresholdPips), feeMax); k = kMin + (kMax - kMin) * p * c for an allowlisted, non-demoted model, kDefault otherwise.`,
   );
   T.push('');
   T.push(
@@ -307,12 +307,12 @@ export function writeReportV4(results: RunResultV4[], outDir: string, meta: Meta
   T.push('');
   T.push('## Model decisions and calibration gate per run');
   T.push('');
-  T.push('| run | c - b (bps) | c - a | c - d (Jev - heur) | f - c | AI k=0 / k<0.05 steps | p·c no edge / edge (AI) | live Jev calls | honest demoted 1st/2nd | degraded demoted 1st/2nd | graded blocks honest / degraded | seasoned at step | gated - honest LP 2nd half |');
+  T.push('| run | c - b (bps) | c - a | c - d (Jev - heur) | f - c | AI k=0 / k<0.05 steps | p·c no edge / edge (AI) | live Jev calls | honest demoted 1st/2nd | degraded demoted 1st/2nd | graded blocks honest / degraded | active at step | gated - honest LP 2nd half |');
   T.push('|---|---|---|---|---|---|---|---|---|---|---|---|---|');
   for (const r of results) {
     const x = md.get(r.label)!;
     T.push(
-      `| ${r.label} | ${fmt(x.aiMinusThrkBps)} | ${fmt(x.aiMinusV2kBps)} | ${fmt(x.aiMinusHeurBps)} | ${fmt(x.dzMinusAiBps)} | ${fmt(x.aiKZeroShare * 100, 0)}% / ${fmt(x.aiKLowShare * 100, 0)}% | ${fmt(x.aiPcNoEdge, 0)} / ${fmt(x.aiPcEdge, 0)} | ${r.jev.calls} | ${fmt(r.demoted.ai.firstHalf * 100, 0)}% / ${fmt(r.demoted.ai.secondHalf * 100, 0)}% | ${fmt(r.demoted.aigated.firstHalf * 100, 0)}% / ${fmt(r.demoted.aigated.secondHalf * 100, 0)}% | ${r.labelDiag.ai.n} / ${r.labelDiag.aigated.n} | ${r.demoted.ai.seasonedAtStep ?? '-'} | ${fmt(x.gatedMinusAi2ndHalfBps)} |`,
+      `| ${r.label} | ${fmt(x.aiMinusThrkBps)} | ${fmt(x.aiMinusV2kBps)} | ${fmt(x.aiMinusHeurBps)} | ${fmt(x.dzMinusAiBps)} | ${fmt(x.aiKZeroShare * 100, 0)}% / ${fmt(x.aiKLowShare * 100, 0)}% | ${fmt(x.aiPcNoEdge, 0)} / ${fmt(x.aiPcEdge, 0)} | ${r.jev.calls} | ${fmt(r.demoted.ai.firstHalf * 100, 0)}% / ${fmt(r.demoted.ai.secondHalf * 100, 0)}% | ${fmt(r.demoted.aigated.firstHalf * 100, 0)}% / ${fmt(r.demoted.aigated.secondHalf * 100, 0)}% | ${r.labelDiag.ai.n} / ${r.labelDiag.aigated.n} | ${r.demoted.ai.activeAtStep ?? '-'} | ${fmt(x.gatedMinusAi2ndHalfBps)} |`,
     );
   }
   T.push('');

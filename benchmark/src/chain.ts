@@ -100,7 +100,7 @@ export class Anvil {
 }
 
 /** Deploy with automine ON (forge waits for receipts), then switch automine OFF for the replay. */
-export async function deployBench(anvil: Anvil, initialMid: number, liquidity: bigint, minSamples = 10): Promise<BenchDeployment> {
+export async function deployBench(anvil: Anvil, initialMid: number, liquidity: bigint): Promise<BenchDeployment> {
   const out = resolve(ROOT, 'deployments', `bench-${anvil.port}.json`);
   const script = 'script/bench/DeployBench.s.sol';
   const t0 = Date.now();
@@ -115,7 +115,6 @@ export async function deployBench(anvil: Anvil, initialMid: number, liquidity: b
         DEPLOYER_PK: ANVIL0_PK,
         INIT_PRICE_USD_E8: String(Math.round(initialMid * 1e8)),
         LIQUIDITY: liquidity.toString(),
-        MIN_SAMPLES: String(minSamples),
         BENCH_OUT: out,
         MODEL_NODES: Object.values(MODEL_NODES).join(','),
         ARB_THRESHOLD_PIPS: '0', // v1/v2 law (premium from the first pip); v3 uses src/v3

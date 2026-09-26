@@ -9,7 +9,7 @@
  *        --mode jev|heuristic --budget N (600 Jev calls per window) --split-variant 5 (0 disables)
  *        --lambda L (0.05 retail orders/step) --usd U (500 median retail USD) --gas G (0.5 USD per arb tx)
  *        --sensitivity true|false (full: extra volatile run with 2x retail rate and 2x size)
- *        --min-samples N (10; quick 3) --horizon 0|1 (settler label horizon, 0) --fee-aware true|false (true)
+ *        --calib-min-n N (settler posting floor, 1) --horizon 0|1 (settler label horizon, 0) --fee-aware true|false (true)
  *        (--horizon 1 --fee-aware false reproduces the pre-INTEGRATION_1 results in results/before/)
  *        --liquidity L (2e17) --port P (8600) --seed S (7) --settle-every M (20) --out DIR
  */
@@ -46,10 +46,10 @@ let port = Number(a.port ?? 8600);
 const lambda = Number(a.lambda ?? 0.05);
 const usd = Number(a.usd ?? 500);
 const budget = Number(a.budget ?? 600);
-// quick demo: 150 steps is too short to collect 10 labelled blocks, so the model pools would never leave kDefault
 const horizon = (Number(a.horizon ?? 0) === 1 ? 1 : 0) as 0 | 1;
 const feeAware = a['fee-aware'] !== 'false';
-const minSamples = Number(a['min-samples'] ?? (quick ? 3 : 10));
+// settler posting floor (graded blocks before a calibration record is posted); the hook has no sample minimum
+const calibMinN = Number(a['calib-min-n'] ?? 1);
 const sensitivity = a.sensitivity !== undefined ? a.sensitivity !== 'false' : !quick;
 
 /** Deterministic busiest sub-window (max sum of |log returns|) of length n. */
@@ -95,8 +95,7 @@ for (const w of windows) {
       degradeAtFrac: 0.5,
       settleEvery: Number(a['settle-every'] ?? (quick ? 10 : 20)),
       calibWindow: quick ? 20 : 50,
-      calibMinN: minSamples,
-      minSamples,
+      calibMinN,
       markoutHorizon: horizon,
       feeAware,
       liquidity: BigInt(Number(a.liquidity ?? 2e17)),

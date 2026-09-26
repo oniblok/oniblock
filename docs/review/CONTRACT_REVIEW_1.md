@@ -1,5 +1,7 @@
 # Oniblock contract review #1
 
+> Note (later change): the `minSamples` probation ("unseasoned") described in this historic document has since been removed from the hook; the calibration gate is now the pool allowlist + Brier demotion only, and a model with no calibration record is active.
+
 Scope: `contracts/src/OniblockHook.sol`, `src/roles/*`, `src/periphery/SplitSwapRouter.sol`, `src/libraries/PriceMath.sol`, `script/*`, and the existing tests, checked against `docs/BUILD_SPEC.md`, `docs/DESIGN.md` and `docs/ENS_INTEGRATION.md`.
 Method: manual review plus PoC tests in `contracts/test/review/ReviewFindings.t.sol`. Each PoC **passes when the finding reproduces**. The suite also has a sequence fuzz with 3,000 runs.
 Status: `forge test` gives 53 passed, 1 skipped (the fork suite). No `src/` file was modified.

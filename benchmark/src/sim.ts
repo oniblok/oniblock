@@ -54,8 +54,6 @@ export interface RunConfig {
   calibWindow: number;
   calibMinN: number;
   liquidity: bigint;
-  /** PoolConfig.minSamples for the model pools (calibration samples before k may leave kDefault). */
-  minSamples: number;
   /** Settler label horizon: 0 = mid in force at the swap block (default), 1 = next step's mid (pre-INTEGRATION_1). */
   markoutHorizon: 0 | 1;
   /** Pass the hook's k/feeMax into the model state (default true; false = pre-INTEGRATION_1). */
@@ -166,7 +164,7 @@ export async function runOne(cfg: RunConfig): Promise<RunResult> {
 
   await anvil.start();
   try {
-    const d: BenchDeployment = await deployBench(anvil, path.mids[0]!, cfg.liquidity, cfg.minSamples);
+    const d: BenchDeployment = await deployBench(anvil, path.mids[0]!, cfg.liquidity);
     const rpc: Rpc = anvil.rpc;
     const baseIsToken0 = d.wethIsToken0;
     const meta = { baseIsToken0, decimals0: baseIsToken0 ? 18 : 6, decimals1: baseIsToken0 ? 6 : 18 };
