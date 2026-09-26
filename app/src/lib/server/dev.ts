@@ -3,7 +3,8 @@
  * keys (devkeys.ts); refused on any non-dev chain. Nothing here runs in the browser.
  */
 import 'server-only';
-import { createWalletClient, http, maxUint256, parseAbi, type Address, type Hex } from 'viem';
+import { rpcTransport } from './env';
+import { createWalletClient, maxUint256, parseAbi, type Address, type Hex } from 'viem';
 import { ctx, tryRead, type Ctx } from './chain';
 import { backupQuoterAddress, devAccount, type DevRole } from './devkeys';
 import { readFlags, writeFlags } from './flags';
@@ -47,7 +48,7 @@ export async function devCtx(): Promise<Ctx> {
 }
 
 function wallet(c: Ctx, role: DevRole) {
-  return createWalletClient({ chain: c.sel.chain, account: devAccount(role), transport: http(c.sel.rpcUrl) });
+  return createWalletClient({ chain: c.sel.chain, account: devAccount(role), transport: rpcTransport(c.sel) });
 }
 
 async function send(c: Ctx, role: DevRole, req: { address: Address; abi: readonly unknown[]; functionName: string; args: readonly unknown[] }): Promise<{ hash: Hex; status: string; block: number }> {

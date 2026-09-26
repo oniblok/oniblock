@@ -6,7 +6,8 @@
  * No size caps or per-client cooldown (local/demo use). One swap in flight at a time keeps the swapper's nonce simple.
  */
 import 'server-only';
-import { createWalletClient, http, maxUint256, parseAbi, type Address, type Hex } from 'viem';
+import { rpcTransport } from './env';
+import { createWalletClient, maxUint256, parseAbi, type Address, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { Ctx } from './chain';
 import { ctx } from './chain';
@@ -70,7 +71,7 @@ export async function publicSwap(req: PublicSwapReq): Promise<{ hash: Hex; zeroF
   try {
     const key = swapperKey(c);
     const account = key ? privateKeyToAccount(key) : devAccount('swapper');
-    const w = createWalletClient({ chain: c.sel.chain, account, transport: http(c.sel.rpcUrl) });
+    const w = createWalletClient({ chain: c.sel.chain, account, transport: rpcTransport(c.sel) });
     const me = account.address as Address;
     const rtr = c.d.splitSwapRouter!;
     const wait = (hash: Hex) => c.pc.waitForTransactionReceipt({ hash, timeout: 90_000 });

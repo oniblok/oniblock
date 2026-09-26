@@ -7,7 +7,6 @@ import {
   createPublicClient,
   decodeFunctionResult,
   encodeFunctionData,
-  http,
   keccak256,
   namehash,
   parseAbi,
@@ -19,7 +18,7 @@ import {
   type PublicClient,
 } from 'viem';
 import { abi, loadDeployment, loadEnsDeployment, type Deployment, type EnsDeployment } from './deployment';
-import { chainSel, type ChainSel } from './env';
+import { chainSel, rpcTransport, type ChainSel } from './env';
 
 const clients = new Map<string, PublicClient>();
 export function publicClient(sel: ChainSel): PublicClient {
@@ -28,7 +27,7 @@ export function publicClient(sel: ChainSel): PublicClient {
     c = createPublicClient({
       chain: sel.chain,
       // JSON-RPC batching: concurrent reads (history snapshots) go out as one HTTP request.
-      transport: http(sel.rpcUrl, { batch: { batchSize: 200, wait: 8 }, retryCount: 2, retryDelay: 200, timeout: 15_000 }),
+      transport: rpcTransport(sel, { batch: { batchSize: 200, wait: 8 }, retryCount: 2, retryDelay: 200, timeout: 15_000 }),
     }) as PublicClient;
     clients.set(sel.rpcUrl, c);
   }
