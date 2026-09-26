@@ -42,6 +42,46 @@ README baseline table). Brackets are bootstrap 95% CIs.
 | kev08b-v1 (fine-tuned) | val_1k | 1000 | 0.6910 | 0.2074 [0.1955, 0.2189] | 0.0625 [0.0409, 0.0918] | 0.7396 [0.7091, 0.7716] | +0.1706 |
 | `jaredpalmer/kev-0.8b` zero-shot | test_3k | 3000 | 0.5697 | 0.2465 [0.2449, 0.2481] | 0.0764 [0.0605, 0.0949] | 0.5106 [0.4893, 0.5320] | −0.0261 |
 
+### Head-to-head against hosted Jev (added after the initial run)
+
+`typesafe-ai/jev` via the Vercel AI Gateway (`/v1/evaluate`), scored on the same 3,000
+`test_3k.jsonl` records, asked the **dataset's own `informed` question with the instructions
+and criteria strings verbatim** — only the type name is mapped `noul` → `boolean`, which is
+Jev's protocol for a yes/no probability. 3000/3000 answered, zero errors.
+
+| model | acc | Brier ↓ | ECE ↓ | AUC ↑ | skill vs base rate | latency |
+|---|---|---|---|---|---|---|
+| **kev08b-v1 (ours)** | **0.6813** | **0.2115** [0.2049, 0.2183] | **0.0407** [0.0288, 0.0580] | **0.6994** [0.6804, 0.7189] | **+0.1195** | 13.5 ms local |
+| Jev, raw | 0.5397 | 0.3053 [0.2954, 0.3145] | 0.2516 [0.2342, 0.2700] | 0.6047 [0.5836, 0.6242] | −0.2711 | 383 ms network |
+| Jev, + calibration fitted on val_1k | 0.5717 | 0.2324 [0.2279, 0.2369] | 0.0471 [0.0342, 0.0649] | 0.6047 | +0.0324 | 383 ms network |
+
+**kev08b-v1 beats hosted Jev on every metric, and the AUC and Brier CIs do not overlap.**
+
+- **Jev has real but weaker ranking signal**: AUC 0.605 vs our 0.699. The intervals are
+  disjoint, so this is not sampling noise.
+- **Raw Jev is badly miscalibrated on this label definition** — ECE 0.252, and a Brier of
+  0.3053 that is *worse than always guessing the base rate* (0.2381). Cause is visible in the
+  reliability table: Jev's mean prediction is **0.347** against an actual base rate of
+  **0.599**. It systematically under-predicts by ~25 points. When it says 0.17 the truth is
+  0.52; when it says 0.74 the truth is 0.785 — the top of its range is fine, the bottom is not.
+- **This is a distribution mismatch, not incompetence.** The dead-band filter drops ~70% of
+  blocks as indecisive, which lifts "informed" from ≈37% of all blocks to ≈60% of the kept
+  ones. Jev is calibrated for the unfiltered world and was never told about the filter.
+- **So Jev was given the same courtesy as our checkpoint.** kev08b-v1 got a temperature fitted
+  on `val_1k`; Jev got a two-parameter logit calibration `sigmoid(a·logit(p)+b)`, a=0.5910,
+  b=0.6688, fitted on Jev's own `val_1k` predictions and applied to test. That fixes the
+  calibration (ECE 0.252 → 0.047) and the Brier (0.3053 → 0.2324), but **cannot fix the
+  ranking** — AUC is unchanged at 0.605 by construction, and even calibrated, Jev's Brier skill
+  over the base rate is only +3.2% against our +11.9%.
+- **Latency**: 383 ms median over the network vs 13.5 ms for our adapter served locally by MLX,
+  a ~28× difference, with no API key, no per-call cost and no external dependency in the keeper's
+  block budget.
+
+Reproduce: `jev_score.py` (queries Jev, emits kev-benchmark-shaped `rows.json`/`report.json`)
+and `jev_calibrate.py` (fits the val calibration) in this folder. The API key is read from
+`AI_GATEWAY_API_KEY` and is never written to disk. The stored Jev rows contain only
+predictions and labels — no dataset state text.
+
 Reference baselines from the README (full test split, same label definition):
 
 | model | test Brier | test AUC | test ECE |
@@ -105,10 +145,15 @@ benchmark folders is ~198 ms — that is the batch-scoring path, not the MLX ser
 ## Contents
 
 ```
-adapter/              LoRA adapter + pointer head + training_config.json + training_metrics.json
-eval/val/             kev.benchmark on val_1k.jsonl (pre-temperature) + oniblock_metrics.json
-eval/test/            kev.benchmark on test_3k.jsonl (post-temperature, single read)
-eval/zeroshot-test/   kev.benchmark on test_3k.jsonl with untouched jaredpalmer/kev-0.8b
-SHA256                per-file digests (Step 6)
-train.log             full training log
+adapter/                  LoRA adapter + pointer head + training_config.json + training_metrics.json
+eval/val/                 kev.benchmark on val_1k.jsonl (pre-temperature) + oniblock_metrics.json
+eval/test/                kev.benchmark on test_3k.jsonl (post-temperature, single read)
+eval/zeroshot-test/       kev.benchmark on test_3k.jsonl with untouched jaredpalmer/kev-0.8b
+eval/jev-test/            hosted Jev on test_3k.jsonl, raw
+eval/jev-test-calibrated/ hosted Jev on test_3k.jsonl, calibration fitted on jev-val
+eval/jev-val/             hosted Jev on val_1k.jsonl (calibration fit set only)
+jev_score.py              queries hosted Jev, emits kev-benchmark-shaped rows.json/report.json
+jev_calibrate.py          fits sigmoid(a*logit(p)+b) on jev-val, applies to jev-test
+SHA256                    per-file digests (Step 6)
+train.log                 full training log
 ```
