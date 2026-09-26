@@ -55,7 +55,7 @@ export interface PublicSwapReq {
   client: string;
 }
 
-export async function publicSwap(req: PublicSwapReq): Promise<{ hash: Hex; zeroForOne: boolean }> {
+export async function publicSwap(req: PublicSwapReq): Promise<{ hash: Hex; zeroForOne: boolean; mirrorHash?: Hex }> {
   const c = await ctx();
   if (!swapEnabled(c)) throw new SwapError('swaps are disabled on this deployment', 403);
   if (req.pay !== 'base' && req.pay !== 'quote') throw new SwapError("pay must be 'base' or 'quote'");
@@ -83,10 +83,24 @@ export async function publicSwap(req: PublicSwapReq): Promise<{ hash: Hex; zeroF
     if (bal < amountIn) await wait(await w.writeContract({ address: tok.address, abi: erc20, functionName: 'mint', args: [me, amountIn * 1000n] }));
     if (al < amountIn) await wait(await w.writeContract({ address: tok.address, abi: erc20, functionName: 'approve', args: [rtr, maxUint256] }));
 
-    const args = [c.d.oniblock.key, zeroForOne, -amountIn, zeroForOne ? MIN_SQRT_PRICE + 1n : MAX_SQRT_PRICE - 1n, me] as const;
+    const limit = zeroForOne ? MIN_SQRT_PRICE + 1n : MAX_SQRT_PRICE - 1n;
+    const nonce = await c.pc.getTransactionCount({ address: me, blockTag: 'pending' });
+    const args = [c.d.oniblock.key, zeroForOne, -amountIn, limit, me] as const;
     const { request } = await c.pc.simulateContract({ address: rtr, abi: router, functionName: 'swap', args, account });
-    const hash = await w.writeContract(request);
-    return { hash, zeroForOne };
+    const hash = await w.writeContract({ ...request, nonce });
+    // Mirror the same trade onto the plain (hookless) pool, so the LP chart compares both pools on identical flow and
+    // the gap between the lines is only what the hook charged. Best effort: the Oniblock swap is already sent.
+    let mirrorHash: Hex | undefined;
+    if (c.d.vanilla) {
+      try {
+        const margs = [c.d.vanilla.key, zeroForOne, -amountIn, limit, me] as const;
+        const m = await c.pc.simulateContract({ address: rtr, abi: router, functionName: 'swap', args: margs, account });
+        mirrorHash = await w.writeContract({ ...m.request, nonce: nonce + 1 });
+      } catch (e) {
+        console.error('[swap] plain-pool mirror failed:', (e as Error).message.split('\n')[0]);
+      }
+    }
+    return { hash, zeroForOne, mirrorHash };
   } catch (e) {
     if (e instanceof SwapError) throw e;
     throw new SwapError(`swap failed: ${(e as Error).message.split('\n')[0]}`, 500);
