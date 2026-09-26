@@ -226,7 +226,7 @@ oniblock: keeper posts first in the block with a 2 s-old Binance price, rolling 
 |---|---|---|
 | oniblock, keeper first in block | +0.507 bps/h ≈ +$1,014/h | +0.289 bps/h ≈ +$578/h |
 
-The gain comes in volatile hours (positive in 3/3); calm hours cost only keeper gas. Intervals include zero ([-0.21, 1.23] and [-0.14, 0.72]). Details, sources and reproduce commands: [`docs/RESULTS_ONIBLOCK1.md`](docs/RESULTS_ONIBLOCK1.md); paper: [`docs/WHITEPAPER.md`](docs/WHITEPAPER.md).
+The gain comes in volatile hours (positive in 3/3); calm hours cost only keeper gas. Intervals include zero ([-0.21, 1.23] and [-0.14, 0.72]). Details, sources and reproduce commands: [`docs/RESULTS_ONIBLOCK1.md`](docs/RESULTS_ONIBLOCK1.md).
 
 ---
 
