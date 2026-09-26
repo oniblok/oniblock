@@ -1,6 +1,7 @@
 # kev08b-v1 — Kev-0.8B fine-tune for Oniblock `informed` question
 
-ENS model node: `kev08b-v1`. Produced by following `ml/train_kev4b/README.md`,
+ENS model node: `kev-v1.models.oniblock.eth` — the node `services/src/model/kev.ts` posts under and the
+guide's name for the 0.8B adapter. `kev08b-v1` is only this results folder's name. Produced by following `ml/train_kev4b/README.md`,
 "⚡ Fast path: Kev-0.8B in about 1 hour" (Steps 1–7 with the 0.8B flag substitutions).
 
 ## Model hash (this is what goes into ENS as `model-hash`)
