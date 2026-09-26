@@ -51,22 +51,8 @@ echo "[sepolia] rpc $([ "$REHEARSE" = 1 ] && echo "fork $RPC" || echo sepolia), 
 # 1-3. ENSv2 ---------------------------------------------------------------------------------------
 SECRET_FILE="$ROOT/.runtime/ens-secret"; [ "$REHEARSE" = 1 ] && SECRET_FILE="$SECRET_FILE.rehearsal"
 [ -s "$SECRET_FILE" ] || cast keccak "$(openssl rand -hex 32)" >"$SECRET_FILE" # reuse on retry: commit must match finish
-ens_phase() { # phase [VAR=value ...]: extra env for the phase (add-model)
-  local phase=$1; shift
-  ( cd "$ROOT/contracts" && env ENS_PHASE="$phase" ENS_OWNER="$DEPLOYER_ADDR" ENS_QUOTER="$QUOTER_ADDR" ENS_SETTLER="$SETTLER_ADDR" \
-      ENS_SECRET="$(cat "$SECRET_FILE")" ENS_OUT="$ENS_OUT" ENS_DEPLOYMENT_JSON="$DEP_OUT" "$@" \
-      forge script script/EnsSetup.s.sol --rpc-url "$RPC" --private-key "$DEPLOYER_PK" --broadcast --slow --non-interactive ) >>"$LOGS/ens.log" 2>&1
-}
-dns_encode() { (cd "$ROOT/services" && pnpm -s exec tsx -e "import {dnsEncode} from './src/ens.ts'; console.log(dnsEncode('$1'))"); }
-ur_text() { # name key -> "<value>\t<resolver>" through the UniversalResolverV2, non-zero if the UR call fails
-  local out
-  out=$(cast call --rpc-url "$RPC" "$ENS_UNIVERSAL_RESOLVER" "resolve(bytes,bytes)(bytes,address)" \
-        "$(dns_encode "$1")" "$(cast calldata 'text(bytes32,string)' "$(cast namehash "$1")" "$2")" 2>&1) || { printf '%s\n' "$out"; return 1; }
-  local data resolver
-  data=$(printf '%s\n' "$out" | sed -n 1p); resolver=$(printf '%s\n' "$out" | sed -n 2p)
-  printf '%s\t%s\n' "$(cast abi-decode 'r()(string)' "$data" | sed -e 's/^"//' -e 's/"$//')" "$resolver"
-}
-lower() { tr 'A-F' 'a-f' <<<"$1"; }
+# ens_phase / dns_encode / ur_text / lower and the default model records (KEV_* / ONI_*): scripts/sepolia-ens.sh
+source "$ROOT/scripts/sepolia-ens.sh"
 if [ -s "$ENS_OUT" ] && [ "${FORCE_ENS:-0}" != 1 ]; then
   echo "[sepolia] ENS already set up ($(basename "$ENS_OUT")), skipping (FORCE_ENS=1 to redo)"
 else
@@ -86,15 +72,9 @@ ens_phase grant-jit || { tail -20 "$LOGS/ens.log"; exit 1; }
 # whether a name exists (its namehashes list always includes the default names), so the check is on chain: a name is
 # up to date when the UR resolves its model-hash to the expected value. add-model is idempotent itself (registration
 # skipped when the name exists, records rewritten only when they differ, grants only when missing).
-KEV_HASH="0x24f0793d55e0fde516ebe4da1d187e0468a5f7c830ba9a9f4d48e43f007c88be" # ml/models/kev08b-v1/NOTE.md
-ONI_HASH="0x$(shasum -a 256 "$ROOT/ml/models/oniblock1.json" | cut -d' ' -f1)"
-KEV_DESC="Kev-0.8B (jaredpalmer/kev-0.8b) fine-tuned on Oniblock's mainnet informed-flow dataset; open weights at ml/models/kev08b-v1/adapter; model-hash = sha256 over the sorted per-file digests (ml/models/kev08b-v1/SHA256)"
-KEV_CTX="Kev-0.8B open-weights decision model (LoRA fine-tune of jaredpalmer/kev-0.8b, served locally by the keeper), asked every block: is there profitable arbitrage at the base fee? -> {pToxicBps, confidenceBps}; same public fee law k = kMax * p * c. Active from its first attestation; Brier-demoted to kDefault (0 = base fee) if its calibration (written by the settler) exceeds brierDemoteBps."
-ONI_DESC="oniblock1: gradient-boosted trees (LightGBM, 216 trees, 17 features) on the per-block features, trained on Binance reads ~2 s before the block; open weights ml/models/oniblock1.json; model-hash = sha256 of that file"
-ONI_CTX="oniblock1 production model (LightGBM trees over the pool and Binance features, evaluated in-process by the keeper or over TypeSafe's System One API), asked every block: is there profitable arbitrage at the base fee? -> {pToxicBps, confidenceBps}; same public fee law k = kMax * p * c. Charge gate (keeper CHARGE_THRESHOLD; the model's chargeThreshold is 0.8224): c = 10000 when p >= threshold, else 0 (base fee). No JIT head (pJitBps 0 -> jitWindowMin, 10 blocks with the defaults). Active from its first attestation once allowlisted; Brier-demoted to kDefault (0 = base fee) if its calibration (written by the settler) exceeds brierDemoteBps."
 add_model() { # label hash description context
-  local name="$1.models.$ENS_NAME" res
-  if res=$(ur_text "$name" model-hash) && [ "$(lower "${res%%$'\t'*}")" = "$(lower "$2")" ]; then
+  local name="$1.models.$ENS_NAME"
+  if model_hash_ok "$1" "$2"; then
     echo "[sepolia] ENS $name up to date (model-hash $2)"; return 0
   fi
   echo "[sepolia] ENS add-model $1 (model-hash $2)..."
@@ -164,7 +144,7 @@ echo "[sepolia] isQuoter=$Q isSettler=$S hook.roleOracle==roleOracle: $([ "$(ech
 # `<label>.live.$ENS_NAME` has no resolver of its own: the UR must walk up to `live`, see IExtendedResolver on
 # OniblockLiveResolver and call resolve(fullName, data) there. Plain eth_calls (the resolver is ERC-7996, so the UR
 # calls it directly, no CCIP batch gateway); decoded values are printed. Fails loudly if the UR does not wildcard.
-# (dns_encode / ur_text / lower are defined next to ens_phase above)
+# (dns_encode / ur_text / lower: scripts/sepolia-ens.sh)
 WILDCARD_OK=1
 for spec in "jev-v1.live.$ENS_NAME status" "weth-usdc.live.$ENS_NAME k" "weth-usdc.live.$ENS_NAME fee-zero-for-one" \
             "current.live.$ENS_NAME model-node" "live.$ENS_NAME pool"; do

@@ -8,6 +8,12 @@
  * If block N+1 arrives before the timer fires, the pending tick is cancelled and re-armed from the new block (a block
  * is ticked at most once; stale / duplicate blocks are ignored).
  *
+ * First-in-block mode (KEEPER_FIRST_IN_BLOCK=1, needs KEEPER_READ_LEAD_MS; oniblock1's training setup): same schedule,
+ * but the keeper outbids every other sender of the pool (KEEPER_PRIORITY_GWEI) so its tx is included at the TOP of
+ * block N+1, before any swap there: the first swap of N+1 anchors on this attestation, i.e. it prices block N+1 itself
+ * with a mid only ~lead old (ts_{N+1} - read = ts_N + BLOCK_TIME - read). Only realistic where nobody else competes
+ * for the top of the block (a quiet testnet); on mainnet the arbs sit there and the default N+2 accounting applies.
+ *
  * Pure helpers (no I/O) so the scheduling is unit-tested; the keeper wires them to watchBlockNumber + getBlock.
  */
 import { env } from './config.js';
@@ -28,6 +34,26 @@ export function blockTimeEnvMs(raw = env('KEEPER_BLOCK_TIME_MS')): number | unde
   return v;
 }
 
+/** KEEPER_FIRST_IN_BLOCK: unset / '' / '0' / 'false' = off (default); '1' / 'true' = on; anything else throws. */
+export function firstInBlock(raw = env('KEEPER_FIRST_IN_BLOCK')): boolean {
+  const v = raw?.trim().toLowerCase();
+  if (v === undefined || v === '' || v === '0' || v === 'false') return false;
+  if (v === '1' || v === 'true') return true;
+  throw new Error(`KEEPER_FIRST_IN_BLOCK must be 0 or 1 (got ${JSON.stringify(raw)})`);
+}
+
+/**
+ * Slot-clock settings of the keeper: lead undefined = tick on block arrival. First-in-block mode is a variant of the slot
+ * clock (it decides WHEN to read and send), so it requires KEEPER_READ_LEAD_MS; set alone it throws (config error)
+ * rather than silently falling back to on-arrival ticks that can never make the top of the next block.
+ */
+export function slotMode(o: { lead?: string; first?: string } = {}): { leadMs: number | undefined; firstInBlock: boolean } {
+  const leadMs = readLeadMs('lead' in o ? o.lead : env('KEEPER_READ_LEAD_MS'));
+  const first = firstInBlock('first' in o ? o.first : env('KEEPER_FIRST_IN_BLOCK'));
+  if (first && leadMs === undefined) throw new Error('KEEPER_FIRST_IN_BLOCK=1 needs KEEPER_READ_LEAD_MS (e.g. 2000: read + send ~2 s before the next block)');
+  return { leadMs, firstInBlock: first };
+}
+
 export const MAINNET_BLOCK_TIME_MS = 12_000;
 
 /** Delay (ms, >= 0) from `nowMs` until the slot-mode read time ts_N + blockTime − lead. 0 = already late: tick now. */
@@ -39,10 +65,20 @@ export function slotDelayMs(o: { blockTsMs: number; nowMs: number; leadMs: numbe
 export const readLagMs = (readMs: number, blockTsMs: number): number => readMs - blockTsMs;
 
 /**
- * Expected age (ms) of the mid read at `readMs` at the first swap of block N+2 — the first block the attestation fully
- * prices, assuming the tx is included at the end of block N+1: ts_{N+2} − read = ts_N + 2·blockTime − read.
+ * Expected age (ms) of the mid read at `readMs` at the first swap of the first block the attestation fully prices.
+ * Default: the tx is included at the end of block N+1 (behind the top-of-block arbs), so that is block N+2:
+ * ts_{N+2} − read = ts_N + 2·blockTime − read. First-in-block mode: the tx is the first in block N+1, so it prices N+1
+ * itself: ts_{N+1} − read = ts_N + blockTime − read (≈ the lead when the read is on time).
  */
-export const expectedMidAgeMs = (readMs: number, blockTsMs: number, blockTimeMs: number): number => blockTsMs + 2 * blockTimeMs - readMs;
+export const expectedMidAgeMs = (readMs: number, blockTsMs: number, blockTimeMs: number, firstInBlock = false): number =>
+  blockTsMs + (firstInBlock ? 1 : 2) * blockTimeMs - readMs;
+
+/**
+ * How early (ms) before the expected timestamp of block N+1 (ts_N + blockTime) a tx was broadcast; negative = after it
+ * (the tx then most likely misses block N+1). First-in-block mode needs this comfortably > 0: the read happens at
+ * −lead, so broadcastLead = lead − (read -> broadcast latency: features, model, sign, simulate, estimate, send).
+ */
+export const broadcastLeadMs = (broadcastMs: number, blockTsMs: number, blockTimeMs: number): number => blockTsMs + blockTimeMs - broadcastMs;
 
 /** Block time from observed headers: (ts − prevTs) / (n − prevN) of the last two distinct blocks; `fallback` until known. */
 export class BlockTimeEstimator {

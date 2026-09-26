@@ -30,7 +30,8 @@
  *
  * CLI: tsx src/keeper.ts [--chain local|fork|sepolia] [--once] [--degraded] [--every N]
  *                        [--mode auto|jev|heuristic|kev|tabular|oniblock1] [--pool NAME]   (kev/tabular/oniblock1: set MODEL_MODE env so the default model node is kev-v1 / kev4b-v1 / tabular-v1 / oniblock1)
- * Env: KEEPER_EVERY (default 1), ATTEST_BLOCK_OFFSET (default 1), MODEL_NAME,
+ * Env: KEEPER_EVERY (default 1), ATTEST_BLOCK_OFFSET (default 1), MODEL_NAME (default per MODEL_MODE; MODEL_NODE overrides
+ *      the node; the deployment json's modelNode, jev-v1's, is used only for the default Jev name),
  *      FALLBACK_MODEL_NAME, RULE_MODEL_NAME (default rule-v1.models.oniblock.eth),
  *      KEEPER_GATE (default 0 = v4: the model is asked EVERY block; 1 = the v3 rule-v1 gate, kept for comparison),
  *      KEEPER_HYSTERESIS_PIPS (default 100, gate only), JEV_PROMPT (default v6; v5 = two booleans, v4 = arb-only question, v1 = pre-v4 texts),
@@ -73,6 +74,17 @@
  *        KEEPER_BLOCK_TIME_MS: default 12000 on sepolia, the observed header block time on local/fork chains.
  *        In slot mode every attested line logs readLagMs (read - ts_N), expectedMidAgeMs (ts_N + 2 * blockTime - read);
  *        unset, no header is read (zero extra RPC calls) and both are null.
+ *      KEEPER_FIRST_IN_BLOCK (default 0; 1 needs KEEPER_READ_LEAD_MS, else fatal_config): oniblock1's training setup, the
+ *        keeper's post FIRST in the block. Same schedule (read + send at ts_N + blockTime - lead), but the tx is meant to
+ *        be included at the TOP of block N+1, before its first swap, so it prices block N+1 itself: expectedMidAgeMs =
+ *        ts_N + blockTime - read (~ lead). Combine with KEEPER_PRIORITY_GWEI above every other sender of the pool and
+ *        ATTEST_BLOCK_OFFSET=0 (attested blockNumber N = block.number - 1 when included in N+1; the hook accepts the
+ *        current or previous block, so a tx that slips to N+2 reverts AttestationBlockMismatch instead of posting a
+ *        ~14 s old mid). Only realistic where nobody else competes for the top of the block (a quiet testnet). Attested
+ *        lines also log firstInBlock, broadcastLeadMs (ts_N + blockTime - broadcast; <= 0 = most likely missed N+1),
+ *        minedTxIndex and landedNext (mined in N+1).
+ *      KEEPER_PRIORITY_GWEI (unset = viem's default, the node's eth_maxPriorityFeePerGas): maxPriorityFeePerGas of the
+ *        keeper's setAttestation (quoter and backup quoter); maxFeePerGas = 1.2 x base fee + this.
  *      KEV_STATE_FORMAT (auto = v1 adapter text, default | kev2 = + the 3 v2 lines), MODEL_MODE=oniblock1 (= tabular with
  *        the oniblock1 model, node oniblock1), TABULAR_MODEL (v1 default | oniblock1), TABULAR_MODEL_PATH. Kev and tabular inputs are canonicalised to the training orientation
  *        (USDC token0, WETH token1; features.ts canonicalFeatures); Jev's input is unchanged.
@@ -116,7 +128,7 @@ import { namehash, parseEventLogs, type Address, type Hex, type PublicClient } f
 import { oniblockHookAbi, poolStateAbi, roleOracleAbi } from './abi/oniblockHook.js';
 import { resolveAttestDomain, signAttestation, type DomainOpts } from './attest.js';
 import { MidHistory } from './cex.js';
-import { BlockTimeEstimator, blockTimeEnvMs, expectedMidAgeMs, MAINNET_BLOCK_TIME_MS, readLagMs, readLeadMs, SlotScheduler } from './slotclock.js';
+import { BlockTimeEstimator, blockTimeEnvMs, broadcastLeadMs, expectedMidAgeMs, MAINNET_BLOCK_TIME_MS, readLagMs, readLeadMs, SlotScheduler, slotMode } from './slotclock.js';
 import { lazyMidSource } from './pricesource.js';
 import {
   env,
@@ -137,7 +149,7 @@ import {
   type PoolEntry,
   rpcTransport,
 } from './config.js';
-import { getAttestations, getJitPenalties, getModifyLiquidity, getReceipts, keyTuple, readPool, receiptToSwapObs, TxSender, virtualDepth0 } from './chain.js';
+import { getAttestations, getJitPenalties, getModifyLiquidity, getReceipts, keyTuple, parsePriorityGwei, readPool, receiptToSwapObs, TxSender, virtualDepth0 } from './chain.js';
 import { computeFeatures, JIT_LABEL_BLOCKS_DEFAULT, type JitPenaltyObs, type LiquidityObs, type SwapObs } from './features.js';
 import { fetchKlineMids, klineMidFeaturesNeeded, type KlineMids } from './klinemids.js';
 import { chargeThresholdMaxAgeS, chargeThresholdPath, rollingThresholdFor, type ChargeScope } from './chargeThreshold.js';
@@ -204,6 +216,11 @@ export const RULE_SCORE = { pToxicBps: 1_000, confidenceBps: 10_000, pJitBps: 0 
 /** v4: the rule-v1 gate is OFF unless KEEPER_GATE=1 (the model decides every block). */
 export function keeperGateOn(): boolean {
   return env('KEEPER_GATE', '0') === '1';
+}
+
+/** KEEPER_PRIORITY_GWEI -> wei (maxPriorityFeePerGas of setAttestation); unset = viem's default fee estimate. */
+export function keeperPriorityFeeWei(raw = env('KEEPER_PRIORITY_GWEI')): bigint | undefined {
+  return parsePriorityGwei(raw, 'KEEPER_PRIORITY_GWEI');
 }
 
 /**
@@ -598,8 +615,11 @@ export interface PoolCfg {
 export function modelNodes(d?: Deployment) {
   const name = env('MODEL_NAME', defaultModelName())!;
   const fb = env('FALLBACK_MODEL_NAME', DEFAULT_FALLBACK_MODEL_NAME)!;
+  // The deployment json's modelNode is the Jev default node (DeployBase / config.ts), so it only stands in for the
+  // default Jev name: MODEL_MODE=oniblock1 / kev / tabular (or an explicit MODEL_NAME) must post under its own node.
+  const deploymentNode = name === DEFAULT_MODEL_NAME ? d?.modelNode : undefined;
   return {
-    primary: (env('MODEL_NODE') as Hex | undefined) ?? d?.modelNode ?? namehash(name),
+    primary: (env('MODEL_NODE') as Hex | undefined) ?? deploymentNode ?? namehash(name),
     primaryName: name,
     fallback: namehash(fb),
     fallbackName: fb,
@@ -645,7 +665,8 @@ export class Keeper {
     this.d = o.deployment ?? loadDeployment(sel.chain.id);
     this.pool = oniblockPool(this.d, o.poolName);
     this.meta = pairMeta(this.d, this.pool);
-    this.sender = new TxSender(this.pc, makeWalletClient(sel, 'quoter'), 'keeper');
+    const priorityFeeWei = keeperPriorityFeeWei();
+    this.sender = new TxSender(this.pc, makeWalletClient(sel, 'quoter'), 'keeper', { priorityFeeWei });
     const backupPk = env('BACKUP_QUOTER_PK') ?? (sel.isDev ? ANVIL_KEYS_BACKUP : undefined);
     if (backupPk) {
       const wc: WalletClient<Transport, Chain, Account> = createWalletClient({
@@ -653,7 +674,7 @@ export class Keeper {
         account: privateKeyToAccount((backupPk.startsWith('0x') ? backupPk : `0x${backupPk}`) as `0x${string}`),
         transport: rpcTransport(sel),
       });
-      this.backupSender = new TxSender(this.pc, wc, 'keeper-backup');
+      this.backupSender = new TxSender(this.pc, wc, 'keeper-backup', { priorityFeeWei });
     }
     this.attestor = roleAccount('attestor', sel);
     this.nodes = modelNodes(this.d);
@@ -848,8 +869,9 @@ export class Keeper {
     }
   }
 
-  /** `slot.blockTsMs`: ts_N from the slot scheduler (slot mode only; without it no header is read and the lag fields are null). */
-  async tick(block: number, slot?: { blockTsMs?: number }): Promise<KeeperTickResult> {
+  /** `slot.blockTsMs`: ts_N from the slot scheduler (slot mode only; without it no header is read and the lag fields are null).
+   *  `slot.firstInBlock`: KEEPER_FIRST_IN_BLOCK (the tx aims at the top of N+1; only changes the mid-age accounting). */
+  async tick(block: number, slot?: { blockTsMs?: number; firstInBlock?: boolean }): Promise<KeeperTickResult> {
     if (this.skipsBlock(block)) return { block, posted: false, reason: 'every' };
     if (this.busy) return { block, posted: false, reason: 'busy' };
     this.busy = true;
@@ -978,13 +1000,17 @@ export class Keeper {
         modelNode: node,
       }, this.domain);
       const sender = this.quoterSender();
+      let broadcastAt: number | undefined;
       const rc = await sender.send({
         address: this.d.hook,
         abi: oniblockHookAbi,
         functionName: 'setAttestation',
         args: [keyTuple(this.pool.key), att],
         label: `attest@${target}`,
-        onBroadcast: () => (this.busy = false), // next block may start while we wait for the receipt
+        onBroadcast: (h) => {
+          if (h) broadcastAt = Date.now();
+          this.busy = false; // next block may start while we wait for the receipt
+        },
       });
       const ok = rc?.status === 'success';
       if (ok) this.lastAttestBlock = target;
@@ -1002,12 +1028,15 @@ export class Keeper {
         }
       }
       // Slot clock (header KEEPER_READ_LEAD_MS): how late after ts_N the mid was read, and how old it will be at the first
-      // swap of block N+2 (the first block this attestation fully prices, tx included at the end of N+1).
+      // swap of the first block this attestation fully prices: N+2 (tx included at the end of N+1), or N+1 itself in
+      // first-in-block mode (tx at the top of N+1; header KEEPER_FIRST_IN_BLOCK).
       // Slot mode only: ts_N comes from the scheduler; on-arrival mode makes no extra RPC call and logs null.
       const blockTs = slot?.blockTsMs;
+      const first = slot?.firstInBlock === true;
       const bt = this.blockTimeMs();
       const lagMs = blockTs === undefined ? null : readLagMs(tObs, blockTs);
-      const midAgeMs = blockTs === undefined ? null : expectedMidAgeMs(tObs, blockTs, bt);
+      const midAgeMs = blockTs === undefined ? null : expectedMidAgeMs(tObs, blockTs, bt, first);
+      const sendLeadMs = blockTs === undefined || broadcastAt === undefined ? null : broadcastLeadMs(broadcastAt, blockTs, bt);
       // v6: the one score + the type that allocated it (null for models without the head: rule / kev / tabular)
       const pMalicious = s.pMaliciousBps === undefined ? null : Math.round(s.pMaliciousBps) / 10_000;
       const attackProbs = s.attack ? compactProbs(s.attack.probabilities) : null;
@@ -1056,11 +1085,16 @@ export class Keeper {
         pJitShare: round4(s.pJitShare),
         jevPrompt: defaultJevPrompt(),
         modelLatencyMs: s.latencyMs,
-        // slot clock: readLagMs = CEX read - ts_N; expectedMidAgeMs = ts_N + 2 * blockTimeMs - read (age at N+2's first swap)
+        // slot clock: readLagMs = CEX read - ts_N; expectedMidAgeMs = ts_N + 2 * blockTimeMs - read (age at N+2's first swap),
+        // first-in-block: ts_N + blockTimeMs - read (age at N+1's first swap); broadcastLeadMs = ts_N + blockTimeMs - broadcast
         readLagMs: lagMs,
         expectedMidAgeMs: midAgeMs,
         blockTimeMs: bt,
         readLeadMs: readLeadMs() ?? null,
+        firstInBlock: first,
+        broadcastLeadMs: sendLeadMs,
+        minedTxIndex: rc?.txIndex ?? null,
+        landedNext: rc?.blockNumber ? Number(rc.blockNumber) === block + 1 : null,
         tickMs: Math.round(performance.now() - t0),
         quoter: sender.address,
         tx: rc?.hash,
@@ -1102,8 +1136,9 @@ export class Keeper {
     chargeThresholdMode(); // throws ConfigError on an invalid CHARGE_THRESHOLD
     chargeThreshold(env('CHARGE_THRESHOLD_FALLBACK'), 'CHARGE_THRESHOLD_FALLBACK');
     try {
-      readLeadMs();
+      slotMode(); // KEEPER_READ_LEAD_MS / KEEPER_FIRST_IN_BLOCK (first-in-block needs a lead)
       blockTimeEnvMs();
+      keeperPriorityFeeWei();
     } catch (e) {
       throw new ConfigError((e as Error).message);
     }
@@ -1131,6 +1166,22 @@ export class Keeper {
     if (!isQuoter) throw new ConfigError(`quoter ${quoter} is not allowed by roleOracle ${roleOracle} (isQuoter = false)`, details);
     if (hookAttestor.toLowerCase() !== attestor.toLowerCase()) throw new ConfigError(`attestor key ${attestor} != hook.attestor() ${hookAttestor}`, details);
     log('keeper', 'preflight_ok', details);
+    // Primary model node allowlisted on this pool? If not, every primary attestation reverts ModelNotAllowed (caught by the
+    // simulation, so no gas, but nothing is posted). Warn, don't exit: the fallback node may still post.
+    try {
+      const allowed = await this.pc.readContract({ address: this.d.hook, abi: oniblockHookAbi, functionName: 'modelAllowed', args: [this.pool.poolId, this.nodes.primary] });
+      if (!allowed) {
+        log('keeper', 'preflight_model_not_allowed', {
+          hook: this.d.hook,
+          poolId: this.pool.poolId,
+          modelNode: this.nodes.primary,
+          modelName: this.nodes.primaryName,
+          hint: 'the hook owner must setModelAllowed(poolId, modelNode, true) (existing Sepolia hook + oniblock1: scripts/sepolia-enable-oniblock1.sh)',
+        });
+      }
+    } catch (e) {
+      log('keeper', 'preflight_unverified', { hook: this.d.hook, modelNode: this.nodes.primary, error: (e as Error).message.split('\n')[0] });
+    }
   }
 
   /** Watch new blocks forever; returns an unwatch fn. */
@@ -1151,6 +1202,9 @@ export class Keeper {
       chargeThreshold: chargeThresholdMode(),
       chargeThresholdFile: chargeThresholdMode() === 'auto' ? (env('CHARGE_THRESHOLD_FILE') ?? chargeThresholdPath()) : null,
       readLeadMs: readLeadMs() ?? null,
+      firstInBlock: slotMode().firstInBlock,
+      priorityFeeGwei: env('KEEPER_PRIORITY_GWEI') || null,
+      attestBlockOffset: envInt('ATTEST_BLOCK_OFFSET', 1),
       kevStateFormat: kevStateFormat(),
       tabularModel: tabularModelName(tabularVersion(this.o.mode ?? env('MODEL_MODE', 'auto'))),
       post: env('KEEPER_POST', 'every'),
@@ -1161,7 +1215,7 @@ export class Keeper {
     });
     const shared = fallbackSameNodeWarning();
     if (shared) log('keeper', shared.code, shared);
-    const lead = readLeadMs();
+    const { leadMs: lead, firstInBlock: first } = slotMode();
     if (lead === undefined) {
       return this.pc.watchBlockNumber({
         emitOnBegin: true,
@@ -1171,7 +1225,8 @@ export class Keeper {
       });
     }
     // Slot clock: tick block N at ts_N + blockTime - lead; a newer block cancels and re-arms (each block ticks at most once).
-    const sched = new SlotScheduler({ leadMs: lead, blockTimeMs: () => this.blockTimeMs(), fire: (b, ts) => void this.tick(b, { blockTsMs: ts }) });
+    // First-in-block mode fires at the same time (the priority fee, not the schedule, puts the tx at the top of N+1).
+    const sched = new SlotScheduler({ leadMs: lead, blockTimeMs: () => this.blockTimeMs(), fire: (b, ts) => void this.tick(b, { blockTsMs: ts, firstInBlock: first }) });
     const unwatch = this.pc.watchBlockNumber({
       emitOnBegin: true,
       emitMissed: false,

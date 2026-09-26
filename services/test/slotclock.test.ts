@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BlockTimeEstimator, blockTimeEnvMs, expectedMidAgeMs, readLagMs, readLeadMs, SlotScheduler, slotDelayMs, type Timers } from '../src/slotclock.js';
+import { BlockTimeEstimator, blockTimeEnvMs, broadcastLeadMs, expectedMidAgeMs, firstInBlock, readLagMs, readLeadMs, SlotScheduler, slotDelayMs, slotMode, type Timers } from '../src/slotclock.js';
 
 /** Manual clock: timers fire only on advance(). */
 function fakeTimers(start = 0) {
@@ -101,5 +101,54 @@ describe('SlotScheduler', () => {
     s.cancel();
     t.advance(60_000);
     expect(fired).toEqual([[100, TS]]);
+  });
+});
+
+describe('first-in-block mode (KEEPER_FIRST_IN_BLOCK)', () => {
+  it('env parsing: off by default, 1/true on, anything else throws; it needs a lead', () => {
+    for (const off of [undefined, '', '0', 'false', ' 0 ']) expect(firstInBlock(off)).toBe(false);
+    for (const on of ['1', 'true', 'TRUE']) expect(firstInBlock(on)).toBe(true);
+    for (const bad of ['2', 'yes', 'x']) expect(() => firstInBlock(bad)).toThrow(/KEEPER_FIRST_IN_BLOCK/);
+    expect(slotMode({ lead: undefined, first: undefined })).toEqual({ leadMs: undefined, firstInBlock: false }); // defaults unchanged
+    expect(slotMode({ lead: '2000', first: undefined })).toEqual({ leadMs: 2000, firstInBlock: false });
+    expect(slotMode({ lead: '2000', first: '1' })).toEqual({ leadMs: 2000, firstInBlock: true });
+    expect(() => slotMode({ lead: undefined, first: '1' })).toThrow(/needs KEEPER_READ_LEAD_MS/);
+    expect(() => slotMode({ lead: '', first: '1' })).toThrow(/needs KEEPER_READ_LEAD_MS/);
+  });
+  it('expected mid age: ~lead at N+1 (tx at the top of N+1) instead of blockTime + lead at N+2', () => {
+    const read = TS + 10_000; // lead 2 s, 12 s blocks
+    expect(expectedMidAgeMs(read, TS, 12_000, true)).toBe(2000);
+    expect(expectedMidAgeMs(read, TS, 12_000, false)).toBe(14_000); // default accounting unchanged
+    expect(expectedMidAgeMs(read, TS, 12_000)).toBe(14_000);
+    expect(expectedMidAgeMs(TS + 10_300, TS, 12_000, true)).toBe(1700); // read 300 ms late -> 300 ms fresher
+    expect(expectedMidAgeMs(TS + 1500, TS, 12_000, true)).toBe(10_500); // on-arrival read: a whole slot old
+  });
+  it('broadcast lead = ts_N + blockTime - broadcast (negative = after the expected next block)', () => {
+    expect(broadcastLeadMs(TS + 10_800, TS, 12_000)).toBe(1200); // read at -2 s, 800 ms read->send latency
+    expect(broadcastLeadMs(TS + 12_000, TS, 12_000)).toBe(0);
+    expect(broadcastLeadMs(TS + 12_400, TS, 12_000)).toBe(-400);
+  });
+  it('schedule: block N arriving 1.5 s after ts_N, lead 2 s -> read + send at ts_N + 10 s, prices N+1 with a ~2 s old mid', () => {
+    const t = fakeTimers(TS + 1500);
+    const reads: { block: number; readMs: number; ageMs: number; sendLeadMs: number }[] = [];
+    const s = new SlotScheduler(
+      {
+        leadMs: 2000,
+        blockTimeMs: () => 12_000,
+        fire: (b, ts) => {
+          const readMs = t.now();
+          reads.push({ block: b, readMs, ageMs: expectedMidAgeMs(readMs, ts, 12_000, true), sendLeadMs: broadcastLeadMs(readMs + 700, ts, 12_000) });
+        },
+      },
+      t,
+    );
+    expect(s.arm(100, TS)).toEqual({ armed: true, block: 100, delayMs: 8500 });
+    t.advance(8500);
+    expect(reads).toEqual([{ block: 100, readMs: TS + 10_000, ageMs: 2000, sendLeadMs: 1300 }]);
+    // block 101 arrives on time (ts_N + 12 s, seen 1.5 s later): the next tick is again 2 s before block 102
+    t.advance(3500); // now = ts_N + 13.5 s
+    expect(s.arm(101, TS + 12_000)).toMatchObject({ armed: true, delayMs: 8500 });
+    t.advance(8500);
+    expect(reads[1]).toEqual({ block: 101, readMs: TS + 22_000, ageMs: 2000, sendLeadMs: 1300 });
   });
 });

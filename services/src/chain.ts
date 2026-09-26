@@ -9,6 +9,7 @@ import {
   encodeAbiParameters,
   encodePacked,
   keccak256,
+  parseGwei,
   toBytes,
   type Abi,
   type Account,
@@ -262,6 +263,22 @@ export function receiptToSwapObs(r: ReceiptLog): SwapObs {
 }
 
 /**
+ * Priority fee in gwei (e.g. KEEPER_PRIORITY_GWEI) -> wei. Unset / empty = undefined (viem's default: the node's
+ * eth_maxPriorityFeePerGas); a decimal >= 0 otherwise, anything else throws.
+ */
+export function parsePriorityGwei(raw: string | undefined, name = 'priority fee'): bigint | undefined {
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const v = raw.trim();
+  if (!/^\d+(\.\d{1,9})?$/.test(v)) throw new Error(`${name} must be a number of gwei >= 0 with at most 9 decimals (got ${JSON.stringify(raw)})`);
+  return parseGwei(v);
+}
+
+export interface TxSenderOpts {
+  /** maxPriorityFeePerGas (wei) on every tx; maxFeePerGas = viem's 1.2 x base fee + this. Undefined = viem's default. */
+  priorityFeeWei?: bigint;
+}
+
+/**
  * Sends contract writes from one account with a locally tracked nonce. Simulates first
  * (surfaces revert reasons without burning gas), retries transient failures, resyncs the
  * nonce on "nonce too low/high" errors. Never throws from `send` unless `throwOnError`.
@@ -273,7 +290,12 @@ export class TxSender {
     private readonly pc: PublicClient,
     private readonly wc: WalletClient<Transport, Chain, Account>,
     private readonly component: string,
+    private readonly opts: TxSenderOpts = {},
   ) {}
+
+  get priorityFeeWei(): bigint | undefined {
+    return this.opts.priorityFeeWei;
+  }
 
   get address(): Address {
     return this.wc.account.address;
@@ -301,7 +323,7 @@ export class TxSender {
     /** Called with the last error when the tx could not be broadcast (simulate / estimate / send failed); lets callers
      *  tell a deterministic revert (e.g. a missing role) from transient RPC / nonce / gas trouble. */
     onError?: (error: unknown) => void;
-  }): Promise<{ hash: Hex; status: 'success' | 'reverted'; blockNumber: bigint; gasUsed: bigint; logs?: Log[] } | null> {
+  }): Promise<{ hash: Hex; status: 'success' | 'reverted'; blockNumber: bigint; gasUsed: bigint; logs?: Log[]; txIndex?: number } | null> {
     const label = req.label ?? String(req.functionName);
     let lastError: unknown;
     const broadcast = async (): Promise<Hex | null> => {
@@ -322,7 +344,13 @@ export class TxSender {
           // Estimates are tight (warm/cold slots differ between the estimate and the mined block): 1.5x headroom,
           // else attestations can die with ReentrancySentryOOG. Unused gas is not charged.
           const est = await this.pc.estimateContractGas({ ...(request as any), account: this.wc.account });
-          const hash = await this.wc.writeContract({ ...(request as any), nonce: this.nonce, gas: (est * 3n) / 2n });
+          const prio = this.opts.priorityFeeWei;
+          const hash = await this.wc.writeContract({
+            ...(request as any),
+            nonce: this.nonce,
+            gas: (est * 3n) / 2n,
+            ...(prio !== undefined ? { maxPriorityFeePerGas: prio } : {}),
+          });
           this.nonce!++;
           return hash;
         } catch (e) {
@@ -350,7 +378,7 @@ export class TxSender {
     try {
       const rc = await this.pc.waitForTransactionReceipt({ hash, timeout: 60_000, pollingInterval: 200 });
       if (rc.status !== 'success') log(this.component, 'tx_reverted', { label, hash, block: rc.blockNumber });
-      return { hash, status: rc.status, blockNumber: rc.blockNumber, gasUsed: rc.gasUsed, logs: rc.logs };
+      return { hash, status: rc.status, blockNumber: rc.blockNumber, gasUsed: rc.gasUsed, logs: rc.logs, txIndex: rc.transactionIndex };
     } catch (e) {
       log(this.component, 'tx_wait_error', { label, hash, error: (e as Error).message.split('\n')[0] });
       this.nonce = undefined;

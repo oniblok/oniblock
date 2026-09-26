@@ -31,6 +31,23 @@ describe('ens calibration records', () => {
     expect(n.fallback).toBe('0xd980c0ba3b62f0a888e318e1e91df7fc7cdaab2818956e12c7d2b573ee31f846');
     expect(n.primary).toBe(namehash('jev-v1.models.oniblock.eth'));
   });
+  it("the deployment json's modelNode (Jev's) only stands in for the default Jev name, never for MODEL_MODE=oniblock1", () => {
+    const jev = namehash('jev-v1.models.oniblock.eth');
+    const d = { modelNode: jev } as Parameters<typeof modelNodes>[0];
+    const saved = { MODEL_MODE: process.env.MODEL_MODE, MODEL_NAME: process.env.MODEL_NAME, MODEL_NODE: process.env.MODEL_NODE };
+    try {
+      delete process.env.MODEL_NAME;
+      delete process.env.MODEL_NODE;
+      process.env.MODEL_MODE = 'auto';
+      expect(modelNodes(d).primary).toBe(jev);
+      process.env.MODEL_MODE = 'oniblock1';
+      expect(modelNodes(d)).toMatchObject({ primary: namehash('oniblock1.models.oniblock.eth'), primaryName: 'oniblock1.models.oniblock.eth' });
+      process.env.MODEL_NODE = '0x' + '12'.repeat(32);
+      expect(modelNodes(d).primary).toBe(process.env.MODEL_NODE); // explicit override still wins
+    } finally {
+      for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  });
 });
 
 describe('v5: JIT head calibration records', () => {
