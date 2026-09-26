@@ -1,0 +1,24 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+solc = "0.8.26"
+evm_version = "cancun"
+via_ir = true
+optimizer = true
+optimizer_runs = 800
+bytecode_hash = "none"
+fs_permissions = [{ access = "read-write", path = "../deployments" }, { access = "read-write", path = "./cache/smoke" }, { access = "read", path = "./" }]
+gas_limit = "300000000"
+# v4-core's PoolManager only compiles (stack) with its own settings: via_ir + 44444444 runs.
+additional_compiler_profiles = [{ name = "v4core", via_ir = true, optimizer_runs = 44444444 }]
+compilation_restrictions = [{ paths = "lib/uniswap-hooks/lib/v4-core/src/PoolManager.sol", optimizer_runs = 44444444 }]
+
+[fuzz]
+runs = 256
+
+[rpc_endpoints]
+sepolia = "${SEPOLIA_RPC_HTTPS}"
+
+[lint]
+lint_on_build = false
