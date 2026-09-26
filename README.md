@@ -261,6 +261,18 @@ pnpm -C app build                               # tsc + eslint + next build
 ./contracts/export-abis.sh                      # regenerate abis/*.json after contract changes
 ```
 
+### Keeper posting cost
+
+By default the keeper sends `setAttestation` on every block, which costs about 110k gas per block. `KEEPER_POST=change` keeps the per-block feature and model pass, but sends only when the post would change pricing:
+
+- the k the hook would store moves by at least `KEEPER_POST_K_BPS` (500). A demotion counts, because it resets k to kDefault.
+- the JIT window moves by at least `KEEPER_POST_JIT_BLOCKS` (5).
+- the mid drifts more than `KEEPER_POST_MID_BPS` (2) while k is non-zero.
+- the model's `pToxic` or `pJit` moves by at least `KEEPER_POST_P_BPS` (1000, i.e. 10 points). The settler grades the probabilities of the attestation in force, so they must stay current even while k is pinned (unseasoned or demoted model); otherwise the model is graded on stale answers and cannot season.
+- `KEEPER_HEARTBEAT_BLOCKS` blocks have passed since the last post. The default is `staleBlocks − 1`, so the pool never goes stale.
+
+The comparison is against on-chain `poolState`, so restarts and the backup quoter are handled. `KEEPER_HEARTBEAT_BLOCKS=0` turns the heartbeat off. That is only safe when `conservativeFee == baseFee`: otherwise a quiet keeper lets the pool go stale and charge the higher `conservativeFee` in both directions (the keeper warns once). The rule lives in `services/src/postPolicy.ts`.
+
 ### Sepolia deployment
 
 Live (2026-09-27): `oniblock.eth` on ENSv2 Sepolia, EnsV2RoleOracle `0xda0078c14d57c93478fa07993188c4a82add5872`, hook `0x8A350b37Ae9B6d7502197db4A45Cd97E34CDB5c3` (v4 attestation layout; the v5 hook is redeployed with the same script). Addresses live in `deployments/11155111.json` / `11155111.ens.json`.
