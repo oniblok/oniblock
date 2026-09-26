@@ -8,7 +8,7 @@
 >
 > How hard to lean on the gap, `k`, comes from an AI model behind the hook, attested every block. But the model does not get trusted for free. A settler scores every decision against markouts and writes the model's calibration to ENSv2, where only the settler can write it. Bad calibration clamps `k` automatically. Revoking one ENS role kills the quoter instantly.
 >
-> Our benchmark says the model does not beat a constant `k` for LPs: it picks a lower `k`, which makes retail cheaper and LPs poorer. We say so, and we ship constant `k` plus the calibration gate. The model is a pluggable, accountable input, and the gate is what makes plugging in any model safe: the system notices a bad model by itself, in public, on a pool anyone can LP into.
+> The product is "the AI decides, the gate guarantees": there is no hard-coded threshold, the model's per-block judgement sets the premium, and a model that has not earned trust, or has lost it, has no power at all: the pool charges exactly the base fee, like a vanilla pool. Our benchmarks are honest about the economics: next to a vanilla pool the effects are tens of dollars an hour on a $20M pool, and we say so. What we ship is the accountability loop: the system notices a bad model by itself, in public, on a pool anyone can LP into.
 
 ## 3-minute demo script
 
@@ -22,7 +22,7 @@ Setup before going on stage: `./scripts/demo-local.sh` on http://localhost:3000.
 | 1:15–1:40 | Model turns **seasoned** (settler posted n ≥ 3); k starts following the model | "The settler has scored enough blocks against the CEX mid. The model has earned power, and k now moves within bounds, step-limited." |
 | 1:40–2:10 | Press **Degrade model**; `/models` shows the Brier climbing toward the 0.25 line | "Now I make the model lie by inverting its predictions. Watch: it briefly grabs power and k jumps. Then the settler's Brier score crosses 0.25, and the model is **demoted**: k snaps back to the default. Nobody touched the contract." |
 | 2:10–2:45 | Fork app (:3001): press **Revoke quoter** (ENS `revokeRoles`) → status turns stale, fee = 0.50% → **Grant backup** | "This is real ENSv2 on a Sepolia fork. The quoter's power is an EAC role on `quoter.oniblock.eth`. I revoke it: the next attestation fails, the pool goes stale and charges the conservative fee. It doesn't revert and doesn't drop the fee. Grant a backup keeper, and attestations resume." |
-| 2:45–3:00 | README benchmark table | "In the benchmark, the fee law beats a fixed fee for LPs in every window. The model doesn't beat constant k: it trades LP revenue for cheaper retail, and we say so. So we ship constant k plus the gate. What we ship is the loop: bounded power, public receipts, automatic demotion, instant revocation, so any model can be plugged in safely." |
+| 2:45–3:00 | README benchmark table | "We benchmarked this against a vanilla pool next door with real Binance ticks and routing competition. Honest answer: the LP effect is small, tens of dollars an hour on a $20M pool, and we publish the CIs. What we ship is the loop: the AI decides the premium every block, bounded power, public receipts, automatic demotion to a plain vanilla pool, instant revocation, so any model can be plugged in safely." |
 
 Fallbacks:
 - If arbs are sparse (live price source), use **Execute swap** to open a gap.
@@ -39,7 +39,7 @@ The gap fee is Detox-Hook's idea, and we credit it; Detox-style is literally poo
 - **The accountability loop, which is the new part.** Receipts are scored against markouts, calibration is published on ENSv2 by a settler-only role, the model is automatically demoted on-chain, and a role revoke acts as the kill switch.
 
 **2. "Does the model beat constant k?"**
-Not for LPs, and the README says so. The benchmark replays real Binance 1-second klines on five pools, with 95% block-bootstrap CIs, using the same labelling and fee-aware model state as the live services. The model consistently chooses a *lower* k than 0.5 (mean 0.25–0.33). Model k minus constant k:
+Not in v1 (single pool, captive flow), and the README says so. v2–v4 add a vanilla pool next door (routing competition); the v4 "AI decides" comparison against a hard-coded threshold and against vanilla is in `docs/review/V4_AI_DECIDES.md`. The v1 numbers: The benchmark replays real Binance 1-second klines on five pools, with 95% block-bootstrap CIs, using the same labelling and fee-aware model state as the live services. The model consistently chooses a *lower* k than 0.5 (mean 0.25–0.33). Model k minus constant k:
 
 | window | LP − HODL | retail cost |
 |---|---|---|
@@ -48,9 +48,9 @@ Not for LPs, and the README says so. The benchmark replays real Binance 1-second
 | volatile, 2× retail | -$553 [-959, -177] | -$385 [-503, -270] |
 | calm | -$113 [-148, -81] | -$120 [-153, -91] |
 
-So on this data the model moves value from LPs to retail; it does not reduce LVR (no significant LVR difference in any run). What does beat the baseline is the fee law itself: constant k beats a fixed 0.30% fee by +$1,595 [642, 2,669] in the volatile window, with CIs above zero in every window.
+So on this data the model moves value from LPs to retail; it does not reduce LVR (no significant LVR difference in any run). The v1 "fee law beats a fixed fee" result holds only without routing competition: with a vanilla pool next door (v2/v3) the law's LP effect is tens of dollars an hour either way, and we say so.
 
-**Recommendation: ship constant `kDefault` plus the calibration gate.** The model is a pluggable, accountable input, not the product. The gate is what makes plugging in any model safe: a degraded model was demoted 40–140 steps after it went bad in every run, and the gated pool beat the ungated one by +$42 to +$445 in the second half.
+**What we ship: the AI decides, the gate guarantees.** No hard-coded threshold; `k = kMax·p·c` from the model every block, with `kDefault = 0`, so a model that is unseasoned or demoted has no power and the pool is exactly a vanilla pool. A degraded model was demoted 40–140 steps after it went bad in every v1 run, and the gate separated honest from degraded by 31 pp (54 pp in volatile hours) in v3.
 
 **Follow-up: "Then why have a model at all?"** Because the fee law has a real tuning knob (retail cost vs LP revenue vs regime), and a pool operator may want a model that turns it. Oniblock makes that safe to try: bounded `k` (never ≥ 1), step limits, probation for new model names, and automatic, public demotion. Honest limit: the 0.25 Brier line is strict for noisy labels, so even the honest model was demoted for 13–20% of steps in the volatile windows (0% in calm). Demotion only ever means constant `kDefault`, so that costs nothing relative to what we recommend shipping.
 
@@ -79,4 +79,4 @@ The honest limit is freshness. The gap is only as fresh as the last keeper post,
 
 ## Lines to avoid on stage
 
-Don't say "AI inside the hook" (the model is behind it), "we ended sandwiches", "the model beats constant k", "the model reduces LVR", or "we built a prop AMM". Do say LVR, stale mid, informed flow, attested k, markout, calibration, fee law.
+Don't say "AI inside the hook" (the model is behind it), "we ended sandwiches", "the fee law beats a fixed fee in every window" (v1 only, no competition), "the model beats constant k", "the model reduces LVR", or "we built a prop AMM". Do say LVR, stale mid, informed flow, attested k, markout, calibration, fee law.

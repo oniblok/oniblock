@@ -64,3 +64,24 @@ Fits a 12 s Sepolia block easily; on anvil with 1 s blocks the keeper still post
 
 Jev reads the natural-language state and flips to "informed" once the gap exceeds the fee — monotone and sensible.
 **Tip:** natural-language state (`featuresToState`) works much better than a terse JSON object: `{"gapPips":10000,"baseFee":3000}` gave p=0.41 for a 1% gap, while the same situation in prose gives ~0.84.
+
+## v4 prompt: "should this pool charge an extra fee?" (2026-09-26)
+
+v4 asks Jev every block and makes its probability the fee decision (`k = kMax·p·c`, kMin 0, no gap threshold; docs/review/V4_AI_DECIDES.md). Two changes to the prompt (`JEV_QUESTIONS_V4` + `featuresToState(..., { format: 'v4' })`; `JEV_PROMPT=v1` restores the old texts, and v4 answers are cached under a namespaced key so the v1–v3 caches stay valid):
+
+- **k-free state.** The edge is stated against the BASE fee (`arb_edge_at_base_fee`), never against the fee at the current k. A k-dependent edge would feed the model's own answer back into its input (high k → edge < 0 → "calm" → k = 0 → edge > 0 → "toxic" ...).
+- **The question says what the answer does**: the extra fee is proportional to the probability; if `arb_edge_at_base_fee` is zero or negative the probability must be near 0.
+
+Sweep (`pnpm -C services jev:probe:v4`, ETH/USDC, base 0.30%, 3 recent swaps, low/high 1 s volatility; p and c in bps, `pc = p·c/1e4` is what the hook multiplies kMax by):
+
+| gap (bps) | edge at base | p (low vol / high vol) | c | p·c | class |
+|---|---|---|---|---|---|
+| 0 | −0.30% | 300 / 300 | 5200 / 7000 | 156 / 210 | dump |
+| 5–29 | −0.29 … −0.01% | 300–400 | 2500–3800 | 81–152 | dump / unknown |
+| 33 | +0.03% | 9300 / 9100 | 6600 / 6800 | 6138 / 6188 | informed |
+| 40 | +0.10% | 9300 / 9200 | 7400 / 6900 | 6882 / 6348 | informed |
+| 60 | +0.30% | 9300 / 9200 | 7500 / 6800 | 6975 / 6256 | informed |
+| 120 | +0.90% | 9600 / 9600 | 7700 / 7800 | 7392 / 7488 | informed |
+
+Reading: below the base fee Jev answers p ≈ 0.03–0.04 with low confidence, so `k = 0.8·p·c ≈ 0.006–0.012` (a 0.20% gap adds ~0.002% to the base fee: indistinguishable from vanilla); at or above the base fee p ≈ 0.91–0.96, `k ≈ 0.50–0.60`. The old v1 prompt's "calm" answers were p ≈ 0.10–0.15 with c ≈ 0.40 (p·c ≈ 0.05 → k ≈ 0.04), so the wording change, not a contract dead-zone, is what lets "calm" reach ~0. Volatility barely moves the answer; the gap-vs-base-fee comparison dominates, as in v1–v3.
+

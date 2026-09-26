@@ -30,8 +30,10 @@ We are not that product. No inventory, no closed book. A public fee law on an ex
 ```
 gap      = |oracleMid − poolMid|            // read in beforeSwap
 arbDir   = (poolMid > oracleMid) == zeroForOne
-fee      = arbDir ? min(base + k · gap, feeMax) : base
+fee      = arbDir ? min(base + k · max(0, gap − arbThreshold), feeMax) : base     // v3, see §13
 ```
+
+- **Arbitrage threshold (v3).** Below `arbThreshold` (default `base + 0.03%`) no arbitrage is profitable at the base fee, so the pool charges exactly `base` in both directions — it is a vanilla pool in quiet markets. Only the excess gap above the threshold is priced. `arbThreshold = 0` is the v2 law.
 
 - **Directional.** Only swaps that move the pool toward the oracle (the arbitrage direction) pay `k · gap`. Swaps the other way pay `base`. Taxing both sides punishes the retail flow LPs earn on. (Nezlobin directional fee; Detox-Hook.)
 - **Anchored per block** (as implemented, see docs/review/CONTRACT_FIXES_1.md: per-direction high-water gap, so a same-block backrun after a displacement is priced from the live gap and fees never fall within a block). On the first swap in `block.number`, store `gap` and the fee rate per PoolId; reuse them for every later arb-direction swap in that block. Without this, an arb splits one trade into many sub-swaps inside a single unlock, each sees a smaller gap, and LPs capture far less.
@@ -280,4 +282,30 @@ These come from contract review #2 (`docs/review/CONTRACT_REVIEW_2.md`). The fix
 
   Skill never separated better than raw. It also demotes the honest model when the base rate is extreme, because climatology is then hard to beat. The levers that mattered were the label horizon and the fee-aware state.
 - **Transparency.** The settler writes the posted value (`calibration.brier`), the raw Brier (`calibration.brierRaw`), the Brier skill against the base rate (`calibration.skill`, signed bps) and the base rate (`calibration.baseRate`) to ENS.
-- **Small windows are noisy.** With 3–8 labels, an honest model can be demoted for a few settle points. In the calm run, the honest demotions were the first points, with n < 8. This bounded self-DoS falls back to `kDefault`, never to less fee. Production should use `minSamples` and a window of at least 20. The demo profile uses `MIN_SAMPLES=3` and `CALIB_WINDOW=8` so that the story fits in 3 minutes.
+- **Labels near zero are noise: dead band (v4).** In the mainnet dataset 59% of blocks have |markout| < $1, so a sign-only label ("informed iff markout > 0") is decided by mid noise most of the time and the gate grades coin flips. The settler therefore grades only decisive blocks: with `m` = the block's arb-direction markout net of the label fee (the base fee under v4, §14) and `T = max(SETTLER_DEADBAND_USD, SETTLER_DEADBAND_BPS · arb-direction USD volume)` (defaults $1 and 1 bp), `y = 1` iff `m > T`, `y = 0` iff `m < −T`, and `|m| ≤ T` is not graded (logged as `skippedAmbiguous`). `0/0` restores the sign-only label. The fine-tuning export (`ml/src/kev_export_deadband.py`) uses the same rule, so the model and the gate agree on what "informed" means. Cost: fewer graded blocks per window, so seasoning takes longer (the demo profile compensates with `MIN_SAMPLES=3`, `CALIB_WINDOW=8`).
+- **Small windows are noisy.** With 3–8 labels, an honest model can be demoted for a few settle points. In the calm run, the honest demotions were the first points, with n < 8. This bounded self-DoS falls back to `kDefault`. With the v4 default `kDefault = 0` (§14) that means k = 0: the arb direction pays exactly the base fee, i.e. an untrusted (unseasoned or demoted) model turns the pool into a vanilla pool — never a fee below base, and never a fee above what a seasoned model would set. Production should use `minSamples` and a window of at least 20. The demo profile uses `MIN_SAMPLES=3` and `CALIB_WINDOW=8` so that the story fits in 3 minutes.
+
+## 13. v3: threshold fee law and the gated keeper
+
+Benchmark v2 (`benchmark/results_v2/results.md`) showed the v2 law costs LPs in calm hours: even a tiny gap adds `k · gap` to the arb-direction fee, the retail flow in that direction routes to the vanilla pool next door, and the hooked pool keeps only ~26% of retail. v3 changes the law to price only the part of the gap above an arbitrage threshold:
+
+```
+fee = arbDir && !stale ? min(base + k · max(0, gapHW − arbThresholdPips) / 1e4, feeMax) : base   (stale: conservativeFee)
+```
+
+- `arbThresholdPips` is a new `PoolConfig` field (last field, `uint24`, validated `≤ feeMax`, timelocked like the rest of the config). Default in the deploy scripts: `baseFee + 300` (env `ARB_THRESHOLD_PIPS`).
+- Everything else is unchanged: directional, per-block per-direction high-water gap, "live price at/past the mid → base", stale → `conservativeFee`, N-07 floor, never reverts, `quoteFee` = executed fee. The `Receipt` event is unchanged; `gapPips` is the raw high-water gap and the fee is recomputed with the pool's `arbThresholdPips` (`poolConfig(id)`).
+- **Gated keeper.** Below `arbThresholdPips − hysteresis` k cannot matter, so the keeper does not call Jev; it posts the mid with a deterministic rule score under a dedicated allowlisted node `rule-v1.models.oniblock.eth`. The settler never grades rule-v1 blocks, so rule-v1 stays unseasoned and pins k to `kDefault` — harmless below the threshold, but a gated keeper should run with a `maxKStepBps` large enough that one above-threshold model attestation can reach its target k.
+- **Settler labels** now mark arb-direction swaps out against the CEX mid at the swap's block time (fetched ex post from the price source / Binance), not the attested (possibly lagged) mid; the old behaviour is a flag.
+- Build + evidence: `docs/review/V3_THRESHOLD_BUILD.md`; benchmark: `benchmark/results_v3/results.md`.
+
+## 14. v4: the AI decides the fee (no hard-coded threshold)
+
+Benchmark v3 (`benchmark/results_v3/results.md`) showed that a hard-coded arbitrage threshold makes the pool a vanilla pool in calm hours but also gives back most of the volatile-hour premium, and that the keeper only consulted the model on ~11% of blocks. v4 removes the hard-coded gate and makes the model's per-block judgement the fee decision, without any contract change:
+
+- **Config, not code.** `arbThresholdPips = 0`, `kMinBps = 0`, `kDefaultBps = 0`, `kMaxBps = 8000`, `maxKStepBps = 8000` (deploy-script defaults, env-overridable). The public map is unchanged, `k = kMin + (kMax − kMin)·p·c`, so `k = 0.8·p·c`: a "no profitable arbitrage" answer (p near 0) gives k ≈ 0 and the arb direction pays exactly the base fee; a "toxic arbitrage" answer gives a high k. One attestation can move k across the whole range, so the fee follows the model block by block.
+- **kDefault = 0 is the safety property.** Unseasoned, demoted or non-allowlisted nodes get `kDefault`; with 0 that means no power at all: the pool is a vanilla pool until a model has earned trust, and again the moment it loses it. Demotion never raises a fee and never lowers it below base.
+- **Keeper (`KEEPER_GATE` default 0).** Jev is asked on every block with a k-free state (gap, base fee, the arbitrage edge at the base fee, flow, volatility) and a question that says what the answer does: the extra fee is proportional to the probability, and no profitable arbitrage at the base fee means a probability near 0. The v3 rule-v1 gate is kept behind `KEEPER_GATE=1` for comparison only; it must never be combined with `kDefault = 0` (rule-v1 posts would reset k to 0 on every quiet block), and the keeper refuses to start that way.
+- **Settler (`SETTLER_LABEL_FEE` default `base`).** A block is "informed" iff its arb-direction flow was profitable at the base fee (gross markout > base-fee cost), the same question the model answers. Grading against the fee actually paid would punish a model for protecting LPs (a high k makes the remaining flow unprofitable net of fee). Every block with arb-direction flow is gradeable, so calm hours season the model too.
+- Build + evidence: `docs/review/V4_AI_DECIDES.md`; benchmark: `benchmark/results_v4/results.md`.
+

@@ -26,7 +26,7 @@ stale mid (older than staleBlocks) → conservativeFee in both directions. The h
 1. **Directional fee law, in the contract.** Only swaps that move the pool *toward* the oracle mid (the arbitrage direction) pay `k · gap`. Swaps in the other direction pay `baseFee`. The law is public and readable on-chain through `quoteFee`. The hook returns `fee | OVERRIDE_FEE_FLAG` on a dynamic-fee pool.
 2. **Per-block anchor with a high-water gap.** The first touch in a block anchors one attestation's `(k, model, mid)`. Each direction keeps the largest toward-oracle gap seen in that block. A split arb (many sub-swaps in one transaction) therefore pays the full fee on every part. Once the live price is back at or past the mid, the direction pays base again, so retail that trades after an arb is not overcharged.
 3. **Stale fallback, never revert.** If no fresh attestation exists, both directions pay `conservativeFee` (not `feeMax`). Every data check happens in the keeper's `setAttestation` transaction, never in the swap path, so the hook never breaks V4Quoter or aggregator quotes.
-4. **Attested `k`, from a model behind the hook.** Once per block, the keeper builds a fee-aware feature state and asks **Jev** (`typesafe-ai/jev`, an evaluation model on the Vercel AI Gateway) for typed outputs only: `p_toxic`, `confidence` and a regime class. A deterministic heuristic is the fallback. The attestor, a TEE stand-in, signs the result with EIP-712. The contract maps the score to `k = kMin + (kMax−kMin)·p·c` and step-limits it (`maxKStepBps`). **The model never outputs a fee.** The oracle mid is posted in the same transaction and checked against a Chainlink ETH/USD band.
+4. **Attested `k`, from a model behind the hook: the AI decides (v4).** Every block, the keeper builds a k-free feature state (gap, base fee, the arbitrage edge at the base fee, flow, volatility) and asks **Jev** (`typesafe-ai/jev`, an evaluation model on the Vercel AI Gateway) one typed question: should this pool charge an extra arbitrage fee on the next block, given that the extra fee is proportional to the probability and that no profitable arbitrage at the base fee means a probability near 0? A deterministic heuristic is the fallback. The attestor, a TEE stand-in, signs the result with EIP-712. The contract maps the score to `k = kMin + (kMax−kMin)·p·c`; with the v4 defaults (`kMin = 0`, `kDefault = 0`, `kMax = 0.8`, `maxKStep = kMax`, no gap threshold) that is `k = 0.8·p·c`, so "calm" is exactly the base fee and "toxic" is a high k, applied from the next block. **The model never outputs a fee, and there is no hard-coded threshold.** The oracle mid is posted in the same transaction and checked against a Chainlink ETH/USD band.
 5. **Calibration gate: the model earns its power.** An off-chain settler labels every block's arb-direction receipts by markout against the attested mid, computes each model's Brier score, and posts it on-chain (`setCalibration`) and to ENS. A model node has power over `k` only if all three hold:
    - it is allowlisted for the pool;
    - it has at least `minSamples` scored samples (otherwise it is on probation at `kDefault`);
@@ -183,15 +183,19 @@ Harness: [`benchmark/src`](benchmark/src). Full report: [`benchmark/results/resu
 
 **What this means:**
 
-- **The fee law helps LPs.** Oniblock with constant k beats the fixed 0.30% fee on LP − HODL in every window, with CIs above zero.
+- **The fee law helps LPs only without routing competition.** In this v1 benchmark (one pool, captive flow) Oniblock with constant k beats the fixed 0.30% fee on LP − HODL in every window, with CIs above zero. **That does not survive a vanilla pool next door:** benchmark v2 (`benchmark/results_v2/results.md`, routing competition) found the v2 law loses retail share (~26%) and is negative in calm hours; v3 (`benchmark/results_v3/results.md`, hard-coded threshold) fixes calm hours but gives back the volatile-hour gain and is a small NO overall (−0.02 [−0.03, −0.01] bps/h vs the vanilla neighbour at 0.30%; INCONCLUSIVE at 0.05%). The v4 "AI decides" result is in `docs/review/V4_AI_DECIDES.md` and summarised below.
   - Most of that gain comes from the higher fee charged to arb-direction flow, not from avoided LVR.
   - It costs retail 8–10 bps more, because retail that trades toward the oracle also pays the gap fee (about 32–34 → 40–43 bps).
   - Detox-style k = 0.7 earns LPs more than k = 0.5 in every window, but charges retail 44–57 bps.
 - **The model does not beat constant k for LPs.** With a fee-aware state, the model consistently picks a *lower* k (mean 0.25–0.33 vs 0.5). That makes retail cheaper (−$102 to −$385, CIs below zero) and LP − HODL significantly worse (−$113 to −$629, CIs below zero) in all four runs, with no measurable change in LVR. On this data the model trades LP revenue for lower retail cost; it is not a better LVR predictor.
-- **What we recommend shipping: constant `kDefault` plus the calibration gate.** The model is a pluggable, accountable input. The gate is what makes plugging in *any* model safe: a model that loses calibration is demoted automatically, on-chain and in public, and falls back to exactly the constant-k law. Demotion only ever moves `k` to `kDefault`, never to a lower fee.
-- **Honest limit of the gate:** in volatile windows even the honest model spends 13–20% of steps demoted (its Brier hovers near 0.25). That costs nothing relative to constant k, since demotion *is* constant k, but it shows the 0.25 threshold is strict for noisy labels.
+- **What we ship: the AI decides, the gate guarantees a vanilla pool when the AI is untrusted (v4).** The model's per-block judgement is the fee decision (`k = kMax·p·c`, no floor, no hard-coded gap threshold), and a model that loses calibration is demoted automatically, on-chain and in public, to `kDefault = 0`: exactly the base fee, i.e. a vanilla pool. Demotion never raises a fee and never lowers it below base.
+- **Honest limit of the gate:** in volatile windows even the honest model spends 13–20% of steps demoted (its Brier hovers near 0.25). Under v4 a demoted step is a vanilla-pool step (no premium), so the cost of a false demotion is the premium forgone on that block, and it shows the 0.25 threshold is strict for noisy labels.
 
 Reproduce: `pnpm -C benchmark bench` (about 8 minutes). `pnpm -C benchmark run:quick` is a short smoke run that writes to `benchmark/results/quick/`.
+
+<!-- V4-BENCH -->
+**v4: the AI decides the fee (routing competition, 12 windows, both fee tiers).** See `docs/review/V4_AI_DECIDES.md` (results pending at the time of this edit).
+<!-- /V4-BENCH -->
 
 ---
 
@@ -200,7 +204,7 @@ Reproduce: `pnpm -C benchmark bench` (about 8 minutes). `pnpm -C benchmark run:q
 ### Prerequisites
 
 - Foundry (`forge`, `anvil`, `cast`; tested with forge 1.3.x), Node 20+ with `pnpm`, `python3`, `curl`, and `jq` for `contracts/smoke-local.sh`.
-- Contract dependencies are pinned submodules in `contracts/lib` (forge-std, OpenZeppelin uniswap-hooks with v4-core / v4-periphery). Clone with `git clone --recurse-submodules https://github.com/oniblok/oniblock.git`, or run `git submodule update --init --recursive` after a regular clone.
+- Contract dependencies are in `contracts/lib` (forge-std, OpenZeppelin uniswap-hooks with v4-core / v4-periphery).
 - A root `.env`, used by the fork and Sepolia flows. Keys:
   - `SEPOLIA_RPC_HTTPS`
   - `V4_POOL_MANAGER`
@@ -321,7 +325,7 @@ Round 1 found one High (a calibration-gate bypass by rotating model names), whic
 - **High-water residual (N-02).** A dominant LP can round-trip the price and leave it at mid + ε, so the toward direction pays the inflated fee for the rest of that block. This is bounded by `feeMax`, lasts one block, and is profitable only for an LP. Integral pricing would remove it.
 - **Freshness.** The gap is only as fresh as the last keeper post. An arb can land before the keeper in a block; the worst case is the conservative fee, never less.
 - **Same-block attestations** can raise the other direction's fee (N-06) and can apply two k steps in one block (N-10).
-- **Calibration is global per model node,** while the allowlist, `minSamples` and threshold are set per pool (N-13). Small calibration windows are noisy, and a noisy demotion falls back to `kDefault`, never lower.
+- **Calibration is global per model node,** while the allowlist, `minSamples` and threshold are set per pool (N-13). Small calibration windows are noisy, and a noisy demotion falls back to `kDefault` — with the v4 default `kDefault = 0` that is the base fee (a vanilla pool), never a fee below base.
 - **JIT parking caveat (R-08).** A parked JIT penalty goes to whoever is in range at the next swap. Use a large `blockNumberOffset` in thin pools.
 
 **Trust assumptions:**
@@ -339,6 +343,17 @@ Round 1 found one High (a calibration-gate bypass by rotating model names), whic
 Demo swaps go through a test router (`SplitSwapRouter` / `PoolSwapTest`). Trading API routing needs Uniswap's manual hook allowlisting, which a Sepolia hackathon hook does not have.
 
 ---
+
+## Dataset and model fine-tuning (`ml/`)
+
+The keeper's probability comes from a model. `ml/` holds everything to build the training data and fine-tune an open model for it:
+
+- **Dataset** — 174,135 real (pool, block) rows from mainnet Uniswap v3 USDC/WETH 0.05% and 0.30% pools (Jul 31 – Sep 25 2026), joined with Binance 1-second mids; label = the block's arbitrage-direction swaps were profitable against Binance after the fee (informed / toxic flow). Time-ordered splits; labels cross-checked against Heimbach et al.'s CEX-DEX searcher addresses. Dataset card: `ml/hf_release/README.md`.
+- **Dead-band labels** — 59% of blocks have |markout| < $1 (price noise). Training and the on-chain calibration gate use only decisive blocks (|markout| > max($1, 1 bp of arb volume)): 26,925 / 11,842 / 12,837 rows.
+- **Baselines** (dead-band test set): base rate Brier 0.238 · heuristic 0.227 · logistic 0.207 · LightGBM 0.201 (AUC 0.72, ECE 0.018).
+- **Kev-4B fine-tuning** — `ml/train_kev4b/README.md` is a self-contained, time-boxed guide (Kev = open-weight, Apache-2.0, Jev-compatible decision model). Data ships as `ml/train_kev4b.zip`; the resulting adapter's SHA-256 is published in ENS as `model-hash` so anyone can verify which model set each fee.
+
+See `ml/README.md` for the rebuild pipeline.
 
 ## Team
 

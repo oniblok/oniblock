@@ -2,11 +2,11 @@
 
 Design rationale: `docs/DESIGN.md` (ReceiptHook v3). This file pins **interfaces, layout, commands and acceptance criteria** so parallel agents produce parts that fit.
 
-Project root: the checkout's `oniblock/` directory.
-Env: `<project-root>/.env` (never print secret values; never commit).
+Project root: `/Users/akshat/Desktop/et/oniblock`
+Env: `/Users/akshat/Desktop/et/oniblock/.env` (never print secret values; never commit).
 
 ## Hard rules (all agents)
-1. **Incremental version control.** When the user requests commits, create small, logical commits with accurate messages and current timestamps. Never fabricate development history or push without approval. Contract dependencies are pinned submodules; initialize them with `git submodule update --init --recursive`. Dependency installation must not create unrelated automatic commits.
+1. **NO git.** Do not `git init`, `git commit`, `git push`. `forge install` MUST use `--no-git` (otherwise it auto-commits). If a tool insists on git, find another way.
 2. **Do not spend Sepolia ETH / broadcast to Sepolia** unless the task explicitly says so. Local Anvil and `anvil --fork-url` are fine.
 3. **Never print secrets** from `.env` (DEPLOYER_PK, AI_GATEWAY_API_KEY, ETHERSCAN_API_KEY).
 4. No mocks of on-chain data in the final demo/benchmark: price data comes from Binance public API (historical klines / live mid). Mocks are fine in unit tests.
@@ -58,6 +58,7 @@ struct PoolConfig {
     uint32 brierDemoteBps;   // if model brier > this => k forced to kDefault (e.g. 2500 = 0.25)
     uint32 minSamples;       // (fixes-1) calibration n needed before a model can move k off kDefault (default 10)
     uint32 chainlinkMaxAge;  // (fixes-1) seconds; required if chainlinkFeed != 0 (default 7200)
+    uint24 arbThresholdPips; // (v3) gap below which the arb-direction fee is exactly baseFee; <= feeMax (default base+300)
 }
 // (fixes-1) setModelAllowed(PoolId, bytes32 modelNode, bool) — owner; attestations for other nodes revert.
 // (fixes-1) constructor(..., uint48 blockNumberOffset, uint256 configDelay); updatePoolConfig/setAttestor/setRoleOracle
@@ -94,6 +95,8 @@ Per-block anchor: on the FIRST swap of block.number for this pool, compute (gapP
   toward-oracle gap vs the stored mid raises gap[dir] (never lowers); fee(dir) = gap[dir]>0 ? min(base+gap*k/1e4, feeMax) : base.
   A later same-block attestation with k >= anchored k takes over the anchor's k/model. Receipt.modelNode = anchor model.
 fee = arbDir ? min(base + gapPips*kBps/10000, feeMax) : base
+(v3, supersedes the line above) fee = arbDir ? min(base + max(0, gapPips - arbThresholdPips)*kBps/10000, feeMax) : base
+  arbThresholdPips = PoolConfig field (uint24, <= feeMax; default baseFee + 300; 0 = the v2 law). See DESIGN.md §13.
 ```
 k: stored per pool, updated only via setAttestation: `kTarget = kFromScore(...)`, then step-limited by maxKStepBps; if model brier > brierDemoteBps -> kDefault; if attestation stale at swap time -> kDefault.
 kFromScore (public, simple, documented): `k = kMin + (kMax-kMin) * pToxic * confidence / 1e8`, then demotion.

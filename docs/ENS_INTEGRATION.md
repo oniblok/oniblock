@@ -38,11 +38,13 @@ oniblock.eth                    ETH registry token, owner = ENS_OWNER; subregist
    ├─ settler       owner holds ROLE_SETTLER_ADMIN; the settler holds ROLE_SETTLER; addr = settler
    ├─ models        subregistry = R1 (UserRegistry proxy)
    │   ├─ jev-v1        model-hash, agent-context, calibration.* (settler only)
-   │   └─ heuristic-v1  model-hash, agent-context, calibration.* (settler only)
+   │   ├─ heuristic-v1  model-hash, agent-context, calibration.* (settler only)
+   │   └─ rule-v1       model-hash, agent-context (v3 keeper rule; never graded => no calibration.*)
    └─ pools         subregistry = R2 (UserRegistry proxy)
        └─ weth-usdc     hook, pool-id, fee-min, fee-max, policy-uri (addr = hook when set)
 ```
 
+- `rule-v1.models.oniblock.eth` (v3 gate only, `KEEPER_GATE=1`; docs/review/V3_THRESHOLD_BUILD.md; the v4 default keeper asks Jev every block and never posts it, and DeployBase allowlists it only when `KEEPER_GATE=1`): when the pool-vs-CEX gap is below the pool's `arbThresholdPips` the hook charges exactly baseFee, so the gated keeper skips Jev and posts the mid with a fixed rule score under this node. The settler skips rule-v1 receipts, so the name never carries `calibration.*` records; its `agent-context` says so. It is registered by `EnsSetup.s.sol` (already-deployed setups can add it with one `models.register` + two `setText` calls; not re-broadcast).
 - All names use a single resolver: RES, a PermissionedResolver proxy we deployed through VerifiableFactory.
 - Subnames are registered with `expiry = type(uint64).max`. An expired name gets a new EAC resource, which silently drops its roles, so subnames must not expire.
 - Every name is a real registered token in its own registry (`models` and `pools` have their own registries), so UniversalResolverV2 finds RES exactly at the leaf.
