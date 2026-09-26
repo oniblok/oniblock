@@ -1,0 +1,230 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1010 582" width="1010" height="582" role="img" aria-label="LP-HODL of the competitor minus the vanilla pool in the same market (bps of pool TVL, 1 h)"><title>LP-HODL of the competitor minus the vanilla pool in the same market (bps of pool TVL, 1 h)</title><style>
+ .bg{fill:#fcfcfb} .grid{stroke:#e8e7e2} .ax{stroke:#c9c8c2} .zero{stroke:#8a8983;stroke-dasharray:3 3}
+ .t{fill:#0b0b0b;font:600 13px system-ui,sans-serif} .l{fill:#52514e;font:10px system-ui,sans-serif} .h{fill:#0b0b0b;font:600 15px system-ui,sans-serif}
+ .vol{fill:#2a78d6} .calm{fill:#eb6834} .mean{fill:#52514e} .ci{stroke:#0b0b0b;stroke-width:1.5}
+ @media (prefers-color-scheme: dark){ .bg{fill:#1a1a19} .grid{stroke:#2b2b29} .ax{stroke:#4a4a47} .zero{stroke:#77766f}
+  .t,.h{fill:#fff} .l{fill:#c3c2b7} .vol{fill:#3987e5} .calm{fill:#d95926} .mean{fill:#c3c2b7} .ci{stroke:#fff} }
+</style><rect class="bg" width="1010" height="582"/><text class="h" x="16" y="24">LP-HODL of the competitor minus the vanilla pool in the same market (bps of pool TVL, 1 h)</text>
+<rect class="vol" x="16" y="36" width="10" height="10" rx="2"/><text class="l" x="30" y="45">volatile window</text>
+<rect class="calm" x="120" y="36" width="10" height="10" rx="2"/><text class="l" x="134" y="45">calm window</text>
+<rect class="mean" x="210" y="36" width="10" height="10" rx="2"/><text class="l" x="224" y="45">mean of all windows, 95% CI over windows</text>
+<text class="t" x="56" y="74">control</text>
+<line class="grid" x1="56" x2="326" y1="234.68965499597633" y2="234.68965499597633"/>
+<text class="l" x="52" y="237.68965499597633" text-anchor="end">-0.1</text>
+<line class="grid" x1="56" x2="326" y1="163.99999982356252" y2="163.99999982356252"/>
+<text class="l" x="52" y="166.99999982356252" text-anchor="end">0.0</text>
+<line class="grid" x1="56" x2="326" y1="93.31034465114872" y2="93.31034465114872"/>
+<text class="l" x="52" y="96.31034465114872" text-anchor="end">0.1</text>
+<line class="zero" x1="56" x2="326" y1="163.99999982356252" y2="163.99999982356252"/>
+<rect class="vol" x="57.0" y="164.0" width="18.8" height="1.0" rx="2"><title>ETH-vol1 control: -0.00 bps TVL</title></rect>
+<text class="l" x="66.4" y="256" text-anchor="end" transform="rotate(-60 66.4 256)">ETH vol1</text>
+<rect class="vol" x="77.8" y="164.0" width="18.8" height="1.0" rx="2"><title>ETH-vol2 control: 0.00 bps TVL</title></rect>
+<text class="l" x="87.2" y="256" text-anchor="end" transform="rotate(-60 87.2 256)">ETH vol2</text>
+<rect class="vol" x="98.5" y="164.0" width="18.8" height="1.0" rx="2"><title>ETH-vol3 control: 0.00 bps TVL</title></rect>
+<text class="l" x="107.9" y="256" text-anchor="end" transform="rotate(-60 107.9 256)">ETH vol3</text>
+<rect class="calm" x="119.3" y="164.0" width="18.8" height="1.0" rx="2"><title>ETH-calm1 control: 0.00 bps TVL</title></rect>
+<text class="l" x="128.7" y="256" text-anchor="end" transform="rotate(-60 128.7 256)">ETH calm1</text>
+<rect class="calm" x="140.1" y="164.0" width="18.8" height="1.0" rx="2"><title>ETH-calm2 control: 0.00 bps TVL</title></rect>
+<text class="l" x="149.5" y="256" text-anchor="end" transform="rotate(-60 149.5 256)">ETH calm2</text>
+<rect class="calm" x="160.8" y="164.0" width="18.8" height="1.0" rx="2"><title>ETH-calm3 control: 0.00 bps TVL</title></rect>
+<text class="l" x="170.2" y="256" text-anchor="end" transform="rotate(-60 170.2 256)">ETH calm3</text>
+<rect class="vol" x="181.6" y="164.0" width="18.8" height="1.0" rx="2"><title>BTC-vol1 control: 0.00 bps TVL</title></rect>
+<text class="l" x="191.0" y="256" text-anchor="end" transform="rotate(-60 191.0 256)">BTC vol1</text>
+<rect class="vol" x="202.4" y="164.0" width="18.8" height="1.0" rx="2"><title>BTC-vol2 control: 0.00 bps TVL</title></rect>
+<text class="l" x="211.8" y="256" text-anchor="end" transform="rotate(-60 211.8 256)">BTC vol2</text>
+<rect class="vol" x="223.2" y="164.0" width="18.8" height="1.0" rx="2"><title>BTC-vol3 control: 0.00 bps TVL</title></rect>
+<text class="l" x="232.5" y="256" text-anchor="end" transform="rotate(-60 232.5 256)">BTC vol3</text>
+<rect class="calm" x="243.9" y="164.0" width="18.8" height="1.0" rx="2"><title>BTC-calm1 control: -0.00 bps TVL</title></rect>
+<text class="l" x="253.3" y="256" text-anchor="end" transform="rotate(-60 253.3 256)">BTC calm1</text>
+<rect class="calm" x="264.7" y="164.0" width="18.8" height="1.0" rx="2"><title>BTC-calm2 control: 0.00 bps TVL</title></rect>
+<text class="l" x="274.1" y="256" text-anchor="end" transform="rotate(-60 274.1 256)">BTC calm2</text>
+<rect class="calm" x="285.5" y="164.0" width="18.8" height="1.0" rx="2"><title>BTC-calm3 control: 0.00 bps TVL</title></rect>
+<text class="l" x="294.8" y="256" text-anchor="end" transform="rotate(-60 294.8 256)">BTC calm3</text>
+<rect class="mean" x="306.2" y="164.0" width="18.8" height="1.0" rx="2"><title>mean -0.00 [-0.00, 0.00] bps TVL</title></rect>
+<line class="ci" x1="315.6" x2="315.6" y1="164.0" y2="164.0"/>
+<text class="l" x="315.6" y="256" text-anchor="end" transform="rotate(-60 315.6 256)">mean</text>
+<text class="l" x="20" y="164" transform="rotate(-90 20 164)" text-anchor="middle">bps TVL</text>
+<text class="t" x="386" y="74">detox</text>
+<line class="grid" x1="386" x2="656" y1="205.800352102232" y2="205.800352102232"/>
+<text class="l" x="382" y="208.800352102232" text-anchor="end">0.0</text>
+<line class="grid" x1="386" x2="656" y1="152.5455905929265" y2="152.5455905929265"/>
+<text class="l" x="382" y="155.5455905929265" text-anchor="end">0.5</text>
+<line class="grid" x1="386" x2="656" y1="99.29082908362099" y2="99.29082908362099"/>
+<text class="l" x="382" y="102.29082908362099" text-anchor="end">1.0</text>
+<line class="zero" x1="386" x2="656" y1="205.800352102232" y2="205.800352102232"/>
+<rect class="vol" x="387.0" y="93.3" width="18.8" height="112.5" rx="2"><title>ETH-vol1 detox: 1.06 bps TVL</title></rect>
+<text class="l" x="396.4" y="256" text-anchor="end" transform="rotate(-60 396.4 256)">ETH vol1</text>
+<rect class="vol" x="407.8" y="180.5" width="18.8" height="25.3" rx="2"><title>ETH-vol2 detox: 0.24 bps TVL</title></rect>
+<text class="l" x="417.2" y="256" text-anchor="end" transform="rotate(-60 417.2 256)">ETH vol2</text>
+<rect class="vol" x="428.5" y="156.8" width="18.8" height="49.0" rx="2"><title>ETH-vol3 detox: 0.46 bps TVL</title></rect>
+<text class="l" x="437.9" y="256" text-anchor="end" transform="rotate(-60 437.9 256)">ETH vol3</text>
+<rect class="calm" x="449.3" y="205.8" width="18.8" height="28.9" rx="2"><title>ETH-calm1 detox: -0.27 bps TVL</title></rect>
+<text class="l" x="458.7" y="256" text-anchor="end" transform="rotate(-60 458.7 256)">ETH calm1</text>
+<rect class="calm" x="470.1" y="205.8" width="18.8" height="26.9" rx="2"><title>ETH-calm2 detox: -0.25 bps TVL</title></rect>
+<text class="l" x="479.5" y="256" text-anchor="end" transform="rotate(-60 479.5 256)">ETH calm2</text>
+<rect class="calm" x="490.8" y="205.8" width="18.8" height="24.6" rx="2"><title>ETH-calm3 detox: -0.23 bps TVL</title></rect>
+<text class="l" x="500.2" y="256" text-anchor="end" transform="rotate(-60 500.2 256)">ETH calm3</text>
+<rect class="vol" x="511.6" y="165.0" width="18.8" height="40.8" rx="2"><title>BTC-vol1 detox: 0.38 bps TVL</title></rect>
+<text class="l" x="521.0" y="256" text-anchor="end" transform="rotate(-60 521.0 256)">BTC vol1</text>
+<rect class="vol" x="532.4" y="205.8" width="18.8" height="18.9" rx="2"><title>BTC-vol2 detox: -0.18 bps TVL</title></rect>
+<text class="l" x="541.8" y="256" text-anchor="end" transform="rotate(-60 541.8 256)">BTC vol2</text>
+<rect class="vol" x="553.2" y="205.8" width="18.8" height="6.6" rx="2"><title>BTC-vol3 detox: -0.06 bps TVL</title></rect>
+<text class="l" x="562.5" y="256" text-anchor="end" transform="rotate(-60 562.5 256)">BTC vol3</text>
+<rect class="calm" x="573.9" y="205.8" width="18.8" height="19.9" rx="2"><title>BTC-calm1 detox: -0.19 bps TVL</title></rect>
+<text class="l" x="583.3" y="256" text-anchor="end" transform="rotate(-60 583.3 256)">BTC calm1</text>
+<rect class="calm" x="594.7" y="205.8" width="18.8" height="28.2" rx="2"><title>BTC-calm2 detox: -0.27 bps TVL</title></rect>
+<text class="l" x="604.1" y="256" text-anchor="end" transform="rotate(-60 604.1 256)">BTC calm2</text>
+<rect class="calm" x="615.5" y="205.8" width="18.8" height="21.2" rx="2"><title>BTC-calm3 detox: -0.20 bps TVL</title></rect>
+<text class="l" x="624.8" y="256" text-anchor="end" transform="rotate(-60 624.8 256)">BTC calm3</text>
+<rect class="mean" x="636.2" y="201.4" width="18.8" height="4.4" rx="2"><title>mean 0.04 [-0.16, 0.29] bps TVL</title></rect>
+<line class="ci" x1="645.6" x2="645.6" y1="222.6" y2="175.3"/>
+<text class="l" x="645.6" y="256" text-anchor="end" transform="rotate(-60 645.6 256)">mean</text>
+<text class="l" x="350" y="164" transform="rotate(-90 350 164)" text-anchor="middle">bps TVL</text>
+<text class="t" x="716" y="74">const</text>
+<line class="grid" x1="716" x2="986" y1="226.3734246481819" y2="226.3734246481819"/>
+<text class="l" x="712" y="229.3734246481819" text-anchor="end">-0.2</text>
+<line class="grid" x1="716" x2="986" y1="184.9099795616654" y2="184.9099795616654"/>
+<text class="l" x="712" y="187.9099795616654" text-anchor="end">0.0</text>
+<line class="grid" x1="716" x2="986" y1="143.4465344751489" y2="143.4465344751489"/>
+<text class="l" x="712" y="146.4465344751489" text-anchor="end">0.2</text>
+<line class="grid" x1="716" x2="986" y1="101.98308938863238" y2="101.98308938863238"/>
+<text class="l" x="712" y="104.98308938863238" text-anchor="end">0.4</text>
+<line class="zero" x1="716" x2="986" y1="184.9099795616654" y2="184.9099795616654"/>
+<rect class="vol" x="717.0" y="93.3" width="18.8" height="91.6" rx="2"><title>ETH-vol1 const: 0.44 bps TVL</title></rect>
+<text class="l" x="726.4" y="256" text-anchor="end" transform="rotate(-60 726.4 256)">ETH vol1</text>
+<rect class="vol" x="737.8" y="184.5" width="18.8" height="1.0" rx="2"><title>ETH-vol2 const: 0.00 bps TVL</title></rect>
+<text class="l" x="747.2" y="256" text-anchor="end" transform="rotate(-60 747.2 256)">ETH vol2</text>
+<rect class="vol" x="758.5" y="163.6" width="18.8" height="21.3" rx="2"><title>ETH-vol3 const: 0.10 bps TVL</title></rect>
+<text class="l" x="767.9" y="256" text-anchor="end" transform="rotate(-60 767.9 256)">ETH vol3</text>
+<rect class="calm" x="779.3" y="184.9" width="18.8" height="48.3" rx="2"><title>ETH-calm1 const: -0.23 bps TVL</title></rect>
+<text class="l" x="788.7" y="256" text-anchor="end" transform="rotate(-60 788.7 256)">ETH calm1</text>
+<rect class="calm" x="800.1" y="184.9" width="18.8" height="49.8" rx="2"><title>ETH-calm2 const: -0.24 bps TVL</title></rect>
+<text class="l" x="809.5" y="256" text-anchor="end" transform="rotate(-60 809.5 256)">ETH calm2</text>
+<rect class="calm" x="820.8" y="184.9" width="18.8" height="42.6" rx="2"><title>ETH-calm3 const: -0.21 bps TVL</title></rect>
+<text class="l" x="830.2" y="256" text-anchor="end" transform="rotate(-60 830.2 256)">ETH calm3</text>
+<rect class="vol" x="841.6" y="172.7" width="18.8" height="12.3" rx="2"><title>BTC-vol1 const: 0.06 bps TVL</title></rect>
+<text class="l" x="851.0" y="256" text-anchor="end" transform="rotate(-60 851.0 256)">BTC vol1</text>
+<rect class="vol" x="862.4" y="184.9" width="18.8" height="49.8" rx="2"><title>BTC-vol2 const: -0.24 bps TVL</title></rect>
+<text class="l" x="871.8" y="256" text-anchor="end" transform="rotate(-60 871.8 256)">BTC vol2</text>
+<rect class="vol" x="883.2" y="184.9" width="18.8" height="29.5" rx="2"><title>BTC-vol3 const: -0.14 bps TVL</title></rect>
+<text class="l" x="892.5" y="256" text-anchor="end" transform="rotate(-60 892.5 256)">BTC vol3</text>
+<rect class="calm" x="903.9" y="184.9" width="18.8" height="33.2" rx="2"><title>BTC-calm1 const: -0.16 bps TVL</title></rect>
+<text class="l" x="913.3" y="256" text-anchor="end" transform="rotate(-60 913.3 256)">BTC calm1</text>
+<rect class="calm" x="924.7" y="184.9" width="18.8" height="47.9" rx="2"><title>BTC-calm2 const: -0.23 bps TVL</title></rect>
+<text class="l" x="934.1" y="256" text-anchor="end" transform="rotate(-60 934.1 256)">BTC calm2</text>
+<rect class="calm" x="945.5" y="184.9" width="18.8" height="34.9" rx="2"><title>BTC-calm3 const: -0.17 bps TVL</title></rect>
+<text class="l" x="954.8" y="256" text-anchor="end" transform="rotate(-60 954.8 256)">BTC calm3</text>
+<rect class="mean" x="966.2" y="184.9" width="18.8" height="17.5" rx="2"><title>mean -0.08 [-0.18, 0.04] bps TVL</title></rect>
+<line class="ci" x1="975.6" x2="975.6" y1="222.7" y2="177.3"/>
+<text class="l" x="975.6" y="256" text-anchor="end" transform="rotate(-60 975.6 256)">mean</text>
+<text class="l" x="680" y="164" transform="rotate(-90 680 164)" text-anchor="middle">bps TVL</text>
+<text class="t" x="56" y="330">mjev</text>
+<line class="grid" x1="56" x2="326" y1="493.9420740853181" y2="493.9420740853181"/>
+<text class="l" x="52" y="496.9420740853181" text-anchor="end">-0.2</text>
+<line class="grid" x1="56" x2="326" y1="438.26044769174246" y2="438.26044769174246"/>
+<text class="l" x="52" y="441.26044769174246" text-anchor="end">0.0</text>
+<line class="grid" x1="56" x2="326" y1="382.5788212981669" y2="382.5788212981669"/>
+<text class="l" x="52" y="385.5788212981669" text-anchor="end">0.2</text>
+<line class="zero" x1="56" x2="326" y1="438.26044769174246" y2="438.26044769174246"/>
+<rect class="vol" x="57.0" y="349.3" width="18.8" height="89.0" rx="2"><title>ETH-vol1 mjev: 0.32 bps TVL</title></rect>
+<text class="l" x="66.4" y="512" text-anchor="end" transform="rotate(-60 66.4 512)">ETH vol1</text>
+<rect class="vol" x="77.8" y="436.4" width="18.8" height="1.8" rx="2"><title>ETH-vol2 mjev: 0.01 bps TVL</title></rect>
+<text class="l" x="87.2" y="512" text-anchor="end" transform="rotate(-60 87.2 512)">ETH vol2</text>
+<rect class="vol" x="98.5" y="431.3" width="18.8" height="7.0" rx="2"><title>ETH-vol3 mjev: 0.03 bps TVL</title></rect>
+<text class="l" x="107.9" y="512" text-anchor="end" transform="rotate(-60 107.9 512)">ETH vol3</text>
+<rect class="calm" x="119.3" y="438.3" width="18.8" height="49.1" rx="2"><title>ETH-calm1 mjev: -0.18 bps TVL</title></rect>
+<text class="l" x="128.7" y="512" text-anchor="end" transform="rotate(-60 128.7 512)">ETH calm1</text>
+<rect class="calm" x="140.1" y="438.3" width="18.8" height="52.4" rx="2"><title>ETH-calm2 mjev: -0.19 bps TVL</title></rect>
+<text class="l" x="149.5" y="512" text-anchor="end" transform="rotate(-60 149.5 512)">ETH calm2</text>
+<rect class="calm" x="160.8" y="438.3" width="18.8" height="39.6" rx="2"><title>ETH-calm3 mjev: -0.14 bps TVL</title></rect>
+<text class="l" x="170.2" y="512" text-anchor="end" transform="rotate(-60 170.2 512)">ETH calm3</text>
+<rect class="vol" x="181.6" y="438.3" width="18.8" height="4.5" rx="2"><title>BTC-vol1 mjev: -0.02 bps TVL</title></rect>
+<text class="l" x="191.0" y="512" text-anchor="end" transform="rotate(-60 191.0 512)">BTC vol1</text>
+<rect class="vol" x="202.4" y="438.3" width="18.8" height="41.2" rx="2"><title>BTC-vol2 mjev: -0.15 bps TVL</title></rect>
+<text class="l" x="211.8" y="512" text-anchor="end" transform="rotate(-60 211.8 512)">BTC vol2</text>
+<rect class="vol" x="223.2" y="438.3" width="18.8" height="47.6" rx="2"><title>BTC-vol3 mjev: -0.17 bps TVL</title></rect>
+<text class="l" x="232.5" y="512" text-anchor="end" transform="rotate(-60 232.5 512)">BTC vol3</text>
+<rect class="calm" x="243.9" y="438.3" width="18.8" height="30.1" rx="2"><title>BTC-calm1 mjev: -0.11 bps TVL</title></rect>
+<text class="l" x="253.3" y="512" text-anchor="end" transform="rotate(-60 253.3 512)">BTC calm1</text>
+<rect class="calm" x="264.7" y="438.3" width="18.8" height="47.2" rx="2"><title>BTC-calm2 mjev: -0.17 bps TVL</title></rect>
+<text class="l" x="274.1" y="512" text-anchor="end" transform="rotate(-60 274.1 512)">BTC calm2</text>
+<rect class="calm" x="285.5" y="438.3" width="18.8" height="33.0" rx="2"><title>BTC-calm3 mjev: -0.12 bps TVL</title></rect>
+<text class="l" x="294.8" y="512" text-anchor="end" transform="rotate(-60 294.8 512)">BTC calm3</text>
+<rect class="mean" x="306.2" y="438.3" width="18.8" height="20.6" rx="2"><title>mean -0.07 [-0.14, 0.01] bps TVL</title></rect>
+<line class="ci" x1="315.6" x2="315.6" y1="477.4" y2="434.7"/>
+<text class="l" x="315.6" y="512" text-anchor="end" transform="rotate(-60 315.6 512)">mean</text>
+<text class="l" x="20" y="420" transform="rotate(-90 20 420)" text-anchor="middle">bps TVL</text>
+<text class="t" x="386" y="330">mheur</text>
+<line class="grid" x1="386" x2="656" y1="500.27747704226795" y2="500.27747704226795"/>
+<text class="l" x="382" y="503.27747704226795" text-anchor="end">-0.3</text>
+<line class="grid" x1="386" x2="656" y1="449.6072849748809" y2="449.6072849748809"/>
+<text class="l" x="382" y="452.6072849748809" text-anchor="end">0.0</text>
+<line class="grid" x1="386" x2="656" y1="398.93709290749376" y2="398.93709290749376"/>
+<text class="l" x="382" y="401.93709290749376" text-anchor="end">0.3</text>
+<line class="grid" x1="386" x2="656" y1="348.26690084010664" y2="348.26690084010664"/>
+<text class="l" x="382" y="351.26690084010664" text-anchor="end">0.5</text>
+<line class="zero" x1="386" x2="656" y1="449.6072849748809" y2="449.6072849748809"/>
+<rect class="vol" x="387.0" y="349.3" width="18.8" height="100.3" rx="2"><title>ETH-vol1 mheur: 0.49 bps TVL</title></rect>
+<text class="l" x="396.4" y="512" text-anchor="end" transform="rotate(-60 396.4 512)">ETH vol1</text>
+<rect class="vol" x="407.8" y="415.5" width="18.8" height="34.1" rx="2"><title>ETH-vol2 mheur: 0.17 bps TVL</title></rect>
+<text class="l" x="417.2" y="512" text-anchor="end" transform="rotate(-60 417.2 512)">ETH vol2</text>
+<rect class="vol" x="428.5" y="439.5" width="18.8" height="10.1" rx="2"><title>ETH-vol3 mheur: 0.05 bps TVL</title></rect>
+<text class="l" x="437.9" y="512" text-anchor="end" transform="rotate(-60 437.9 512)">ETH vol3</text>
+<rect class="calm" x="449.3" y="449.6" width="18.8" height="36.9" rx="2"><title>ETH-calm1 mheur: -0.18 bps TVL</title></rect>
+<text class="l" x="458.7" y="512" text-anchor="end" transform="rotate(-60 458.7 512)">ETH calm1</text>
+<rect class="calm" x="470.1" y="449.6" width="18.8" height="41.1" rx="2"><title>ETH-calm2 mheur: -0.20 bps TVL</title></rect>
+<text class="l" x="479.5" y="512" text-anchor="end" transform="rotate(-60 479.5 512)">ETH calm2</text>
+<rect class="calm" x="490.8" y="449.6" width="18.8" height="30.6" rx="2"><title>ETH-calm3 mheur: -0.15 bps TVL</title></rect>
+<text class="l" x="500.2" y="512" text-anchor="end" transform="rotate(-60 500.2 512)">ETH calm3</text>
+<rect class="vol" x="511.6" y="429.9" width="18.8" height="19.7" rx="2"><title>BTC-vol1 mheur: 0.10 bps TVL</title></rect>
+<text class="l" x="521.0" y="512" text-anchor="end" transform="rotate(-60 521.0 512)">BTC vol1</text>
+<rect class="vol" x="532.4" y="449.6" width="18.8" height="34.7" rx="2"><title>BTC-vol2 mheur: -0.17 bps TVL</title></rect>
+<text class="l" x="541.8" y="512" text-anchor="end" transform="rotate(-60 541.8 512)">BTC vol2</text>
+<rect class="vol" x="553.2" y="449.6" width="18.8" height="28.4" rx="2"><title>BTC-vol3 mheur: -0.14 bps TVL</title></rect>
+<text class="l" x="562.5" y="512" text-anchor="end" transform="rotate(-60 562.5 512)">BTC vol3</text>
+<rect class="calm" x="573.9" y="449.6" width="18.8" height="22.5" rx="2"><title>BTC-calm1 mheur: -0.11 bps TVL</title></rect>
+<text class="l" x="583.3" y="512" text-anchor="end" transform="rotate(-60 583.3 512)">BTC calm1</text>
+<rect class="calm" x="594.7" y="449.6" width="18.8" height="37.5" rx="2"><title>BTC-calm2 mheur: -0.18 bps TVL</title></rect>
+<text class="l" x="604.1" y="512" text-anchor="end" transform="rotate(-60 604.1 512)">BTC calm2</text>
+<rect class="calm" x="615.5" y="449.6" width="18.8" height="24.3" rx="2"><title>BTC-calm3 mheur: -0.12 bps TVL</title></rect>
+<text class="l" x="624.8" y="512" text-anchor="end" transform="rotate(-60 624.8 512)">BTC calm3</text>
+<rect class="mean" x="636.2" y="449.6" width="18.8" height="7.7" rx="2"><title>mean -0.04 [-0.14, 0.08] bps TVL</title></rect>
+<line class="ci" x1="645.6" x2="645.6" y1="477.1" y2="432.4"/>
+<text class="l" x="645.6" y="512" text-anchor="end" transform="rotate(-60 645.6 512)">mean</text>
+<text class="l" x="350" y="420" transform="rotate(-90 350 420)" text-anchor="middle">bps TVL</text>
+<text class="t" x="716" y="330">gated</text>
+<line class="grid" x1="716" x2="986" y1="484.0970759631943" y2="484.0970759631943"/>
+<text class="l" x="712" y="487.0970759631943" text-anchor="end">-0.2</text>
+<line class="grid" x1="716" x2="986" y1="431.0172883987462" y2="431.0172883987462"/>
+<text class="l" x="712" y="434.0172883987462" text-anchor="end">0.0</text>
+<line class="grid" x1="716" x2="986" y1="377.9375008342981" y2="377.9375008342981"/>
+<text class="l" x="712" y="380.9375008342981" text-anchor="end">0.2</text>
+<line class="zero" x1="716" x2="986" y1="431.0172883987462" y2="431.0172883987462"/>
+<rect class="vol" x="717.0" y="349.3" width="18.8" height="81.7" rx="2"><title>ETH-vol1 gated: 0.31 bps TVL</title></rect>
+<text class="l" x="726.4" y="512" text-anchor="end" transform="rotate(-60 726.4 512)">ETH vol1</text>
+<rect class="vol" x="737.8" y="431.0" width="18.8" height="10.9" rx="2"><title>ETH-vol2 gated: -0.04 bps TVL</title></rect>
+<text class="l" x="747.2" y="512" text-anchor="end" transform="rotate(-60 747.2 512)">ETH vol2</text>
+<rect class="vol" x="758.5" y="402.2" width="18.8" height="28.8" rx="2"><title>ETH-vol3 gated: 0.11 bps TVL</title></rect>
+<text class="l" x="767.9" y="512" text-anchor="end" transform="rotate(-60 767.9 512)">ETH vol3</text>
+<rect class="calm" x="779.3" y="431.0" width="18.8" height="59.7" rx="2"><title>ETH-calm1 gated: -0.22 bps TVL</title></rect>
+<text class="l" x="788.7" y="512" text-anchor="end" transform="rotate(-60 788.7 512)">ETH calm1</text>
+<rect class="calm" x="800.1" y="431.0" width="18.8" height="58.2" rx="2"><title>ETH-calm2 gated: -0.22 bps TVL</title></rect>
+<text class="l" x="809.5" y="512" text-anchor="end" transform="rotate(-60 809.5 512)">ETH calm2</text>
+<rect class="calm" x="820.8" y="431.0" width="18.8" height="51.3" rx="2"><title>ETH-calm3 gated: -0.19 bps TVL</title></rect>
+<text class="l" x="830.2" y="512" text-anchor="end" transform="rotate(-60 830.2 512)">ETH calm3</text>
+<rect class="vol" x="841.6" y="431.0" width="18.8" height="15.4" rx="2"><title>BTC-vol1 gated: -0.06 bps TVL</title></rect>
+<text class="l" x="851.0" y="512" text-anchor="end" transform="rotate(-60 851.0 512)">BTC vol1</text>
+<rect class="vol" x="862.4" y="431.0" width="18.8" height="49.2" rx="2"><title>BTC-vol2 gated: -0.19 bps TVL</title></rect>
+<text class="l" x="871.8" y="512" text-anchor="end" transform="rotate(-60 871.8 512)">BTC vol2</text>
+<rect class="vol" x="883.2" y="431.0" width="18.8" height="45.6" rx="2"><title>BTC-vol3 gated: -0.17 bps TVL</title></rect>
+<text class="l" x="892.5" y="512" text-anchor="end" transform="rotate(-60 892.5 512)">BTC vol3</text>
+<rect class="calm" x="903.9" y="431.0" width="18.8" height="39.9" rx="2"><title>BTC-calm1 gated: -0.15 bps TVL</title></rect>
+<text class="l" x="913.3" y="512" text-anchor="end" transform="rotate(-60 913.3 512)">BTC calm1</text>
+<rect class="calm" x="924.7" y="431.0" width="18.8" height="53.9" rx="2"><title>BTC-calm2 gated: -0.20 bps TVL</title></rect>
+<text class="l" x="934.1" y="512" text-anchor="end" transform="rotate(-60 934.1 512)">BTC calm2</text>
+<rect class="calm" x="945.5" y="431.0" width="18.8" height="41.8" rx="2"><title>BTC-calm3 gated: -0.16 bps TVL</title></rect>
+<text class="l" x="954.8" y="512" text-anchor="end" transform="rotate(-60 954.8 512)">BTC calm3</text>
+<rect class="mean" x="966.2" y="431.0" width="18.8" height="26.3" rx="2"><title>mean -0.10 [-0.17, -0.00] bps TVL</title></rect>
+<line class="ci" x1="975.6" x2="975.6" y1="476.8" y2="432.3"/>
+<text class="l" x="975.6" y="512" text-anchor="end" transform="rotate(-60 975.6 512)">mean</text>
+<text class="l" x="680" y="420" transform="rotate(-90 680 420)" text-anchor="middle">bps TVL</text></svg>

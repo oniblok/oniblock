@@ -118,6 +118,7 @@ export async function deployBench(anvil: Anvil, initialMid: number, liquidity: b
         MIN_SAMPLES: String(minSamples),
         BENCH_OUT: out,
         MODEL_NODES: Object.values(MODEL_NODES).join(','),
+        ARB_THRESHOLD_PIPS: '0', // v1/v2 law (premium from the first pip); v3 uses src/v3
       },
       encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,

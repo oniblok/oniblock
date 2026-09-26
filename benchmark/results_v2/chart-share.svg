@@ -1,0 +1,230 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1010 582" width="1010" height="582" role="img" aria-label="Competitor share of market retail volume (%; 50% = parity)"><title>Competitor share of market retail volume (%; 50% = parity)</title><style>
+ .bg{fill:#fcfcfb} .grid{stroke:#e8e7e2} .ax{stroke:#c9c8c2} .zero{stroke:#8a8983;stroke-dasharray:3 3}
+ .t{fill:#0b0b0b;font:600 13px system-ui,sans-serif} .l{fill:#52514e;font:10px system-ui,sans-serif} .h{fill:#0b0b0b;font:600 15px system-ui,sans-serif}
+ .vol{fill:#2a78d6} .calm{fill:#eb6834} .mean{fill:#52514e} .ci{stroke:#0b0b0b;stroke-width:1.5}
+ @media (prefers-color-scheme: dark){ .bg{fill:#1a1a19} .grid{stroke:#2b2b29} .ax{stroke:#4a4a47} .zero{stroke:#77766f}
+  .t,.h{fill:#fff} .l{fill:#c3c2b7} .vol{fill:#3987e5} .calm{fill:#d95926} .mean{fill:#c3c2b7} .ci{stroke:#fff} }
+</style><rect class="bg" width="1010" height="582"/><text class="h" x="16" y="24">Competitor share of market retail volume (%; 50% = parity)</text>
+<rect class="vol" x="16" y="36" width="10" height="10" rx="2"/><text class="l" x="30" y="45">volatile window</text>
+<rect class="calm" x="120" y="36" width="10" height="10" rx="2"/><text class="l" x="134" y="45">calm window</text>
+<rect class="mean" x="210" y="36" width="10" height="10" rx="2"/><text class="l" x="224" y="45">mean of all windows, 95% CI over windows</text>
+<text class="t" x="56" y="74">control</text>
+<line class="grid" x1="56" x2="326" y1="234.68965493524834" y2="234.68965493524834"/>
+<text class="l" x="52" y="237.68965493524834" text-anchor="end">50</text>
+<line class="grid" x1="56" x2="326" y1="163.99999976283334" y2="163.99999976283334"/>
+<text class="l" x="52" y="166.99999976283334" text-anchor="end">50</text>
+<line class="grid" x1="56" x2="326" y1="93.31034459041832" y2="93.31034459041832"/>
+<text class="l" x="52" y="96.31034459041832" text-anchor="end">50</text>
+<line class="zero" x1="56" x2="326" y1="163.99999976283334" y2="163.99999976283334"/>
+<rect class="vol" x="57.0" y="164.0" width="18.8" height="1.0" rx="2"><title>ETH-vol1 control: 50.00 % share</title></rect>
+<text class="l" x="66.4" y="256" text-anchor="end" transform="rotate(-60 66.4 256)">ETH vol1</text>
+<rect class="vol" x="77.8" y="164.0" width="18.8" height="1.0" rx="2"><title>ETH-vol2 control: 50.00 % share</title></rect>
+<text class="l" x="87.2" y="256" text-anchor="end" transform="rotate(-60 87.2 256)">ETH vol2</text>
+<rect class="vol" x="98.5" y="164.0" width="18.8" height="1.0" rx="2"><title>ETH-vol3 control: 50.00 % share</title></rect>
+<text class="l" x="107.9" y="256" text-anchor="end" transform="rotate(-60 107.9 256)">ETH vol3</text>
+<rect class="calm" x="119.3" y="164.0" width="18.8" height="1.0" rx="2"><title>ETH-calm1 control: 50.00 % share</title></rect>
+<text class="l" x="128.7" y="256" text-anchor="end" transform="rotate(-60 128.7 256)">ETH calm1</text>
+<rect class="calm" x="140.1" y="164.0" width="18.8" height="1.0" rx="2"><title>ETH-calm2 control: 50.00 % share</title></rect>
+<text class="l" x="149.5" y="256" text-anchor="end" transform="rotate(-60 149.5 256)">ETH calm2</text>
+<rect class="calm" x="160.8" y="164.0" width="18.8" height="1.0" rx="2"><title>ETH-calm3 control: 50.00 % share</title></rect>
+<text class="l" x="170.2" y="256" text-anchor="end" transform="rotate(-60 170.2 256)">ETH calm3</text>
+<rect class="vol" x="181.6" y="164.0" width="18.8" height="1.0" rx="2"><title>BTC-vol1 control: 50.00 % share</title></rect>
+<text class="l" x="191.0" y="256" text-anchor="end" transform="rotate(-60 191.0 256)">BTC vol1</text>
+<rect class="vol" x="202.4" y="164.0" width="18.8" height="1.0" rx="2"><title>BTC-vol2 control: 50.00 % share</title></rect>
+<text class="l" x="211.8" y="256" text-anchor="end" transform="rotate(-60 211.8 256)">BTC vol2</text>
+<rect class="vol" x="223.2" y="164.0" width="18.8" height="1.0" rx="2"><title>BTC-vol3 control: 50.00 % share</title></rect>
+<text class="l" x="232.5" y="256" text-anchor="end" transform="rotate(-60 232.5 256)">BTC vol3</text>
+<rect class="calm" x="243.9" y="164.0" width="18.8" height="1.0" rx="2"><title>BTC-calm1 control: 50.00 % share</title></rect>
+<text class="l" x="253.3" y="256" text-anchor="end" transform="rotate(-60 253.3 256)">BTC calm1</text>
+<rect class="calm" x="264.7" y="164.0" width="18.8" height="1.0" rx="2"><title>BTC-calm2 control: 50.00 % share</title></rect>
+<text class="l" x="274.1" y="256" text-anchor="end" transform="rotate(-60 274.1 256)">BTC calm2</text>
+<rect class="calm" x="285.5" y="164.0" width="18.8" height="1.0" rx="2"><title>BTC-calm3 control: 50.00 % share</title></rect>
+<text class="l" x="294.8" y="256" text-anchor="end" transform="rotate(-60 294.8 256)">BTC calm3</text>
+<rect class="mean" x="306.2" y="164.0" width="18.8" height="1.0" rx="2"><title>mean 50.00 [50.00, 50.00] % share</title></rect>
+<line class="ci" x1="315.6" x2="315.6" y1="164.0" y2="164.0"/>
+<text class="l" x="315.6" y="256" text-anchor="end" transform="rotate(-60 315.6 256)">mean</text>
+<text class="l" x="20" y="164" transform="rotate(-90 20 164)" text-anchor="middle">% share</text>
+<text class="t" x="386" y="74">detox</text>
+<line class="grid" x1="386" x2="656" y1="223.57150574898316" y2="223.57150574898316"/>
+<text class="l" x="382" y="226.57150574898316" text-anchor="end">20</text>
+<line class="grid" x1="386" x2="656" y1="180.1511187751842" y2="180.1511187751842"/>
+<text class="l" x="382" y="183.1511187751842" text-anchor="end">30</text>
+<line class="grid" x1="386" x2="656" y1="136.7307318013852" y2="136.7307318013852"/>
+<text class="l" x="382" y="139.7307318013852" text-anchor="end">40</text>
+<line class="grid" x1="386" x2="656" y1="93.31034482758619" y2="93.31034482758619"/>
+<text class="l" x="382" y="96.31034482758619" text-anchor="end">50</text>
+<line class="zero" x1="386" x2="656" y1="93.31034482758619" y2="93.31034482758619"/>
+<rect class="vol" x="387.0" y="93.3" width="18.8" height="98.2" rx="2"><title>ETH-vol1 detox: 27.39 % share</title></rect>
+<text class="l" x="396.4" y="256" text-anchor="end" transform="rotate(-60 396.4 256)">ETH vol1</text>
+<rect class="vol" x="407.8" y="93.3" width="18.8" height="121.3" rx="2"><title>ETH-vol2 detox: 22.07 % share</title></rect>
+<text class="l" x="417.2" y="256" text-anchor="end" transform="rotate(-60 417.2 256)">ETH vol2</text>
+<rect class="vol" x="428.5" y="93.3" width="18.8" height="115.6" rx="2"><title>ETH-vol3 detox: 23.38 % share</title></rect>
+<text class="l" x="437.9" y="256" text-anchor="end" transform="rotate(-60 437.9 256)">ETH vol3</text>
+<rect class="calm" x="449.3" y="93.3" width="18.8" height="140.7" rx="2"><title>ETH-calm1 detox: 17.61 % share</title></rect>
+<text class="l" x="458.7" y="256" text-anchor="end" transform="rotate(-60 458.7 256)">ETH calm1</text>
+<rect class="calm" x="470.1" y="93.3" width="18.8" height="127.8" rx="2"><title>ETH-calm2 detox: 20.56 % share</title></rect>
+<text class="l" x="479.5" y="256" text-anchor="end" transform="rotate(-60 479.5 256)">ETH calm2</text>
+<rect class="calm" x="490.8" y="93.3" width="18.8" height="114.9" rx="2"><title>ETH-calm3 detox: 23.54 % share</title></rect>
+<text class="l" x="500.2" y="256" text-anchor="end" transform="rotate(-60 500.2 256)">ETH calm3</text>
+<rect class="vol" x="511.6" y="93.3" width="18.8" height="123.2" rx="2"><title>BTC-vol1 detox: 21.63 % share</title></rect>
+<text class="l" x="521.0" y="256" text-anchor="end" transform="rotate(-60 521.0 256)">BTC vol1</text>
+<rect class="vol" x="532.4" y="93.3" width="18.8" height="141.4" rx="2"><title>BTC-vol2 detox: 17.44 % share</title></rect>
+<text class="l" x="541.8" y="256" text-anchor="end" transform="rotate(-60 541.8 256)">BTC vol2</text>
+<rect class="vol" x="553.2" y="93.3" width="18.8" height="77.7" rx="2"><title>BTC-vol3 detox: 32.10 % share</title></rect>
+<text class="l" x="562.5" y="256" text-anchor="end" transform="rotate(-60 562.5 256)">BTC vol3</text>
+<rect class="calm" x="573.9" y="93.3" width="18.8" height="95.6" rx="2"><title>BTC-calm1 detox: 27.98 % share</title></rect>
+<text class="l" x="583.3" y="256" text-anchor="end" transform="rotate(-60 583.3 256)">BTC calm1</text>
+<rect class="calm" x="594.7" y="93.3" width="18.8" height="139.4" rx="2"><title>BTC-calm2 detox: 17.91 % share</title></rect>
+<text class="l" x="604.1" y="256" text-anchor="end" transform="rotate(-60 604.1 256)">BTC calm2</text>
+<rect class="calm" x="615.5" y="93.3" width="18.8" height="102.3" rx="2"><title>BTC-calm3 detox: 26.43 % share</title></rect>
+<text class="l" x="624.8" y="256" text-anchor="end" transform="rotate(-60 624.8 256)">BTC calm3</text>
+<rect class="mean" x="636.2" y="93.3" width="18.8" height="116.5" rx="2"><title>mean 23.17 [20.78, 25.70] % share</title></rect>
+<line class="ci" x1="645.6" x2="645.6" y1="220.2" y2="198.8"/>
+<text class="l" x="645.6" y="256" text-anchor="end" transform="rotate(-60 645.6 256)">mean</text>
+<text class="l" x="350" y="164" transform="rotate(-90 350 164)" text-anchor="middle">% share</text>
+<text class="t" x="716" y="74">const</text>
+<line class="grid" x1="716" x2="986" y1="235.7148240937902" y2="235.7148240937902"/>
+<text class="l" x="712" y="238.7148240937902" text-anchor="end">20</text>
+<line class="grid" x1="716" x2="986" y1="188.24666433838888" y2="188.24666433838888"/>
+<text class="l" x="712" y="191.24666433838888" text-anchor="end">30</text>
+<line class="grid" x1="716" x2="986" y1="140.77850458298755" y2="140.77850458298755"/>
+<text class="l" x="712" y="143.77850458298755" text-anchor="end">40</text>
+<line class="grid" x1="716" x2="986" y1="93.3103448275862" y2="93.3103448275862"/>
+<text class="l" x="712" y="96.3103448275862" text-anchor="end">50</text>
+<line class="zero" x1="716" x2="986" y1="93.3103448275862" y2="93.3103448275862"/>
+<rect class="vol" x="717.0" y="93.3" width="18.8" height="93.1" rx="2"><title>ETH-vol1 const: 30.40 % share</title></rect>
+<text class="l" x="726.4" y="256" text-anchor="end" transform="rotate(-60 726.4 256)">ETH vol1</text>
+<rect class="vol" x="737.8" y="93.3" width="18.8" height="118.2" rx="2"><title>ETH-vol2 const: 25.11 % share</title></rect>
+<text class="l" x="747.2" y="256" text-anchor="end" transform="rotate(-60 747.2 256)">ETH vol2</text>
+<rect class="vol" x="758.5" y="93.3" width="18.8" height="107.5" rx="2"><title>ETH-vol3 const: 27.35 % share</title></rect>
+<text class="l" x="767.9" y="256" text-anchor="end" transform="rotate(-60 767.9 256)">ETH vol3</text>
+<rect class="calm" x="779.3" y="93.3" width="18.8" height="132.3" rx="2"><title>ETH-calm1 const: 22.12 % share</title></rect>
+<text class="l" x="788.7" y="256" text-anchor="end" transform="rotate(-60 788.7 256)">ETH calm1</text>
+<rect class="calm" x="800.1" y="93.3" width="18.8" height="127.0" rx="2"><title>ETH-calm2 const: 23.24 % share</title></rect>
+<text class="l" x="809.5" y="256" text-anchor="end" transform="rotate(-60 809.5 256)">ETH calm2</text>
+<rect class="calm" x="820.8" y="93.3" width="18.8" height="110.9" rx="2"><title>ETH-calm3 const: 26.64 % share</title></rect>
+<text class="l" x="830.2" y="256" text-anchor="end" transform="rotate(-60 830.2 256)">ETH calm3</text>
+<rect class="vol" x="841.6" y="93.3" width="18.8" height="116.1" rx="2"><title>BTC-vol1 const: 25.55 % share</title></rect>
+<text class="l" x="851.0" y="256" text-anchor="end" transform="rotate(-60 851.0 256)">BTC vol1</text>
+<rect class="vol" x="862.4" y="93.3" width="18.8" height="141.4" rx="2"><title>BTC-vol2 const: 20.22 % share</title></rect>
+<text class="l" x="871.8" y="256" text-anchor="end" transform="rotate(-60 871.8 256)">BTC vol2</text>
+<rect class="vol" x="883.2" y="93.3" width="18.8" height="94.1" rx="2"><title>BTC-vol3 const: 30.18 % share</title></rect>
+<text class="l" x="892.5" y="256" text-anchor="end" transform="rotate(-60 892.5 256)">BTC vol3</text>
+<rect class="calm" x="903.9" y="93.3" width="18.8" height="89.1" rx="2"><title>BTC-calm1 const: 31.22 % share</title></rect>
+<text class="l" x="913.3" y="256" text-anchor="end" transform="rotate(-60 913.3 256)">BTC calm1</text>
+<rect class="calm" x="924.7" y="93.3" width="18.8" height="132.0" rx="2"><title>BTC-calm2 const: 22.19 % share</title></rect>
+<text class="l" x="934.1" y="256" text-anchor="end" transform="rotate(-60 934.1 256)">BTC calm2</text>
+<rect class="calm" x="945.5" y="93.3" width="18.8" height="94.3" rx="2"><title>BTC-calm3 const: 30.14 % share</title></rect>
+<text class="l" x="954.8" y="256" text-anchor="end" transform="rotate(-60 954.8 256)">BTC calm3</text>
+<rect class="mean" x="966.2" y="93.3" width="18.8" height="113.0" rx="2"><title>mean 26.20 [24.14, 28.21] % share</title></rect>
+<line class="ci" x1="975.6" x2="975.6" y1="216.0" y2="196.7"/>
+<text class="l" x="975.6" y="256" text-anchor="end" transform="rotate(-60 975.6 256)">mean</text>
+<text class="l" x="680" y="164" transform="rotate(-90 680 164)" text-anchor="middle">% share</text>
+<text class="t" x="56" y="330">mjev</text>
+<line class="grid" x1="56" x2="326" y1="473.58674873033095" y2="473.58674873033095"/>
+<text class="l" x="52" y="476.58674873033095" text-anchor="end">30</text>
+<line class="grid" x1="56" x2="326" y1="411.4485467789586" y2="411.4485467789586"/>
+<text class="l" x="52" y="414.4485467789586" text-anchor="end">40</text>
+<line class="grid" x1="56" x2="326" y1="349.31034482758616" y2="349.31034482758616"/>
+<text class="l" x="52" y="352.31034482758616" text-anchor="end">50</text>
+<line class="zero" x1="56" x2="326" y1="349.31034482758616" y2="349.31034482758616"/>
+<rect class="vol" x="57.0" y="349.3" width="18.8" height="101.8" rx="2"><title>ETH-vol1 mjev: 33.62 % share</title></rect>
+<text class="l" x="66.4" y="512" text-anchor="end" transform="rotate(-60 66.4 512)">ETH vol1</text>
+<rect class="vol" x="77.8" y="349.3" width="18.8" height="121.5" rx="2"><title>ETH-vol2 mjev: 30.44 % share</title></rect>
+<text class="l" x="87.2" y="512" text-anchor="end" transform="rotate(-60 87.2 512)">ETH vol2</text>
+<rect class="vol" x="98.5" y="349.3" width="18.8" height="131.5" rx="2"><title>ETH-vol3 mjev: 28.84 % share</title></rect>
+<text class="l" x="107.9" y="512" text-anchor="end" transform="rotate(-60 107.9 512)">ETH vol3</text>
+<rect class="calm" x="119.3" y="349.3" width="18.8" height="130.1" rx="2"><title>ETH-calm1 mjev: 29.06 % share</title></rect>
+<text class="l" x="128.7" y="512" text-anchor="end" transform="rotate(-60 128.7 512)">ETH calm1</text>
+<rect class="calm" x="140.1" y="349.3" width="18.8" height="122.7" rx="2"><title>ETH-calm2 mjev: 30.25 % share</title></rect>
+<text class="l" x="149.5" y="512" text-anchor="end" transform="rotate(-60 149.5 512)">ETH calm2</text>
+<rect class="calm" x="160.8" y="349.3" width="18.8" height="98.9" rx="2"><title>ETH-calm3 mjev: 34.09 % share</title></rect>
+<text class="l" x="170.2" y="512" text-anchor="end" transform="rotate(-60 170.2 512)">ETH calm3</text>
+<rect class="vol" x="181.6" y="349.3" width="18.8" height="141.4" rx="2"><title>BTC-vol1 mjev: 27.25 % share</title></rect>
+<text class="l" x="191.0" y="512" text-anchor="end" transform="rotate(-60 191.0 512)">BTC vol1</text>
+<rect class="vol" x="202.4" y="349.3" width="18.8" height="135.0" rx="2"><title>BTC-vol2 mjev: 28.28 % share</title></rect>
+<text class="l" x="211.8" y="512" text-anchor="end" transform="rotate(-60 211.8 512)">BTC vol2</text>
+<rect class="vol" x="223.2" y="349.3" width="18.8" height="118.5" rx="2"><title>BTC-vol3 mjev: 30.93 % share</title></rect>
+<text class="l" x="232.5" y="512" text-anchor="end" transform="rotate(-60 232.5 512)">BTC vol3</text>
+<rect class="calm" x="243.9" y="349.3" width="18.8" height="78.4" rx="2"><title>BTC-calm1 mjev: 37.38 % share</title></rect>
+<text class="l" x="253.3" y="512" text-anchor="end" transform="rotate(-60 253.3 512)">BTC calm1</text>
+<rect class="calm" x="264.7" y="349.3" width="18.8" height="125.3" rx="2"><title>BTC-calm2 mjev: 29.84 % share</title></rect>
+<text class="l" x="274.1" y="512" text-anchor="end" transform="rotate(-60 274.1 512)">BTC calm2</text>
+<rect class="calm" x="285.5" y="349.3" width="18.8" height="86.1" rx="2"><title>BTC-calm3 mjev: 36.14 % share</title></rect>
+<text class="l" x="294.8" y="512" text-anchor="end" transform="rotate(-60 294.8 512)">BTC calm3</text>
+<rect class="mean" x="306.2" y="349.3" width="18.8" height="115.9" rx="2"><title>mean 31.34 [29.71, 33.17] % share</title></rect>
+<line class="ci" x1="315.6" x2="315.6" y1="475.4" y2="453.9"/>
+<text class="l" x="315.6" y="512" text-anchor="end" transform="rotate(-60 315.6 512)">mean</text>
+<text class="l" x="20" y="420" transform="rotate(-90 20 420)" text-anchor="middle">% share</text>
+<text class="t" x="386" y="330">mheur</text>
+<line class="grid" x1="386" x2="656" y1="460.7053386560872" y2="460.7053386560872"/>
+<text class="l" x="382" y="463.7053386560872" text-anchor="end">30</text>
+<line class="grid" x1="386" x2="656" y1="405.0078417418367" y2="405.0078417418367"/>
+<text class="l" x="382" y="408.0078417418367" text-anchor="end">40</text>
+<line class="grid" x1="386" x2="656" y1="349.3103448275862" y2="349.3103448275862"/>
+<text class="l" x="382" y="352.3103448275862" text-anchor="end">50</text>
+<line class="zero" x1="386" x2="656" y1="349.3103448275862" y2="349.3103448275862"/>
+<rect class="vol" x="387.0" y="349.3" width="18.8" height="80.4" rx="2"><title>ETH-vol1 mheur: 35.57 % share</title></rect>
+<text class="l" x="396.4" y="512" text-anchor="end" transform="rotate(-60 396.4 512)">ETH vol1</text>
+<rect class="vol" x="407.8" y="349.3" width="18.8" height="117.5" rx="2"><title>ETH-vol2 mheur: 28.90 % share</title></rect>
+<text class="l" x="417.2" y="512" text-anchor="end" transform="rotate(-60 417.2 512)">ETH vol2</text>
+<rect class="vol" x="428.5" y="349.3" width="18.8" height="107.5" rx="2"><title>ETH-vol3 mheur: 30.70 % share</title></rect>
+<text class="l" x="437.9" y="512" text-anchor="end" transform="rotate(-60 437.9 512)">ETH vol3</text>
+<rect class="calm" x="449.3" y="349.3" width="18.8" height="120.9" rx="2"><title>ETH-calm1 mheur: 28.29 % share</title></rect>
+<text class="l" x="458.7" y="512" text-anchor="end" transform="rotate(-60 458.7 512)">ETH calm1</text>
+<rect class="calm" x="470.1" y="349.3" width="18.8" height="120.0" rx="2"><title>ETH-calm2 mheur: 28.46 % share</title></rect>
+<text class="l" x="479.5" y="512" text-anchor="end" transform="rotate(-60 479.5 512)">ETH calm2</text>
+<rect class="calm" x="490.8" y="349.3" width="18.8" height="94.4" rx="2"><title>ETH-calm3 mheur: 33.05 % share</title></rect>
+<text class="l" x="500.2" y="512" text-anchor="end" transform="rotate(-60 500.2 512)">ETH calm3</text>
+<rect class="vol" x="511.6" y="349.3" width="18.8" height="128.8" rx="2"><title>BTC-vol1 mheur: 26.87 % share</title></rect>
+<text class="l" x="521.0" y="512" text-anchor="end" transform="rotate(-60 521.0 512)">BTC vol1</text>
+<rect class="vol" x="532.4" y="349.3" width="18.8" height="141.4" rx="2"><title>BTC-vol2 mheur: 24.62 % share</title></rect>
+<text class="l" x="541.8" y="512" text-anchor="end" transform="rotate(-60 541.8 512)">BTC vol2</text>
+<rect class="vol" x="553.2" y="349.3" width="18.8" height="102.0" rx="2"><title>BTC-vol3 mheur: 31.68 % share</title></rect>
+<text class="l" x="562.5" y="512" text-anchor="end" transform="rotate(-60 562.5 512)">BTC vol3</text>
+<rect class="calm" x="573.9" y="349.3" width="18.8" height="72.1" rx="2"><title>BTC-calm1 mheur: 37.06 % share</title></rect>
+<text class="l" x="583.3" y="512" text-anchor="end" transform="rotate(-60 583.3 512)">BTC calm1</text>
+<rect class="calm" x="594.7" y="349.3" width="18.8" height="122.6" rx="2"><title>BTC-calm2 mheur: 27.98 % share</title></rect>
+<text class="l" x="604.1" y="512" text-anchor="end" transform="rotate(-60 604.1 512)">BTC calm2</text>
+<rect class="calm" x="615.5" y="349.3" width="18.8" height="78.2" rx="2"><title>BTC-calm3 mheur: 35.95 % share</title></rect>
+<text class="l" x="624.8" y="512" text-anchor="end" transform="rotate(-60 624.8 512)">BTC calm3</text>
+<rect class="mean" x="636.2" y="349.3" width="18.8" height="107.2" rx="2"><title>mean 30.76 [28.66, 32.90] % share</title></rect>
+<line class="ci" x1="645.6" x2="645.6" y1="468.2" y2="444.5"/>
+<text class="l" x="645.6" y="512" text-anchor="end" transform="rotate(-60 645.6 512)">mean</text>
+<text class="l" x="350" y="420" transform="rotate(-90 350 420)" text-anchor="middle">% share</text>
+<text class="t" x="716" y="330">gated</text>
+<line class="grid" x1="716" x2="986" y1="453.6964079894416" y2="453.6964079894416"/>
+<text class="l" x="712" y="456.6964079894416" text-anchor="end">30</text>
+<line class="grid" x1="716" x2="986" y1="401.5033764085139" y2="401.5033764085139"/>
+<text class="l" x="712" y="404.5033764085139" text-anchor="end">40</text>
+<line class="grid" x1="716" x2="986" y1="349.31034482758616" y2="349.31034482758616"/>
+<text class="l" x="712" y="352.31034482758616" text-anchor="end">50</text>
+<line class="zero" x1="716" x2="986" y1="349.31034482758616" y2="349.31034482758616"/>
+<rect class="vol" x="717.0" y="349.3" width="18.8" height="100.6" rx="2"><title>ETH-vol1 gated: 30.73 % share</title></rect>
+<text class="l" x="726.4" y="512" text-anchor="end" transform="rotate(-60 726.4 512)">ETH vol1</text>
+<rect class="vol" x="737.8" y="349.3" width="18.8" height="125.3" rx="2"><title>ETH-vol2 gated: 26.00 % share</title></rect>
+<text class="l" x="747.2" y="512" text-anchor="end" transform="rotate(-60 747.2 512)">ETH vol2</text>
+<rect class="vol" x="758.5" y="349.3" width="18.8" height="124.1" rx="2"><title>ETH-vol3 gated: 26.22 % share</title></rect>
+<text class="l" x="767.9" y="512" text-anchor="end" transform="rotate(-60 767.9 512)">ETH vol3</text>
+<rect class="calm" x="779.3" y="349.3" width="18.8" height="141.4" rx="2"><title>ETH-calm1 gated: 22.91 % share</title></rect>
+<text class="l" x="788.7" y="512" text-anchor="end" transform="rotate(-60 788.7 512)">ETH calm1</text>
+<rect class="calm" x="800.1" y="349.3" width="18.8" height="131.7" rx="2"><title>ETH-calm2 gated: 24.76 % share</title></rect>
+<text class="l" x="809.5" y="512" text-anchor="end" transform="rotate(-60 809.5 512)">ETH calm2</text>
+<rect class="calm" x="820.8" y="349.3" width="18.8" height="115.5" rx="2"><title>ETH-calm3 gated: 27.87 % share</title></rect>
+<text class="l" x="830.2" y="512" text-anchor="end" transform="rotate(-60 830.2 512)">ETH calm3</text>
+<rect class="vol" x="841.6" y="349.3" width="18.8" height="135.5" rx="2"><title>BTC-vol1 gated: 24.03 % share</title></rect>
+<text class="l" x="851.0" y="512" text-anchor="end" transform="rotate(-60 851.0 512)">BTC vol1</text>
+<rect class="vol" x="862.4" y="349.3" width="18.8" height="133.2" rx="2"><title>BTC-vol2 gated: 24.48 % share</title></rect>
+<text class="l" x="871.8" y="512" text-anchor="end" transform="rotate(-60 871.8 512)">BTC vol2</text>
+<rect class="vol" x="883.2" y="349.3" width="18.8" height="97.5" rx="2"><title>BTC-vol3 gated: 31.31 % share</title></rect>
+<text class="l" x="892.5" y="512" text-anchor="end" transform="rotate(-60 892.5 512)">BTC vol3</text>
+<rect class="calm" x="903.9" y="349.3" width="18.8" height="92.3" rx="2"><title>BTC-calm1 gated: 32.31 % share</title></rect>
+<text class="l" x="913.3" y="512" text-anchor="end" transform="rotate(-60 913.3 512)">BTC calm1</text>
+<rect class="calm" x="924.7" y="349.3" width="18.8" height="129.7" rx="2"><title>BTC-calm2 gated: 25.14 % share</title></rect>
+<text class="l" x="934.1" y="512" text-anchor="end" transform="rotate(-60 934.1 512)">BTC calm2</text>
+<rect class="calm" x="945.5" y="349.3" width="18.8" height="97.1" rx="2"><title>BTC-calm3 gated: 31.39 % share</title></rect>
+<text class="l" x="954.8" y="512" text-anchor="end" transform="rotate(-60 954.8 512)">BTC calm3</text>
+<rect class="mean" x="966.2" y="349.3" width="18.8" height="118.7" rx="2"><title>mean 27.26 [25.50, 29.09] % share</title></rect>
+<line class="ci" x1="975.6" x2="975.6" y1="477.2" y2="458.4"/>
+<text class="l" x="975.6" y="512" text-anchor="end" transform="rotate(-60 975.6 512)">mean</text>
+<text class="l" x="680" y="420" transform="rotate(-90 680 420)" text-anchor="middle">% share</text></svg>

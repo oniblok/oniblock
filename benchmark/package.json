@@ -9,7 +9,13 @@
     "bench": "tsx src/run.ts --full",
     "start": "tsx src/run.ts --full",
     "run:quick": "tsx src/run.ts --quick",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "bench:v2": "tsx src/v2/run2.ts",
+    "bench:v2:quick": "tsx src/v2/run2.ts --quick",
+    "bench:v3": "tsx src/v3/run3.ts",
+    "bench:v3:quick": "tsx src/v3/run3.ts --quick",
+    "bench:v4": "tsx src/v4/run4.ts",
+    "bench:v4:quick": "tsx src/v4/run4.ts --quick"
   },
   "dependencies": {
     "dotenv": "^18.0.4",

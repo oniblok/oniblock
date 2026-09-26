@@ -28,9 +28,12 @@ export function quantize(f: Features): Features {
   let feeQ: Partial<Features> = {};
   if (f.kBps !== undefined && f.arbFeePips !== undefined) {
     const kQ = bucket(f.kBps, 500);
-    const uncapped = f.baseFee + Math.floor((f.gapPips * f.kBps) / 10_000);
+    // v3 threshold law: only the gap above arbThresholdPips is priced (undefined/0 = v1/v2 law, keys unchanged)
+    const thr = (f as Features & { arbThresholdPips?: number }).arbThresholdPips ?? 0;
+    const ex = (g: number) => Math.max(0, g - thr);
+    const uncapped = f.baseFee + Math.floor((ex(f.gapPips) * f.kBps) / 10_000);
     const feeMax = f.arbFeePips < uncapped ? f.arbFeePips : Number.MAX_SAFE_INTEGER;
-    feeQ = { kBps: kQ, arbFeePips: Math.min(f.baseFee + Math.floor((gapQ * kQ) / 10_000), feeMax) };
+    feeQ = { kBps: kQ, arbFeePips: Math.min(f.baseFee + Math.floor((ex(gapQ) * kQ) / 10_000), feeMax) };
   }
   return {
     ...f,

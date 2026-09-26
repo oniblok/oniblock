@@ -1,0 +1,140 @@
+{
+  "selectedAt": "2026-09-26T07:23:13.120Z",
+  "scanStart": "2026-07-28T00:00:00.000Z",
+  "scanEnd": "2026-09-26T00:00:00.000Z",
+  "rule": "per asset: 60-min windows on 15-min boundaries without 1m gaps, scored by realized vol of 1m log returns; top 3 (volatile) and the 3 closest to the 10th percentile (calm), greedy, >= 12 h apart",
+  "windows": [
+    {
+      "id": "ETH-vol1",
+      "asset": "ETHUSDT",
+      "regime": "volatile",
+      "rank": 1,
+      "startMs": 1787172300000,
+      "endMs": 1787175900000,
+      "startIso": "2026-08-19T20:45:00.000Z",
+      "vol1mBps": 56.96,
+      "rangePct": 9.923
+    },
+    {
+      "id": "ETH-vol2",
+      "asset": "ETHUSDT",
+      "regime": "volatile",
+      "rank": 2,
+      "startMs": 1787374800000,
+      "endMs": 1787378400000,
+      "startIso": "2026-08-22T05:00:00.000Z",
+      "vol1mBps": 51.51,
+      "rangePct": 5.59
+    },
+    {
+      "id": "ETH-vol3",
+      "asset": "ETHUSDT",
+      "regime": "volatile",
+      "rank": 3,
+      "startMs": 1789132500000,
+      "endMs": 1789136100000,
+      "startIso": "2026-09-11T13:15:00.000Z",
+      "vol1mBps": 34.52,
+      "rangePct": 7.047
+    },
+    {
+      "id": "ETH-calm1",
+      "asset": "ETHUSDT",
+      "regime": "calm",
+      "rank": 1,
+      "startMs": 1785552300000,
+      "endMs": 1785555900000,
+      "startIso": "2026-08-01T02:45:00.000Z",
+      "vol1mBps": 2.28,
+      "rangePct": 0.163
+    },
+    {
+      "id": "ETH-calm2",
+      "asset": "ETHUSDT",
+      "regime": "calm",
+      "rank": 2,
+      "startMs": 1785596400000,
+      "endMs": 1785600000000,
+      "startIso": "2026-08-01T15:00:00.000Z",
+      "vol1mBps": 2.28,
+      "rangePct": 0.288
+    },
+    {
+      "id": "ETH-calm3",
+      "asset": "ETHUSDT",
+      "regime": "calm",
+      "rank": 3,
+      "startMs": 1785664800000,
+      "endMs": 1785668400000,
+      "startIso": "2026-08-02T10:00:00.000Z",
+      "vol1mBps": 2.28,
+      "rangePct": 0.295
+    },
+    {
+      "id": "BTC-vol1",
+      "asset": "BTCUSDT",
+      "regime": "volatile",
+      "rank": 1,
+      "startMs": 1787151600000,
+      "endMs": 1787155200000,
+      "startIso": "2026-08-19T15:00:00.000Z",
+      "vol1mBps": 36.04,
+      "rangePct": 5.476
+    },
+    {
+      "id": "BTC-vol2",
+      "asset": "BTCUSDT",
+      "regime": "volatile",
+      "rank": 2,
+      "startMs": 1787374800000,
+      "endMs": 1787378400000,
+      "startIso": "2026-08-22T05:00:00.000Z",
+      "vol1mBps": 25.35,
+      "rangePct": 2.724
+    },
+    {
+      "id": "BTC-vol3",
+      "asset": "BTCUSDT",
+      "regime": "volatile",
+      "rank": 3,
+      "startMs": 1788524100000,
+      "endMs": 1788527700000,
+      "startIso": "2026-09-04T12:15:00.000Z",
+      "vol1mBps": 22.43,
+      "rangePct": 2.743
+    },
+    {
+      "id": "BTC-calm1",
+      "asset": "BTCUSDT",
+      "regime": "calm",
+      "rank": 1,
+      "startMs": 1786149000000,
+      "endMs": 1786152600000,
+      "startIso": "2026-08-08T00:30:00.000Z",
+      "vol1mBps": 1.62,
+      "rangePct": 0.146
+    },
+    {
+      "id": "BTC-calm2",
+      "asset": "BTCUSDT",
+      "regime": "calm",
+      "rank": 2,
+      "startMs": 1786235400000,
+      "endMs": 1786239000000,
+      "startIso": "2026-08-09T00:30:00.000Z",
+      "vol1mBps": 1.62,
+      "rangePct": 0.214
+    },
+    {
+      "id": "BTC-calm3",
+      "asset": "BTCUSDT",
+      "regime": "calm",
+      "rank": 3,
+      "startMs": 1786485600000,
+      "endMs": 1786489200000,
+      "startIso": "2026-08-11T22:00:00.000Z",
+      "vol1mBps": 1.62,
+      "rangePct": 0.223
+    }
+  ]
+}
