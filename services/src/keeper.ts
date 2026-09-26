@@ -77,10 +77,11 @@
  *      KEEPER_FIRST_IN_BLOCK (default 0; 1 needs KEEPER_READ_LEAD_MS, else fatal_config): oniblock1's training setup, the
  *        keeper's post FIRST in the block. Same schedule (read + send at ts_N + blockTime - lead), but the tx is meant to
  *        be included at the TOP of block N+1, before its first swap, so it prices block N+1 itself: expectedMidAgeMs =
- *        ts_N + blockTime - read (~ lead). Combine with KEEPER_PRIORITY_GWEI above every other sender of the pool and
- *        ATTEST_BLOCK_OFFSET=0 (attested blockNumber N = block.number - 1 when included in N+1; the hook accepts the
- *        current or previous block, so a tx that slips to N+2 reverts AttestationBlockMismatch instead of posting a
- *        ~14 s old mid). Only realistic where nobody else competes for the top of the block (a quiet testnet). Attested
+ *        ts_N + blockTime - read (~ lead). Combine with KEEPER_PRIORITY_GWEI above every other sender of the pool.
+ *        ATTEST_BLOCK_OFFSET: 1 (sepolia-live default) signs for N+1, so a tx that slips to N+2 is still accepted
+ *        (block.number - 1) and posts a ~14 s old mid rather than nothing; 0 signs for N, so a slipped tx reverts
+ *        AttestationBlockMismatch (no post; repeated misses let the pool go stale). Live Sepolia runs saw late posts
+ *        routinely, so 1 is the default. Only realistic where nobody else competes for the top of the block. Attested
  *        lines also log firstInBlock, broadcastLeadMs (ts_N + blockTime - broadcast; <= 0 = most likely missed N+1),
  *        minedTxIndex and landedNext (mined in N+1).
  *      KEEPER_PRIORITY_GWEI (unset = viem's default, the node's eth_maxPriorityFeePerGas): maxPriorityFeePerGas of the
