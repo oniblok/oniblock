@@ -43,6 +43,7 @@ export function modelKind(name: string | undefined): string | null {
   if (!name) return null;
   if (/jev/i.test(name)) return 'jev';
   if (/heuristic/i.test(name)) return 'heuristic';
+  if (/^rule-/i.test(name)) return 'rule';
   return name.split('.')[0] ?? name;
 }
 
@@ -53,6 +54,31 @@ export async function readConfig(c: Ctx): Promise<PoolConfigJson> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(src)) out[k] = typeof v === 'bigint' ? Number(v) : typeof v === 'number' ? v : v;
   return out as PoolConfigJson;
+}
+
+/**
+ * Pool config IN FORCE at `block`: the last PoolRegistered / PoolConfigUpdated event for our pool mined at or before
+ * it (a queued change only applies once executed, which is when PoolConfigUpdated is emitted). Receipts of old
+ * blocks must be re-derived with the config of their block, not today's (e.g. after an arbThresholdPips change).
+ * Falls back to the current config when the events are unavailable.
+ */
+export async function readConfigAt(c: Ctx, block: number): Promise<{ cfg: PoolConfigJson; atBlock: number | null }> {
+  try {
+    const q = (eventName: 'PoolRegistered' | 'PoolConfigUpdated') =>
+      c.pc.getContractEvents({ address: c.d.hook, abi: c.hookAbi, eventName, args: { id: c.d.oniblock.poolId }, fromBlock: BigInt(c.d.deployBlock ?? 0), toBlock: BigInt(block) });
+    const [reg, upd] = await Promise.all([q('PoolRegistered'), q('PoolConfigUpdated')]);
+    type E = { blockNumber: bigint; logIndex: number; args: { config?: Record<string, unknown> } };
+    const all = ([...reg, ...upd] as unknown as E[]).sort((a, b) => Number(a.blockNumber - b.blockNumber) || a.logIndex - b.logIndex);
+    const last = all.at(-1);
+    if (last?.args.config) {
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(last.args.config)) out[k] = typeof v === 'bigint' ? Number(v) : v;
+      return { cfg: out as PoolConfigJson, atBlock: Number(last.blockNumber) };
+    }
+  } catch {
+    /* fall through */
+  }
+  return { cfg: await readConfig(c), atBlock: null };
 }
 
 async function readCalibration(c: Ctx, node: Hex): Promise<CalibrationJson | undefined> {
@@ -110,17 +136,28 @@ export async function getState(): Promise<StateJson> {
   const modelNode = (st.modelNode as Hex) ?? ('0x' + '0'.repeat(64)) as Hex;
   const lastAttestBlock = num(st.lastAttestBlock);
   const oracleX96 = BigInt((st.oracleMidX96 as bigint | undefined) ?? 0n);
-  const [demoted, calibration, quoterActive, backupActive, settlerActive, lastAtt] = await Promise.all([
+  const MIX_WINDOW = 100;
+  const [demoted, calibration, quoterActive, backupActive, settlerActive, recentAtts] = await Promise.all([
     tryRead<boolean>(c, 'isDemoted', [id, modelNode]),
     readCalibration(c, modelNode),
     isQuoter(c, c.d.quoter),
     c.sel.isDev ? isQuoter(c, backupQuoterAddress()) : Promise.resolve(undefined),
     isQuoter(c, c.d.settler, 'isSettler'),
     c.pc
-      .getContractEvents({ address: c.d.hook, abi: c.hookAbi, eventName: 'AttestationPosted', args: { id }, fromBlock: BigInt(Math.max(0, head - 50)), toBlock: BigInt(head) })
-      .then((l) => l.at(-1))
-      .catch(() => undefined),
+      .getContractEvents({ address: c.d.hook, abi: c.hookAbi, eventName: 'AttestationPosted', args: { id }, fromBlock: BigInt(Math.max(0, head - MIX_WINDOW)), toBlock: BigInt(head) })
+      .catch(() => []),
   ]);
+  const lastAtt = recentAtts.at(-1);
+  let attestMix: StateJson['status']['attestMix'] = null;
+  if (recentAtts.length) {
+    const m = { window: MIX_WINDOW, total: recentAtts.length, jev: 0, heuristic: 0, rule: 0, other: 0 };
+    for (const l of recentAtts as unknown as { args: { modelNode?: Hex } }[]) {
+      const k = modelKind(nameOf(c, l.args.modelNode));
+      if (k === 'jev' || k === 'heuristic' || k === 'rule') m[k]++;
+      else m.other++;
+    }
+    attestMix = m;
+  }
   const fq = (q?: readonly [number, boolean, number, boolean]): FeeQuote => ({
     feePips: num(q?.[0]),
     arbDir: !!q?.[1],
@@ -168,6 +205,9 @@ export async function getState(): Promise<StateJson> {
       feeOneForZero: f1,
       arbZeroForOne: f0.arbDir ? true : f1.arbDir ? false : num(anchor.gapZeroForOne) > 0 ? true : num(anchor.gapOneForZero) > 0 ? false : null,
       gapPips: Math.max(f0.gapPips, f1.gapPips),
+      arbThresholdPips: Number(cfg.arbThresholdPips ?? 0),
+      belowThreshold: !ps?.[2] && Number(cfg.arbThresholdPips ?? 0) > 0 && Math.max(f0.gapPips, f1.gapPips) <= Number(cfg.arbThresholdPips ?? 0),
+      attestMix,
       calibration,
       lastQuoter,
       lastQuoterName: undefined,
@@ -468,7 +508,7 @@ export async function getHistory(opts: { blocks?: number; regimeBlocks?: number;
         const px = sqrtPriceX96ToPriceX96(oniSnaps[i]!.sqrtP);
         const diff = px > a.midX96 ? px - a.midX96 : a.midX96 - px;
         gap = Number((diff * 1_000_000n) / a.midX96);
-        feePips = Math.min(cfg.baseFee + Math.floor((gap * a.k) / 10_000), cfg.feeMax);
+        feePips = Math.min(cfg.baseFee + Math.floor((Math.max(0, gap - Number(cfg.arbThresholdPips ?? 0)) * a.k) / 10_000), cfg.feeMax);
       }
       src = 'quoted';
     }

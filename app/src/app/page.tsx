@@ -86,6 +86,29 @@ export default function Home() {
   const arbFee = x.arbZeroForOne === null ? null : x.arbZeroForOne ? x.feeZeroForOne : x.feeOneForZero;
   const modelLbl = x.modelName ?? short(x.modelNode);
   const quote = s.pair.quote;
+  const thr = x.arbThresholdPips ?? 0;
+  // v4: with k = 0 (the model said "no profitable arbitrage", or no trusted model) the arb direction pays exactly base.
+  const kZero = x.kBps === 0;
+  const feeSub = (f: typeof x.feeZeroForOne) =>
+    f.stale
+      ? 'stale mid'
+      : f.arbDir
+        ? f.gapPips <= thr
+          ? 'below arb threshold → base fee'
+          : kZero || f.feePips <= cfg.baseFee
+            ? 'arb dir, k = 0 → base fee'
+            : 'regime fee (arb dir)'
+        : 'base fee';
+  const feeTone = (f: typeof x.feeZeroForOne) => (f.arbDir && f.gapPips > thr && f.feePips > cfg.baseFee ? ('warn' as const) : undefined);
+  const kSub = x.demoted
+    ? `model demoted → kDefault ${kFmt(cfg.kDefaultBps)}${cfg.kDefaultBps === 0 ? ' (base fee)' : ''}`
+    : x.unseasoned
+      ? `unseasoned → kDefault ${kFmt(cfg.kDefaultBps)}${cfg.kDefaultBps === 0 ? ' (base fee)' : ''}`
+      : kZero
+        ? 'model: no profitable arb → base fee'
+        : `range ${kFmt(cfg.kMinBps)}–${kFmt(cfg.kMaxBps)}`;
+  const mix = x.attestMix;
+  const mixPct = (n: number) => (mix && mix.total ? `${Math.round((100 * n) / mix.total)}%` : '—');
 
   const pts = h?.points ?? [];
   const series = [
@@ -105,11 +128,11 @@ export default function Home() {
         <Stat
           label="Attested k"
           value={kFmt(x.kBps)}
-          sub={x.demoted ? 'model demoted → kDefault' : x.unseasoned ? 'unseasoned → kDefault' : `range ${kFmt(cfg.kMinBps)}–${kFmt(cfg.kMaxBps)}`}
-          tone={x.demoted ? 'bad' : x.unseasoned ? 'warn' : undefined}
+          sub={kSub}
+          tone={x.demoted ? 'bad' : x.unseasoned && cfg.kDefaultBps !== 0 ? 'warn' : undefined}
         />
-        <Stat label={`Fee · ${sellLbl}`} value={pct(x.feeZeroForOne.feePips)} sub={x.feeZeroForOne.stale ? 'stale mid' : x.feeZeroForOne.arbDir ? 'regime fee (arb dir)' : 'base fee'} tone={x.feeZeroForOne.arbDir ? 'warn' : undefined} />
-        <Stat label={`Fee · ${buyLbl}`} value={pct(x.feeOneForZero.feePips)} sub={x.feeOneForZero.stale ? 'stale mid' : x.feeOneForZero.arbDir ? 'regime fee (arb dir)' : 'base fee'} tone={x.feeOneForZero.arbDir ? 'warn' : undefined} />
+        <Stat label={`Fee · ${sellLbl}`} value={pct(x.feeZeroForOne.feePips)} sub={feeSub(x.feeZeroForOne)} tone={feeTone(x.feeZeroForOne)} />
+        <Stat label={`Fee · ${buyLbl}`} value={pct(x.feeOneForZero.feePips)} sub={feeSub(x.feeOneForZero)} tone={feeTone(x.feeOneForZero)} />
         <Stat
           label="Attestation age"
           value={x.attestAge == null ? '—' : `${x.attestAge} blk`}
@@ -130,10 +153,34 @@ export default function Home() {
       </div>
 
       <div className="flex flex-wrap gap-x-6 gap-y-1 px-1 text-xs text-ink-2">
+        {x.belowThreshold ? (
+          <span className="text-good">
+            Below arb threshold: gap {gapBps(x.gapPips)} ≤ {gapBps(thr)} → base fee {pct(cfg.baseFee)} both ways (same as a vanilla pool{mix && mix.rule > 0 ? '; keeper posts rule-v1, no model call' : ''}).
+          </span>
+        ) : null}
+        {!x.stale && kZero ? (
+          <span className="text-good">
+            k = 0 → base fee {pct(cfg.baseFee)} both ways (same as a vanilla pool): {x.demoted || x.unseasoned ? 'no trusted model (kDefault = 0)' : 'the model sees no profitable arbitrage'}.
+          </span>
+        ) : null}
         <span>
-          Fee law: arb direction pays <b className="text-ink">min(base + k·gap, feeMax)</b> = {pct(cfg.baseFee)} + {kFmt(x.kBps)} × {gapBps(x.gapPips)}
-          {arbFee ? ` = ${pct(arbFee.feePips)}` : ''}; the other direction pays base {pct(cfg.baseFee)}; cap {pct(cfg.feeMax)}.
+          {thr > 0 ? (
+            <>
+              Fee law: arb direction pays <b className="text-ink">min(base + k·max(0, gap − threshold), feeMax)</b> = {pct(cfg.baseFee)} + {kFmt(x.kBps)} × max(0, {gapBps(x.gapPips)} − {gapBps(thr)})
+              {arbFee ? ` = ${pct(arbFee.feePips)}` : ''}; the other direction pays base {pct(cfg.baseFee)}; arb threshold {gapBps(thr)}; cap {pct(cfg.feeMax)}.
+            </>
+          ) : (
+            <>
+              Fee law: arb direction pays <b className="text-ink">min(base + k·gap, feeMax)</b> = {pct(cfg.baseFee)} + {kFmt(x.kBps)} × {gapBps(x.gapPips)}
+              {arbFee ? ` = ${pct(arbFee.feePips)}` : ''}; the other direction pays base {pct(cfg.baseFee)}; no gap threshold — the model decides k every block (k = kMax·p·c); cap {pct(cfg.feeMax)}.
+            </>
+          )}
         </span>
+        {mix ? (
+          <span>
+            Keeper model calls: <b className="text-ink">{mixPct(mix.jev + mix.heuristic)}</b> of the last {mix.total} attestations (Jev {mixPct(mix.jev)}, heuristic {mixPct(mix.heuristic)}{mix.rule > 0 ? `, rule-v1 ${mixPct(mix.rule)}` : ''}; last {mix.window} blocks)
+          </span>
+        ) : null}
         <span>
           Quoter{' '}
           {s.roles.quoterActive ? <span className="text-good">active</span> : <span className="text-bad">revoked</span>}

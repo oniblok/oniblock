@@ -91,7 +91,8 @@ export default async function ReceiptPageView({ params }: { params: Promise<{ tx
     );
   }
   const r = p.receipts[0];
-  const cfg = p.config as { baseFee: number; feeMax: number; brierDemoteBps: number; conservativeFee: number };
+  const cfg = p.config as { baseFee: number; feeMax: number; brierDemoteBps: number; conservativeFee: number; arbThresholdPips?: number };
+  const thr = Number(cfg.arbThresholdPips ?? 0);
   const sym0 = p.pair.token0;
   const sym1 = p.pair.token1;
   return (
@@ -110,7 +111,22 @@ export default async function ReceiptPageView({ params }: { params: Promise<{ tx
       {p.receipts.map((rc) => (
         <div key={rc.logIndex} className="card">
           <div className="grid grid-cols-5 divide-x divide-line">
-            <Big label="Fee charged" value={pct(rc.feePips)} sub={rc.stale ? `stale mid → conservative` : rc.arbDir ? 'regime fee (arb direction)' : 'base fee (reverse direction)'} tone={rc.stale ? 'text-bad' : rc.arbDir ? 'text-warn' : ''} />
+            <Big
+              label="Fee charged"
+              value={pct(rc.feePips)}
+              sub={
+                rc.stale
+                  ? `stale mid → conservative`
+                  : rc.arbDir
+                    ? thr > 0 && rc.gapPips <= thr
+                      ? 'arb direction, below threshold → base'
+                      : rc.kBps === 0
+                        ? 'arb direction, k = 0 → base (model: no profitable arb / no trusted model)'
+                        : 'regime fee (arb direction)'
+                    : 'base fee (reverse direction)'
+              }
+              tone={rc.stale ? 'text-bad' : rc.arbDir && rc.feePips > cfg.baseFee ? 'text-warn' : ''}
+            />
             <Big label="Gap vs CEX mid" value={gapBps(rc.gapPips)} sub="anchored at the block's first swap" />
             <Big label="Attested k" value={kFmt(rc.kBps)} sub={rc.modelName?.split('.')[0] ?? short(rc.modelNode)} />
             <Big label="Direction" value={rc.arbDir ? 'Arb' : 'Reverse'} sub={rc.zeroForOne ? `sell ${sym0}` : `buy ${sym0}`} />
@@ -122,7 +138,13 @@ export default async function ReceiptPageView({ params }: { params: Promise<{ tx
               {rc.stale ? (
                 <>stale mid → conservativeFee {pct(cfg.conservativeFee)}</>
               ) : rc.arbDir ? (
-                <>min({pct(cfg.baseFee)} + {kFmt(rc.kBps)} × {gapBps(rc.gapPips)}, {pct(cfg.feeMax)}) = <b className="text-ink">{pct(Math.min(cfg.baseFee + Math.floor((rc.gapPips * rc.kBps) / 10_000), cfg.feeMax))}</b></>
+                thr > 0 && rc.gapPips <= thr ? (
+                  <>gap {gapBps(rc.gapPips)} ≤ arb threshold {gapBps(thr)} → base {pct(cfg.baseFee)} (no profitable arbitrage below the threshold)</>
+                ) : thr > 0 ? (
+                  <>min({pct(cfg.baseFee)} + {kFmt(rc.kBps)} × ({gapBps(rc.gapPips)} − {gapBps(thr)}), {pct(cfg.feeMax)}) = <b className="text-ink">{pct(Math.min(cfg.baseFee + Math.floor((Math.max(0, rc.gapPips - thr) * rc.kBps) / 10_000), cfg.feeMax))}</b></>
+                ) : (
+                  <>min({pct(cfg.baseFee)} + {kFmt(rc.kBps)} × {gapBps(rc.gapPips)}, {pct(cfg.feeMax)}) = <b className="text-ink">{pct(Math.min(cfg.baseFee + Math.floor((rc.gapPips * rc.kBps) / 10_000), cfg.feeMax))}</b>{rc.kBps === 0 ? ' (k = 0: the model saw no profitable arbitrage, or had no power yet)' : ''}</>
+                )
               ) : (
                 <>reverse direction → base {pct(cfg.baseFee)}</>
               )}

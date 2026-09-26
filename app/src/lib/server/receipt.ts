@@ -6,7 +6,7 @@
 import 'server-only';
 import { decodeEventLog, decodeFunctionData, namehash, type Address, type Hex } from 'viem';
 import { CALIBRATION_KEYS, ctx, ensAddr, ensAvailable, ensTexts, nameOf, tryRead, type Ctx } from './chain';
-import { modelKind, order, readConfig } from './live';
+import { modelKind, order, readConfig, readConfigAt } from './live';
 import { priceX96ToMid, recoverAttestor } from './shared';
 
 type Args = Record<string, unknown>;
@@ -155,6 +155,11 @@ export async function getReceiptPage(txHash: Hex): Promise<ReceiptPage> {
     readConfig(c),
   ]);
   const block = Number(rc.blockNumber);
+  // Fee checks use the config in force at the receipt's block (a later updatePoolConfig must not break old receipts).
+  const cfgAt = await readConfigAt(c, block);
+  const cfgChanged = JSON.stringify(cfgAt.cfg) !== JSON.stringify(cfg);
+  if (cfgAt.atBlock !== null && cfgChanged)
+    notes.push(`Pool config changed after this swap: fees below are checked against the config in force at block ${block} (set at block ${cfgAt.atBlock}), not today's.`);
   const d0 = 10 ** c.d.token0.decimals;
   const d1 = 10 ** c.d.token1.decimals;
   const receipts: ReceiptView[] = [];
@@ -255,7 +260,7 @@ export async function getReceiptPage(txHash: Hex): Promise<ReceiptPage> {
           base: c.d.baseIsToken0 ? c.d.token0.symbol : c.d.token1.symbol,
           quote: c.d.baseIsToken0 ? c.d.token1.symbol : c.d.token0.symbol,
         },
-        config: cfg,
+        config: cfgAt.cfg,
         receipts,
         attestation,
         postedInTx,

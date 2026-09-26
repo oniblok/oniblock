@@ -2,10 +2,13 @@
 # Oniblock local demo: anvil (2 s blocks) -> DeployLocal -> keeper + settler + arb + retail -> Next.js app.
 # Ctrl-C stops everything. Logs: .runtime/logs/*.log
 #
-# Story in ~2-3 minutes (demo profile: MIN_SAMPLES=3, settle every 5 blocks, 8-label calibration window):
-#   unseasoned (k = kDefault) -> seasoned (settler writes n >= 3, k follows the model) -> "Degrade model"
-#   -> Brier crosses brierDemoteBps -> demoted (k = kDefault again). The arb bot acts on its own because the
-#   price source replays a volatile window of REAL Binance klines on block time (keeper and arb share it).
+# Story in ~2-3 minutes (demo profile: MIN_SAMPLES=3, settle every 5 blocks, 8-label calibration window).
+# v4 "the AI decides the fee" (docs/review/V4_AI_DECIDES.md): the keeper asks Jev EVERY block (no gate), the pool has
+# no gap threshold and kMin = kDefault = 0, so k = kMax * p * c: Jev's "no profitable arbitrage" = base fee.
+#   unseasoned (k = kDefault = 0: base fee, the model has no power yet) -> seasoned (settler writes n >= 3 from blocks
+#   with arb-direction flow; k follows Jev block by block) -> "Degrade model" -> Brier crosses brierDemoteBps
+#   -> demoted (k = kDefault = 0 again). The arb bot acts on its own because the price source replays a volatile
+#   window of REAL Binance klines on block time (keeper and arb share it).
 #
 # Env knobs (all optional):
 #   RPC_PORT=8545  APP_PORT=3000  BLOCK_TIME=2
@@ -22,10 +25,14 @@
 #   ARB_SPLIT=1            arb bot sub-swaps per tx (>1 exercises the per-block anchor)
 #   APP_CMD=dev            dev | start (start requires `pnpm -C app build` first)
 #   SKIP_APP=1             don't start the app
+#   DEMO_RUNTIME_DIR=.runtime        flags file + logs (use another dir to run next to a live demo)
+#   DEMO_DEPLOYMENTS_FILE=deployments/31337.json   deployment JSON written by DeployLocal / read by the services
+#   KEEPER_GATE=0          v4 default: Jev every block (1 = the v3 rule-v1 gate, for comparison only)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-RUNTIME="$ROOT/.runtime"
+RUNTIME="${DEMO_RUNTIME_DIR:-$ROOT/.runtime}"
+DEPLOY_JSON="${DEMO_DEPLOYMENTS_FILE:-$ROOT/deployments/31337.json}"
 LOGS="$RUNTIME/logs"
 RPC_PORT="${RPC_PORT:-8545}"
 APP_PORT="${APP_PORT:-3000}"
@@ -90,10 +97,10 @@ echo "[demo] deploying (INIT_PRICE_USD_E8=${INIT_PRICE_USD_E8:-DeployLocal defau
 PRE_DEPLOY_BLOCK="$(block_number)"
 (
   cd "$ROOT/contracts"
-  env ${INIT_PRICE_USD_E8:+INIT_PRICE_USD_E8=$INIT_PRICE_USD_E8} MIN_SAMPLES="$MIN_SAMPLES" LOCAL_PK="$ANVIL0_PK" \
+  env ${INIT_PRICE_USD_E8:+INIT_PRICE_USD_E8=$INIT_PRICE_USD_E8} MIN_SAMPLES="$MIN_SAMPLES" LOCAL_PK="$ANVIL0_PK" DEPLOYMENTS_OUT="$DEPLOY_JSON" \
     forge script script/DeployLocal.s.sol --rpc-url "$RPC" --broadcast --private-key "$ANVIL0_PK" --slow --non-interactive
 ) >"$LOGS/deploy.log" 2>&1 || { echo "[demo] deploy failed — see .runtime/logs/deploy.log"; tail -20 "$LOGS/deploy.log"; exit 1; }
-echo "[demo] deployed -> deployments/31337.json ($(patch_deploy_block "$ROOT/deployments/31337.json" \
+echo "[demo] deployed -> ${DEPLOY_JSON#"$ROOT"/} ($(patch_deploy_block "$DEPLOY_JSON" \
   "$ROOT/contracts/broadcast/DeployLocal.s.sol/31337/run-latest.json" "$((PRE_DEPLOY_BLOCK + 1))"))"
 # Replay index 0 = the first block after deploy, so the pool starts at the replay's first price.
 export REPLAY_ORIGIN_BLOCK="$(block_number)"
@@ -102,7 +109,8 @@ export REPLAY_ORIGIN_BLOCK="$(block_number)"
 printf '{\n  "degraded": false,\n  "useBackupQuoter": false\n}\n' >"$RUNTIME/keeper-flags.json"
 
 # 4. services --------------------------------------------------------------------------------
-export CHAIN=local LOCAL_RPC="$RPC" KEEPER_FLAGS_FILE="$RUNTIME/keeper-flags.json"
+export CHAIN=local LOCAL_RPC="$RPC" KEEPER_FLAGS_FILE="$RUNTIME/keeper-flags.json" DEPLOYMENTS_FILE="$DEPLOY_JSON"
+export KEEPER_GATE="${KEEPER_GATE:-0}"
 export MODEL_MODE="${MODEL_MODE:-auto}"
 export SETTLE_EVERY="${SETTLE_EVERY:-5}" CALIB_WINDOW="${CALIB_WINDOW:-8}" CALIB_MIN_N="${CALIB_MIN_N:-$MIN_SAMPLES}"
 export RETAIL_LAMBDA="${RETAIL_LAMBDA:-1}" # more labelled blocks per minute for the settler

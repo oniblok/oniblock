@@ -74,7 +74,7 @@ export function DevPanel({ s, onDone }: { s: StateJson; onDone: () => void }) {
             Reverse
           </button>
         </div>
-        <p className="mt-1 text-xs text-muted">Arb direction pays base + k·gap (anchored for the block); reverse pays base fee.</p>
+        <p className="mt-1 text-xs text-muted">Arb direction pays base + k·max(0, gap − arb threshold) (anchored for the block); below the threshold and in reverse it pays the base fee.</p>
       </div>
 
       <div className="mb-4">
