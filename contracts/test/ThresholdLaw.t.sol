@@ -188,7 +188,7 @@ contract ThresholdLawTest is OniblockTestBase {
         h.setModelAllowed(id, MODEL, true);
         uint256 px = _poolX96(id);
         uint256 mid = px * 1e6 / (1e6 + 5000); // 0.5% gap
-        OniblockHook.Attestation memory a = OniblockHook.Attestation(uint64(vm.getBlockNumber()), mid, 0, 0, MODEL, "");
+        OniblockHook.Attestation memory a = OniblockHook.Attestation(uint64(vm.getBlockNumber()), mid, 0, 0, 0, MODEL, "");
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(attestorPk, h.attestationDigest(id, a));
         a.signature = abi.encodePacked(r, s, v);
         vm.prank(quoter);

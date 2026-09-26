@@ -2,7 +2,7 @@
  * ENS calibration text records (settler-only EAC per-key roles on our PermissionedResolver).
  * Mechanism per docs/ENS_INTEGRATION.md §4/§6:
  *   resolver.multicall([setText(dns(name), "calibration.brier", "1830"), ... hitRate, n, epoch])
- * from the settler key. Values are decimal ASCII in bps (brier, hitRate), count (n), and a
+ * from the settler key. v5: the JIT head's record goes through the same path under calibration.jit.* (head 'jit'). Values are decimal ASCII in bps (brier, hitRate), count (n), and a
  * monotonically increasing epoch (we use the settled block number).
  *
  * The ENS deployment comes from deployments/<chainId>.ens.json (or ENS_DEPLOYMENT_FILE, e.g.
@@ -38,9 +38,18 @@ export interface CalibrationRecord {
 /** Keys the settler writes beyond the four base calibration.* keys. */
 export const CALIBRATION_DETAIL_KEYS = ['calibration.brierRaw', 'calibration.skill', 'calibration.baseRate'] as const;
 
+/**
+ * v5: which head a record belongs to. 'arb' = the k head (`calibration.*`, the original records); 'jit' = the JIT
+ * head (`calibration.jit.*` on the same model name; on-chain key = hook.jitCalibrationKey(modelNode)).
+ */
+export type CalibrationHead = 'arb' | 'jit';
+export const CALIBRATION_PREFIX: Record<CalibrationHead, string> = { arb: 'calibration', jit: 'calibration.jit' };
+/** The seven calibration.jit.* keys EnsSetup grants the settler (mirror of the arb keys). */
+export const JIT_CALIBRATION_KEYS = ['brier', 'hitRate', 'n', 'epoch', 'brierRaw', 'skill', 'baseRate'].map((k) => `calibration.jit.${k}`);
+
 export interface CalibrationRecordWriter {
   readonly kind: string;
-  write(modelNode: Hex, rec: CalibrationRecord): Promise<boolean>;
+  write(modelNode: Hex, rec: CalibrationRecord, head?: CalibrationHead): Promise<boolean>;
 }
 
 export const resolverAbi = parseAbi([
@@ -67,24 +76,25 @@ export function dnsEncode(name: string): Hex {
  * settler.ts); `calibration.brierRaw` is the absolute Brier, `calibration.skill` the Brier skill vs the
  * base-rate predictor (signed; 10000 = perfect, 0 = no better than the base rate).
  */
-export function calibrationTextRecords(rec: CalibrationRecord, detail = true): [string, string][] {
+export function calibrationTextRecords(rec: CalibrationRecord, detail = true, head: CalibrationHead = 'arb'): [string, string][] {
+  const p = CALIBRATION_PREFIX[head];
   const out: [string, string][] = [
-    ['calibration.brier', String(rec.brierBps)],
-    ['calibration.hitRate', String(rec.hitRateBps)],
-    ['calibration.n', String(rec.n)],
-    ['calibration.epoch', String(rec.epoch)],
+    [`${p}.brier`, String(rec.brierBps)],
+    [`${p}.hitRate`, String(rec.hitRateBps)],
+    [`${p}.n`, String(rec.n)],
+    [`${p}.epoch`, String(rec.epoch)],
   ];
   if (detail) {
-    if (rec.rawBrierBps !== undefined) out.push(['calibration.brierRaw', String(rec.rawBrierBps)]);
-    if (rec.skillBps !== undefined) out.push(['calibration.skill', String(rec.skillBps)]);
-    if (rec.baseRateBps !== undefined) out.push(['calibration.baseRate', String(rec.baseRateBps)]);
+    if (rec.rawBrierBps !== undefined) out.push([`${p}.brierRaw`, String(rec.rawBrierBps)]);
+    if (rec.skillBps !== undefined) out.push([`${p}.skill`, String(rec.skillBps)]);
+    if (rec.baseRateBps !== undefined) out.push([`${p}.baseRate`, String(rec.baseRateBps)]);
   }
   return out;
 }
 
-export function calibrationMulticallData(name: string, rec: CalibrationRecord, detail = true): Hex[] {
+export function calibrationMulticallData(name: string, rec: CalibrationRecord, detail = true, head: CalibrationHead = 'arb'): Hex[] {
   const dns = dnsEncode(name);
-  return calibrationTextRecords(rec, detail).map(([k, v]) => encodeFunctionData({ abi: resolverAbi, functionName: 'setText', args: [dns, k, v] }));
+  return calibrationTextRecords(rec, detail, head).map(([k, v]) => encodeFunctionData({ abi: resolverAbi, functionName: 'setText', args: [dns, k, v] }));
 }
 
 export interface EnsDeployment {
@@ -110,8 +120,8 @@ export function loadEnsDeployment(chainId: number): EnsDeployment | undefined {
 
 export class NoopCalibrationWriter implements CalibrationRecordWriter {
   readonly kind = 'noop';
-  async write(modelNode: Hex, rec: CalibrationRecord): Promise<boolean> {
-    log('ens', 'would_write_text_records', { modelNode, records: Object.fromEntries(calibrationTextRecords(rec)) });
+  async write(modelNode: Hex, rec: CalibrationRecord, head: CalibrationHead = 'arb'): Promise<boolean> {
+    log('ens', 'would_write_text_records', { modelNode, head, records: Object.fromEntries(calibrationTextRecords(rec, true, head)) });
     return false;
   }
 }
@@ -120,8 +130,8 @@ export class NoopCalibrationWriter implements CalibrationRecordWriter {
 export class EnsV2CalibrationWriter implements CalibrationRecordWriter {
   readonly kind = 'ensv2';
   private readonly nameOf = new Map<string, string>();
-  /** false once the resolver rejected the detail keys (an EnsSetup run from before they were granted). */
-  private detail = true;
+  /** false once the resolver rejected the detail keys of a head (an EnsSetup run from before they were granted). */
+  private readonly detail: Record<CalibrationHead, boolean> = { arb: true, jit: true };
   /** `sender` must be the settler's TxSender (shared so nonces stay consistent). */
   constructor(
     private readonly sender: TxSender,
@@ -129,10 +139,11 @@ export class EnsV2CalibrationWriter implements CalibrationRecordWriter {
   ) {
     for (const [name, node] of Object.entries(ens.namehashes)) this.nameOf.set(node.toLowerCase(), name);
   }
-  async write(modelNode: Hex, rec: CalibrationRecord): Promise<boolean> {
+  /** `head` 'jit' writes calibration.jit.* (needs the EnsSetup grant-jit grants; otherwise the multicall reverts and this returns false). */
+  async write(modelNode: Hex, rec: CalibrationRecord, head: CalibrationHead = 'arb'): Promise<boolean> {
     const name = this.nameOf.get(modelNode.toLowerCase());
     if (!name) {
-      log('ens', 'unknown_model_node', { modelNode });
+      log('ens', 'unknown_model_node', { modelNode, head });
       return false;
     }
     const send = (detail: boolean) =>
@@ -140,18 +151,18 @@ export class EnsV2CalibrationWriter implements CalibrationRecordWriter {
         address: this.ens.resolver,
         abi: resolverAbi,
         functionName: 'multicall',
-        args: [calibrationMulticallData(name, rec, detail)],
-        label: `ens calibration ${name}`,
+        args: [calibrationMulticallData(name, rec, detail, head)],
+        label: `ens ${CALIBRATION_PREFIX[head]} ${name}`,
       });
-    let rc = await send(this.detail);
-    if (!rc && this.detail) {
+    let rc = await send(this.detail[head]);
+    if (!rc && this.detail[head]) {
       // Most likely EACUnauthorizedAccountRoles on a detail key: fall back to the four base keys from now on.
-      this.detail = false;
-      log('ens', 'detail_keys_unauthorized', { name, keys: CALIBRATION_DETAIL_KEYS });
+      this.detail[head] = false;
+      log('ens', 'detail_keys_unauthorized', { name, head, keys: calibrationTextRecords(rec, true, head).slice(4).map(([k]) => k) });
       rc = await send(false);
     }
     const ok = rc?.status === 'success';
-    log('ens', ok ? 'text_records_written' : 'text_records_failed', { name, ...rec, detail: this.detail, tx: rc?.hash });
+    log('ens', ok ? 'text_records_written' : 'text_records_failed', { name, head, ...rec, detail: this.detail[head], tx: rc?.hash });
     return ok;
   }
 }

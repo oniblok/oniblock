@@ -42,6 +42,7 @@ export function parseKev(raw: unknown, latencyMs: number): ModelScore | null {
   return {
     pToxicBps: clampBps(p * 10_000),
     confidenceBps: clampBps(Math.abs(2 * p - 1) * 10_000),
+    pJitBps: 0, // no JIT head yet (Kev was fine-tuned on the arb question only) => the hook uses jitWindowDefault
     cls: p >= 0.6 ? 'informed' : 'unknown',
     latencyMs: Math.round(latencyMs),
     model: 'kev',

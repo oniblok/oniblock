@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Oniblock local demo: anvil (2 s blocks) -> DeployLocal -> keeper + settler + arb + retail -> Next.js app.
+# Oniblock local demo: anvil (2 s blocks) -> DeployLocal -> keeper + settler + arb + retail + jit -> Next.js app.
 # Ctrl-C stops everything. Logs: .runtime/logs/*.log
 #
 # Story in ~2-3 minutes (demo profile: MIN_SAMPLES=3, settle every 5 blocks, 8-label calibration window).
@@ -9,6 +9,13 @@
 #   with arb-direction flow; k follows Jev block by block) -> "Degrade model" -> Brier crosses brierDemoteBps
 #   -> demoted (k = kDefault = 0 again). The arb bot acts on its own because the price source replays a volatile
 #   window of REAL Binance klines on block time (keeper and arb share it).
+# v5 "the model decides the JIT window" (docs/review/V5_JIT_HEAD_SPEC.md): the jit bot mints a narrow position, swaps,
+#   and pulls it after JIT_HOLD=12 blocks (escapes the old fixed 10-block wall). The settler grades the JIT head once each
+#   add's SETTLER_JIT_LABEL_BLOCKS window has closed; after CALIB_MIN_N graded cycles the JIT head is seasoned, the model's
+#   pJit moves the window above 12 and the next cycle is caught (JitPenalty with held >= 10). Timing at 2 s blocks:
+#   one cycle = JIT_HOLD + JIT_EVERY blocks (~54 s); the first add is a cold-start miss, so the head is seasoned AND active
+#   after ~5 cycles + label lag (JIT_CALIB_WINDOW=4 drops the miss) => allow DEMO_DURATION >= 540
+#   for the full jit-caught,jit-seasoned story (DEMO_JIT=0 disables the bot and those expectations).
 #
 # Env knobs (all optional):
 #   RPC_PORT=8545  APP_PORT=3000  BLOCK_TIME=2
@@ -28,11 +35,19 @@
 #   DEMO_RUNTIME_DIR=.runtime        flags file + logs (use another dir to run next to a live demo)
 #   DEMO_DEPLOYMENTS_FILE=deployments/31337.json   deployment JSON written by DeployLocal / read by the services
 #   KEEPER_GATE=0          v4 default: Jev every block (1 = the v3 rule-v1 gate, for comparison only)
+#   DEMO_JIT=1             start the jit bot (anvil key #8) and expect jit-caught,jit-seasoned in the headless check
+#   JIT_HOLD=12 JIT_EVERY=15 JIT_TICKS=3 JIT_SIZE_USD=2000 JIT_SWAP_USD=5000   jit bot cycle (see services/src/bots/jit.ts)
+#   JIT_CALIB_WINDOW=4     demo rolling window (labelled adds) for the JIT head (default: CALIB_WINDOW)
+#   JIT_CHURN_WEIGHT=0.7   demo weight of observed liquidity churn in the posted p_jit (keeper default 0.5)
+#   SETTLER_JIT_LABEL_BLOCKS=14  demo JIT label window (default 100 in production): a remove within N blocks of the add is JIT;
+#                          JIT_LABEL_BLOCKS (keeper churn feature) follows it unless set
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUNTIME="${DEMO_RUNTIME_DIR:-$ROOT/.runtime}"
+case "$RUNTIME" in /*) ;; *) RUNTIME="$ROOT/$RUNTIME" ;; esac # relative dirs are used from subshells that cd elsewhere
 DEPLOY_JSON="${DEMO_DEPLOYMENTS_FILE:-$ROOT/deployments/31337.json}"
+case "$DEPLOY_JSON" in /*) ;; *) DEPLOY_JSON="$ROOT/$DEPLOY_JSON" ;; esac # forge's fs_permissions need the real ../deployments path
 LOGS="$RUNTIME/logs"
 RPC_PORT="${RPC_PORT:-8545}"
 APP_PORT="${APP_PORT:-3000}"
@@ -114,10 +129,23 @@ export KEEPER_GATE="${KEEPER_GATE:-0}"
 export MODEL_MODE="${MODEL_MODE:-auto}"
 export SETTLE_EVERY="${SETTLE_EVERY:-5}" CALIB_WINDOW="${CALIB_WINDOW:-8}" CALIB_MIN_N="${CALIB_MIN_N:-$MIN_SAMPLES}"
 export RETAIL_LAMBDA="${RETAIL_LAMBDA:-1}" # more labelled blocks per minute for the settler
+# v5 JIT head: short label window so the settler grades the jit bot's cycles within the demo.
+export SETTLER_JIT_LABEL_BLOCKS="${SETTLER_JIT_LABEL_BLOCKS:-14}" JIT_LABEL_BLOCKS="${JIT_LABEL_BLOCKS:-${SETTLER_JIT_LABEL_BLOCKS:-14}}"
+# The JIT head gets one sample per liquidity add; a short rolling window lets the cold-start miss (no churn observed
+# yet => p_jit ~ 0 while the first add IS JIT) fall out after a few cycles instead of holding the head demoted.
+export JIT_CALIB_WINDOW="${JIT_CALIB_WINDOW:-4}"
+# Demo: only the jit bot adds liquidity, so the observed churn IS the base rate; weight it above the keeper default (0.5)
+# so the JIT head seasons within a few cycles (services/src/keeper.ts "online calibration of the JIT head").
+export JIT_CHURN_WEIGHT="${JIT_CHURN_WEIGHT:-0.7}"
+export DEMO_RUNTIME_DIR="$RUNTIME" # keeper verdicts.<chainId>.jsonl and the app's /api/verdicts follow the runtime dir
+DEMO_JIT="${DEMO_JIT:-1}"
 start keeper  pnpm -C services keeper
 start settler pnpm -C services settler
 start arb     pnpm -C services arb --all --split "${ARB_SPLIT:-1}"
 start retail  pnpm -C services retail --all
+if [ "$DEMO_JIT" = "1" ]; then
+  start jit   pnpm -C services jit --hold "${JIT_HOLD:-12}" --every "${JIT_EVERY:-15}"
+fi
 SERVICES_T0=$SECONDS
 
 # 5. app -------------------------------------------------------------------------------------
@@ -150,6 +178,7 @@ while [ $((SECONDS - SERVICES_T0)) -lt "$DEMO_DURATION" ]; do
 done
 EXPECT=seasoned; STORY_ARGS=()
 [ "$degraded" = "1" ] && EXPECT=seasoned,honest-active,demoted && STORY_ARGS=(--degraded-at "$((DEGRADED_BLOCK + 1))")
+[ "$DEMO_JIT" = "1" ] && EXPECT="$EXPECT,jit-caught,jit-seasoned"
 echo "[demo] narrative check (expect $EXPECT):"
 set +e
 (cd "$ROOT/services" && pnpm -s story --expect "$EXPECT" ${STORY_ARGS[@]+"${STORY_ARGS[@]}"}) | tee "$LOGS/story.log"

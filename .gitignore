@@ -10,9 +10,6 @@ broadcast
 *.tsbuildinfo
 .DS_Store
 *.log
-.cache/
-benchmark/results/quick/
-deployments/*.e2e.json
 
 # --- ml/ (large or regenerable; see ml/README.md) ---
 ml/.venv/
@@ -22,3 +19,4 @@ ml/data/*.parquet
 ml/data/kev/
 ml/train_kev4b/data/
 ml/**/__pycache__/
+deployments/*.rehearsal*.json

@@ -103,6 +103,9 @@ export function RegimeMap({ cells, cfg }: { cells: RegimeCell[]; cfg: PoolConfig
                 <tr><td>p_toxic</td><td>{prob(hover.c.pToxicBps)}</td></tr>
                 <tr><td>confidence</td><td>{bpsPct(hover.c.confidenceBps, 0)}</td></tr>
                 <tr><td>attested k</td><td>{kFmt(hover.c.kBps)}{hover.c.stale ? ' (kDefault)' : ''}</td></tr>
+                {hover.c.jitWindow != null && (
+                  <tr><td>JIT window</td><td>{hover.c.stale && cfg.jitWindowDefault != null ? `${cfg.jitWindowDefault} blk (default)` : `${hover.c.jitWindow} blk`} <span className="text-muted">p_jit {prob(hover.c.pJitBps)}</span></td></tr>
+                )}
                 <tr><td>regime fee (arb dir)</td><td>{pct(hover.c.feePips)} <span className="text-muted">{hover.c.feeSource === 'receipt' ? 'receipt' : 'quoted'}</span></td></tr>
                 <tr><td>gap vs CEX mid</td><td>{gapBps(hover.c.gapPips)}</td></tr>
                 <tr><td>model</td><td>{hover.c.model ?? '—'}</td></tr>

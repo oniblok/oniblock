@@ -30,6 +30,7 @@ describe('tabular-v1 (LightGBM JSON, pure TS)', () => {
     const lo = scoreTabular({ ...f, gapPips: 50 })!;
     const hi = scoreTabular({ ...f, gapPips: 2500 })!;
     expect(hi.model).toBe('tabular');
+    expect(hi.pJitBps).toBe(0); // v5: no JIT head yet
     expect(hi.pToxicBps).toBeGreaterThan(lo.pToxicBps);
   });
   it('score() dispatches MODEL_MODE=tabular', async () => {
@@ -40,7 +41,7 @@ describe('tabular-v1 (LightGBM JSON, pure TS)', () => {
 describe('kev client (System One noul)', () => {
   it('parses a Kev answer', () => {
     const s = parseKev({ answers: { informed: { type: 'noul', noul: 0.8 } } }, 12.3)!;
-    expect(s).toMatchObject({ pToxicBps: 8000, model: 'kev', cls: 'informed', latencyMs: 12 });
+    expect(s).toMatchObject({ pToxicBps: 8000, model: 'kev', cls: 'informed', latencyMs: 12, pJitBps: 0 }); // v5: no JIT head yet
     expect(parseKev({ answers: {} }, 1)).toBeNull();
     expect(parseKev({ answers: { informed: { noul: 1.2 } } }, 1)).toBeNull();
   });

@@ -1,279 +1,182 @@
 'use client';
-import Link from 'next/link';
-import { DevPanel } from '@/components/DevPanel';
-import { LineChart } from '@/components/LineChart';
-import { RegimeMap } from '@/components/RegimeMap';
-import { gapBps, kFmt, money, pct, price, prob, short, signed } from '@/lib/format';
-import type { HistoryJson, PoolTotals, StateJson } from '@/lib/types';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Chart } from '@/components/live/Chart';
+import { JudgementModal } from '@/components/live/JudgementModal';
+import { SwapModal } from '@/components/live/SwapModal';
+import { usd } from '@/components/live/score';
+import { TxList, type Pending } from '@/components/live/TxList';
+import type { FeedJson, FeedRow } from '@/lib/types';
 import { usePoll } from '@/lib/usePoll';
 
-function Stat({ label, value, sub, tone }: { label: string; value: React.ReactNode; sub?: React.ReactNode; tone?: 'good' | 'bad' | 'warn' }) {
-  const c = tone === 'good' ? 'text-good' : tone === 'bad' ? 'text-bad' : tone === 'warn' ? 'text-warn' : 'text-ink';
-  return (
-    <div className="min-w-0 px-4 py-3">
-      <div className="label">{label}</div>
-      <div className={`mt-0.5 truncate text-2xl font-semibold ${c}`}>{value}</div>
-      {sub && <div className="truncate text-xs text-ink-2">{sub}</div>}
-    </div>
-  );
-}
+const MINE_KEY = 'oniblock.mine';
 
-function PoolPanel({
-  title,
-  accent,
-  poolMid,
-  cexMid,
-  totals,
-  feeLine,
-  quote,
-}: {
-  title: string;
-  accent: string;
-  poolMid?: number;
-  cexMid: number | null;
-  totals?: PoolTotals;
-  feeLine: React.ReactNode;
-  quote: string;
-}) {
-  const gap = poolMid && cexMid ? ((poolMid - cexMid) / cexMid) * 10_000 : null;
-  const lvh = totals?.lpMinusHodl ?? null;
-  return (
-    <div className="card overflow-hidden">
-      <div className="flex items-center gap-2 border-b border-line px-4 py-2.5" style={{ boxShadow: `inset 3px 0 0 ${accent}` }}>
-        <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: accent }} />
-        <h2 className="font-semibold">{title}</h2>
-        <span className="ml-auto text-xs text-ink-2">{feeLine}</span>
-      </div>
-      <div className="grid grid-cols-2 divide-x divide-line">
-        <Stat label={`LP vs HODL (${quote})`} value={signed(lvh)} tone={lvh == null ? undefined : lvh >= 0 ? 'good' : 'bad'} sub="pool value + fees − held tokens" />
-        <Stat label={`Pool price (${quote})`} value={price(poolMid)} sub={gap == null ? '—' : `${gap >= 0 ? '+' : ''}${gap.toFixed(1)} bps vs CEX mid`} />
-      </div>
-      <div className="grid grid-cols-3 divide-x divide-line border-t border-line">
-        <Stat label="Fees earned" value={money(totals?.fees)} sub={quote} />
-        <Stat label="Loss to arb" value={money(totals?.lossToArb)} sub="swapper markout > 0" />
-        <Stat label="Swaps" value={totals?.swaps ?? '—'} sub={`vol ${money(totals?.volume, 0)}`} />
-      </div>
-    </div>
-  );
-}
-
-export default function Home() {
-  const st = usePoll<StateJson>('/api/state', 2000);
-  const hi = usePoll<HistoryJson>('/api/history', 3000);
-  const s = st.data;
-  const h = hi.data;
-
-  if (!s) {
-    return (
-      <div className="card p-6 text-ink-2">
-        {st.error ? (
-          <>
-            <div className="font-semibold text-bad">Cannot reach the chain</div>
-            <div className="mt-1 text-sm">{st.error}</div>
-            <div className="mt-2 text-sm text-muted">Start everything with scripts/demo-local.sh (anvil + deploy + keeper + settler + bots + app).</div>
-          </>
-        ) : (
-          'Loading chain state…'
-        )}
-      </div>
-    );
+function loadMine(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(MINE_KEY) ?? '[]') as string[];
+  } catch {
+    return [];
   }
+}
+function saveMine(v: string[]) {
+  try {
+    localStorage.setItem(MINE_KEY, JSON.stringify(v.slice(-200)));
+  } catch {
+    /* storage unavailable: labels just won't persist */
+  }
+}
 
-  const x = s.status;
-  const cfg = s.config;
-  const sellLbl = `sell ${s.pair.token0}`;
-  const buyLbl = `buy ${s.pair.token0}`;
-  const arbFee = x.arbZeroForOne === null ? null : x.arbZeroForOne ? x.feeZeroForOne : x.feeOneForZero;
-  const modelLbl = x.modelName ?? short(x.modelNode);
-  const quote = s.pair.quote;
-  const thr = x.arbThresholdPips ?? 0;
-  // v4: with k = 0 (the model said "no profitable arbitrage", or no trusted model) the arb direction pays exactly base.
-  const kZero = x.kBps === 0;
-  const feeSub = (f: typeof x.feeZeroForOne) =>
-    f.stale
-      ? 'stale mid'
-      : f.arbDir
-        ? f.gapPips <= thr
-          ? 'below arb threshold → base fee'
-          : kZero || f.feePips <= cfg.baseFee
-            ? 'arb dir, k = 0 → base fee'
-            : 'regime fee (arb dir)'
-        : 'base fee';
-  const feeTone = (f: typeof x.feeZeroForOne) => (f.arbDir && f.gapPips > thr && f.feePips > cfg.baseFee ? ('warn' as const) : undefined);
-  const kSub = x.demoted
-    ? `model demoted → kDefault ${kFmt(cfg.kDefaultBps)}${cfg.kDefaultBps === 0 ? ' (base fee)' : ''}`
-    : x.unseasoned
-      ? `unseasoned → kDefault ${kFmt(cfg.kDefaultBps)}${cfg.kDefaultBps === 0 ? ' (base fee)' : ''}`
-      : kZero
-        ? 'model: no profitable arb → base fee'
-        : `range ${kFmt(cfg.kMinBps)}–${kFmt(cfg.kMaxBps)}`;
-  const mix = x.attestMix;
-  const mixPct = (n: number) => (mix && mix.total ? `${Math.round((100 * n) / mix.total)}%` : '—');
+export default function Live() {
+  const { data: feed, error } = usePoll<FeedJson>('/api/feed?rows=80', 2500);
+  // client-only page content (rows render after the first poll), so reading storage in the initialiser is safe
+  const [mine, setMine] = useState<string[]>(() => (typeof window === 'undefined' ? [] : loadMine()));
+  const [pending, setPending] = useState<Pending[]>([]);
+  // deep links: ?swap=1 opens the swap modal, ?tx=0x… opens that swap's judgement once it is in the feed
+  const [swapOpen, setSwapOpen] = useState(() => typeof window !== 'undefined' && new URLSearchParams(location.search).get('swap') === '1');
+  const [deepTx, setDeepTx] = useState(() => (typeof window === 'undefined' ? null : new URLSearchParams(location.search).get('tx')?.toLowerCase() ?? null));
+  const [picked, setPicked] = useState<FeedRow | null>(null);
+  const [now, setNow] = useState(() => Date.now() / 1000);
 
-  const pts = h?.points ?? [];
-  const series = [
-    ...(pts.some((p) => p.van) ? [{ name: 'Vanilla v4', color: 'var(--vanilla)', values: pts.filter((p) => p.van).map((p) => ({ x: p.block, y: p.van!.lp - p.van!.hodl })) }] : []),
-    { name: 'Oniblock', color: 'var(--oni)', values: pts.map((p) => ({ x: p.block, y: p.oni.lp - p.oni.hodl })) },
-  ];
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now() / 1000), 1000);
+    return () => clearInterval(t);
+  }, []);
+  // a pending placeholder hides as soon as its swap is in the feed; the "landed" toast shows for a few seconds
+  const seen = useMemo(() => new Set((feed?.rows ?? []).map((r) => r.tx.toLowerCase())), [feed]);
+  const waiting = pending.filter((p) => !seen.has(p.hash.toLowerCase()));
+  const landed = pending.find((p) => seen.has(p.hash.toLowerCase()));
+  useEffect(() => {
+    if (!landed) return;
+    const t = setTimeout(() => setPending((ps) => ps.filter((p) => p.hash !== landed.hash)), 4500);
+    return () => clearTimeout(t);
+  }, [landed]);
+  const toast = landed ? 'Your swap landed. Click it to see how Oniblock judged it.' : null;
+
+  const mineSet = useMemo(() => new Set(mine.map((h) => h.toLowerCase())), [mine]);
+  const onSubmitted = useCallback((hash: string, label: string) => {
+    setMine((m) => {
+      const v = [...m, hash];
+      saveMine(v);
+      return v;
+    });
+    setPending((p) => [...p, { hash, label }]);
+  }, []);
+
+  const open = picked ?? (deepTx ? (feed?.rows.find((r) => r.tx.toLowerCase() === deepTx) ?? null) : null);
+  const closeJudgement = useCallback(() => {
+    setPicked(null);
+    setDeepTx(null);
+  }, []);
+
+  const edge = feed ? feed.chart.oniTotal - feed.chart.vanTotal : 0;
+  const chainLabel = !feed ? '' : feed.chain.name === 'sepolia' ? 'Ethereum Sepolia' : feed.chain.name === 'fork' ? 'Sepolia fork' : 'Local chain';
+  const minutes = feed ? Math.round((feed.chart.windowBlocks * (feed.chain.name === 'sepolia' ? 12 : 3)) / 60) : 0;
 
   return (
-    <div className="space-y-4">
-      {(st.error || hi.error) && <div className="rounded-md border border-bad/40 bg-bad/10 px-3 py-2 text-sm text-bad">{st.error ?? hi.error}</div>}
+    <div className="mx-auto flex h-screen max-w-[1240px] flex-col gap-4 px-5 py-4">
+      {/* header */}
+      <header className="flex items-center gap-4">
+        <div className="flex items-center gap-2.5">
+          <Logo />
+          <span className="text-[17px] font-semibold tracking-tight">Oniblock</span>
+        </div>
+        {feed && (
+          <div className="flex items-center gap-2 rounded-full border border-line bg-surface px-3 py-1 text-xs text-ink-2">
+            <span className={`live-dot h-1.5 w-1.5 rounded-full ${error ? 'bg-warn' : 'bg-oni'}`} />
+            {chainLabel}
+            <span className="mono text-muted">#{feed.chain.block.toLocaleString()}</span>
+          </div>
+        )}
+        {feed && (
+          <button
+            onClick={() => setSwapOpen(true)}
+            className="ml-auto flex h-10 items-center gap-2 rounded-[10px] bg-oni pl-4 pr-5 text-sm font-semibold text-[#04120d] shadow-[0_8px_30px_-8px_rgba(62,230,176,0.55)] transition hover:scale-[1.03] hover:brightness-110 active:scale-100"
+          >
+            <span className="text-base leading-none">⇅</span> Swap
+          </button>
+        )}
+      </header>
 
-      {/* Status strip */}
-      <div className="card grid grid-cols-8 divide-x divide-line">
-        <Stat label="Last block" value={s.chain.block} sub={`${s.chain.name} · chain ${s.chain.chainId}`} />
-        <Stat label={`CEX mid (attested)`} value={price(x.oracleMid)} sub={quote} />
-        <Stat label="p_toxic" value={prob(x.pToxicBps)} sub={`confidence ${prob(x.confidenceBps)}`} />
-        <Stat
-          label="Attested k"
-          value={kFmt(x.kBps)}
-          sub={kSub}
-          tone={x.demoted ? 'bad' : x.unseasoned && cfg.kDefaultBps !== 0 ? 'warn' : undefined}
-        />
-        <Stat label={`Fee · ${sellLbl}`} value={pct(x.feeZeroForOne.feePips)} sub={feeSub(x.feeZeroForOne)} tone={feeTone(x.feeZeroForOne)} />
-        <Stat label={`Fee · ${buyLbl}`} value={pct(x.feeOneForZero.feePips)} sub={feeSub(x.feeOneForZero)} tone={feeTone(x.feeOneForZero)} />
-        <Stat
-          label="Attestation age"
-          value={x.attestAge == null ? '—' : `${x.attestAge} blk`}
-          sub={x.stale ? `STALE (> ${cfg.staleBlocks}) → ${pct(cfg.conservativeFee)}` : `stale after ${cfg.staleBlocks}`}
-          tone={x.stale ? 'bad' : 'good'}
-        />
-        <Stat
-          label="Model node"
-          value={<span className="text-base">{modelLbl.split('.')[0]}</span>}
-          sub={
-            <>
-              {x.demoted ? <span className="text-bad">demoted</span> : <span className="text-good">not demoted</span>}
-              {' · '}
-              {x.calibration && x.calibration.n > 0 ? `score ${(x.calibration.brierBps / 10_000).toFixed(3)} (n=${x.calibration.n})` : 'no calibration yet'}
-            </>
-          }
-        />
-      </div>
-
-      <div className="flex flex-wrap gap-x-6 gap-y-1 px-1 text-xs text-ink-2">
-        {x.belowThreshold ? (
-          <span className="text-good">
-            Below arb threshold: gap {gapBps(x.gapPips)} ≤ {gapBps(thr)} → base fee {pct(cfg.baseFee)} both ways (same as a vanilla pool{mix && mix.rule > 0 ? '; keeper posts rule-v1, no model call' : ''}).
-          </span>
-        ) : null}
-        {!x.stale && kZero ? (
-          <span className="text-good">
-            k = 0 → base fee {pct(cfg.baseFee)} both ways (same as a vanilla pool): {x.demoted || x.unseasoned ? 'no trusted model (kDefault = 0)' : 'the model sees no profitable arbitrage'}.
-          </span>
-        ) : null}
-        <span>
-          {thr > 0 ? (
-            <>
-              Fee law: arb direction pays <b className="text-ink">min(base + k·max(0, gap − threshold), feeMax)</b> = {pct(cfg.baseFee)} + {kFmt(x.kBps)} × max(0, {gapBps(x.gapPips)} − {gapBps(thr)})
-              {arbFee ? ` = ${pct(arbFee.feePips)}` : ''}; the other direction pays base {pct(cfg.baseFee)}; arb threshold {gapBps(thr)}; cap {pct(cfg.feeMax)}.
-            </>
-          ) : (
-            <>
-              Fee law: arb direction pays <b className="text-ink">min(base + k·gap, feeMax)</b> = {pct(cfg.baseFee)} + {kFmt(x.kBps)} × {gapBps(x.gapPips)}
-              {arbFee ? ` = ${pct(arbFee.feePips)}` : ''}; the other direction pays base {pct(cfg.baseFee)}; no gap threshold — the model decides k every block (k = kMax·p·c); cap {pct(cfg.feeMax)}.
-            </>
+      {/* chart */}
+      <section className="glass flex h-[36vh] min-h-[250px] flex-col px-5 pb-3 pt-4">
+        <div className="mb-2 flex flex-wrap items-end gap-x-8 gap-y-2">
+          <Figure color="var(--oni)" label="LPs with Oniblock" value={feed?.chart.oniTotal} solid />
+          <Figure color="var(--vanilla)" label="LPs without (plain pool)" value={feed?.chart.vanTotal} />
+          {feed && (
+            <div className={`rounded-full px-3 py-1 text-xs font-medium ${edge >= 0 ? 'bg-oni/12 text-oni' : 'bg-[rgba(255,77,94,0.12)] text-[#ff8a95]'}`}>
+              Oniblock edge {edge >= 0 ? '+' : '−'}
+              {usd(Math.abs(edge), 2)}
+            </div>
           )}
-        </span>
-        {mix ? (
-          <span>
-            Keeper model calls: <b className="text-ink">{mixPct(mix.jev + mix.heuristic)}</b> of the last {mix.total} attestations (Jev {mixPct(mix.jev)}, heuristic {mixPct(mix.heuristic)}{mix.rule > 0 ? `, rule-v1 ${mixPct(mix.rule)}` : ''}; last {mix.window} blocks)
-          </span>
-        ) : null}
-        <span>
-          Quoter{' '}
-          {s.roles.quoterActive ? <span className="text-good">active</span> : <span className="text-bad">revoked</span>}
-          {s.roles.backupActive ? <span className="text-good"> · backup active</span> : null}
-          {x.lastQuoter ? <span className="mono"> · last post by {short(x.lastQuoter)}</span> : null}
-        </span>
-        {s.flags.degraded && <span className="text-bad">Keeper in degraded-model mode</span>}
-      </div>
-
-      {/* Split screen */}
-      <div className="grid grid-cols-2 gap-4">
-        <PoolPanel
-          title={`Vanilla v4 (${pct(s.pools.vanilla?.staticFee ?? null)})`}
-          accent="var(--vanilla)"
-          poolMid={s.pools.vanilla?.poolMid}
-          cexMid={x.oracleMid}
-          totals={h?.totals.van}
-          feeLine={`static fee ${pct(s.pools.vanilla?.staticFee ?? null)} both directions`}
-          quote={quote}
-        />
-        <PoolPanel
-          title="Oniblock"
-          accent="var(--oni)"
-          poolMid={s.pools.oniblock.poolMid}
-          cexMid={x.oracleMid}
-          totals={h?.totals.oni}
-          feeLine={`regime fee ${arbFee ? pct(arbFee.feePips) : pct(cfg.baseFee)} arb dir · ${pct(cfg.baseFee)} other`}
-          quote={quote}
-        />
-      </div>
-
-      <div className="card p-4">
-        <div className="mb-1 flex items-baseline gap-3">
-          <h3 className="font-semibold">LP value minus HODL ({quote})</h3>
-          <span className="text-xs text-muted">
-            same liquidity, same bots, same CEX mid · since block {h?.baselineBlock ?? '—'} · valued at the attested CEX mid
-          </span>
+          <div className="ml-auto text-right text-[11px] leading-tight text-muted">
+            LP profit vs Binance
+            <br />
+            last ~{minutes} min · bars = edge per interval
+          </div>
         </div>
-        <LineChart series={series} height={230} yFormat={(v) => money(v, Math.abs(v) < 100 ? 2 : 0)} xFormat={(v) => `#${v}`} />
-      </div>
+        <div className="min-h-0 flex-1">{feed ? <Chart buckets={feed.chart.buckets} quote={feed.pair.quote} /> : <Skeleton />}</div>
+      </section>
 
-      <div className="card p-4">
-        <div className="mb-3 flex items-baseline gap-3">
-          <h3 className="font-semibold">Regime map</h3>
-          <span className="text-xs text-muted">one cell per block, colored by the attested k in force (a block regime — never a per-transaction score)</span>
+      {/* swaps */}
+      <section className="glass relative flex min-h-0 flex-1 flex-col pt-3">
+        <div className="flex items-center gap-3 px-5 pb-2">
+          <div className="text-sm font-medium">Live swaps</div>
+          <div className="text-xs text-muted">newest at the bottom · click a swap for the judgement</div>
+          <div className="ml-auto flex items-center gap-2 text-[11px] text-muted">
+            clean
+            <span className="h-1.5 w-20 rounded-full" style={{ background: 'linear-gradient(90deg, rgba(255,255,255,0.08), rgba(255,77,94,0.45), rgb(255,77,94))' }} />
+            toxic
+          </div>
         </div>
-        {h ? <RegimeMap cells={h.regime} cfg={cfg} /> : <div className="text-sm text-muted">Loading…</div>}
-      </div>
+        <div className="mx-5 grid grid-cols-[52px_minmax(0,1fr)_minmax(0,150px)_minmax(0,190px)_16px] gap-4 border-b border-line px-4 pb-2 text-[10.5px] uppercase tracking-[0.08em] text-muted">
+          <span>Age</span>
+          <span>Trade</span>
+          <span>Fee charged</span>
+          <span>Oniblock score</span>
+          <span />
+        </div>
+        <div className="min-h-0 flex-1 px-4 pb-3 pt-1">
+          {feed ? <TxList rows={feed.rows} base={feed.pair.base} mine={mineSet} pending={waiting} now={now} onOpen={setPicked} /> : <Skeleton />}
+        </div>
+      </section>
 
-      <div className="grid grid-cols-[1fr_minmax(420px,0.8fr)] gap-4">
-        <div className="card p-4">
-          <h3 className="mb-2 font-semibold">Latest Oniblock receipts</h3>
-          <table className="w-full text-sm">
-            <thead className="text-left text-xs text-muted">
-              <tr>
-                <th className="py-1 font-normal">block</th>
-                <th className="font-normal">direction</th>
-                <th className="font-normal">gap</th>
-                <th className="font-normal">k</th>
-                <th className="font-normal">fee</th>
-                <th className="font-normal">tx</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(h?.receipts ?? []).map((r) => (
-                <tr key={r.tx + r.block + r.zeroForOne} className="border-t border-line">
-                  <td className="py-1.5">{r.block}</td>
-                  <td>
-                    {r.stale ? <span className="text-bad">stale mid</span> : r.arbDir ? <span className="text-warn">arb dir</span> : <span className="text-ink-2">reverse</span>}
-                    <span className="text-muted"> · {r.zeroForOne ? sellLbl : buyLbl}</span>
-                  </td>
-                  <td>{gapBps(r.gapPips)}</td>
-                  <td>{kFmt(r.kBps)}</td>
-                  <td className="font-medium">{pct(r.feePips)}</td>
-                  <td>
-                    <Link className="mono text-oni underline" href={`/receipt/${r.tx}`}>
-                      {short(r.tx, 4)}
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-              {h && h.receipts.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="py-3 text-muted">
-                    No swaps on the Oniblock pool yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        {s.chain.isDev ? <DevPanel s={s} onDone={() => { st.reload(); hi.reload(); }} /> : <div className="card p-4 text-sm text-muted">Dev controls are available only on local anvil or an anvil fork.</div>}
+      {error && !feed && <div className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-[rgba(255,77,94,0.15)] px-4 py-2 text-xs text-[#ff8a95]">{error}</div>}
+      {toast && <div className="pop-in fixed bottom-6 left-1/2 z-40 -translate-x-1/2 rounded-full border border-oni/30 bg-[#0c1511] px-4 py-2 text-xs text-oni shadow-xl">{toast}</div>}
+
+      {feed && <SwapModal open={swapOpen} onClose={() => setSwapOpen(false)} feed={feed} onSubmitted={onSubmitted} />}
+      {feed && open && <JudgementModal key={`${open.tx}:${open.logIndex}`} row={open} feed={feed} you={mineSet.has(open.tx.toLowerCase())} onClose={closeJudgement} />}
+    </div>
+  );
+}
+
+function Figure({ color, label, value, solid }: { color: string; label: string; value?: number; solid?: boolean }) {
+  return (
+    <div>
+      <div className="mb-0.5 flex items-center gap-2 text-xs text-ink-2">
+        <span className="inline-block h-[2px] w-4 rounded" style={{ background: solid ? color : `repeating-linear-gradient(90deg, ${color} 0 4px, transparent 4px 7px)` }} />
+        {label}
+      </div>
+      <div className="mono text-2xl font-semibold tracking-tight" style={{ color: solid ? 'var(--text)' : 'var(--text-2)' }}>
+        {value == null ? '—' : `${value >= 0 ? '+' : '−'}${usd(Math.abs(value), 2)}`}
       </div>
     </div>
+  );
+}
+
+function Skeleton() {
+  return <div className="h-full w-full animate-pulse rounded-xl bg-white/[0.02]" />;
+}
+
+function Logo() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden>
+      <defs>
+        <linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#3ee6b0" />
+          <stop offset="1" stopColor="#1f8f6e" />
+        </linearGradient>
+      </defs>
+      <path d="M12 2l8.66 5v10L12 22l-8.66-5V7z" fill="url(#lg)" />
+      <path d="M12 7.2l4.16 2.4v4.8L12 16.8l-4.16-2.4V9.6z" fill="#07080b" />
+    </svg>
   );
 }

@@ -33,7 +33,7 @@ stale mid (older than staleBlocks) → conservativeFee in both directions. The h
    - its Brier score is at most `brierDemoteBps` (2500 by default, which is the score of a constant 0.5 forecast).
 
    If any of these fails, `k` is clamped to `kDefault` from the next attestation. No admin step is involved, and switching to a fresh model name does not escape the gate.
-6. **JIT liquidity penalty.** Built on OpenZeppelin's `LiquidityPenaltyHook`. Fees earned by liquidity removed within `blockNumberOffset` blocks of being added are penalised with linear decay and donated to in-range LPs. We changed one case: when the last in-range LP exits inside the window, OZ reverts. We park the penalty as ERC-6909 claims instead and donate it on the next swap, so withdrawals never brick.
+6. **JIT liquidity penalty, with a window the model sets (v5).** Built on OpenZeppelin's `LiquidityPenaltyHook`: fees earned by liquidity removed within the penalty window of being added are penalised with linear decay and donated to in-range LPs. We changed two things. When the last in-range LP exits inside the window, OZ reverts; we park the penalty as ERC-6909 claims and donate it on the next swap, so withdrawals never brick. And the window is no longer a fixed wall: the same per-block Jev call answers a second typed question (is liquidity added next block likely short-lived fee capture?), the attestation carries `pJitBps`, and the contract sets `window = jitWindowMin + (jitWindowMax − jitWindowMin)·p_jit·c` (10 … 100 blocks). Each position is judged by the window in force when it was added, so a window raised later can never penalise an honest LP. The JIT head has its own calibration record (`jitCalibrationKey(model)`, ENS `calibration.jit.*`) and its own demotion; while it is unseasoned or demoted the window is the default 10 blocks. Design, measurements and limits: `docs/review/V5_JIT_HEAD_SPEC.md`, `docs/review/V5_JIT_HEAD_BUILD.md`.
 7. **Receipts.** Every swap emits a `Receipt` carrying the exact fee-law inputs and output: gap, k, fee, arbDir, stale, the model node and the executed amounts. `beforeSwap` hands the values to `afterSwap` through a transient-storage slot. The settler scores models from these receipts, and the app renders them.
 
 ### Architecture
@@ -111,25 +111,29 @@ Line numbers refer to the files as shipped.
 
 | What | File:lines |
 |---|---|
-| Fee law, full spec in NatSpec | [`contracts/src/OniblockHook.sol:35-53`](contracts/src/OniblockHook.sol#L35-L53) |
-| Fee law implementation (`_fee`: directional, feeMax cap, stale → conservative, N-07 floor) | [`OniblockHook.sol:770-784`](contracts/src/OniblockHook.sol#L770-L784) |
-| Per-block anchor + per-direction high-water gap + live `toward` check (`_liveAnchor`) | [`OniblockHook.sol:729-765`](contracts/src/OniblockHook.sol#L729-L765) |
-| Stale detection and fallback | [`OniblockHook.sol:737-741`](contracts/src/OniblockHook.sol#L737-L741), [`720-722`](contracts/src/OniblockHook.sol#L720-L722) |
-| `beforeSwap`: returns `fee \| OVERRIDE_FEE_FLAG`, transient hand-off | [`OniblockHook.sol:601-617`](contracts/src/OniblockHook.sol#L601-L617) |
-| `setAttestation`: quoter role (398), block window + replay (399-402), bounds (403-405), model allowlist (406), EIP-712 sig (409-410), Chainlink band (413), demotion / step-limited k (415-427), same-block anchor rules (438-454) | [`OniblockHook.sol:394-459`](contracts/src/OniblockHook.sol#L394-L459) |
-| Chainlink sanity band | [`OniblockHook.sol:790-834`](contracts/src/OniblockHook.sol#L790-L834) |
-| Calibration gate: `setCalibration` (settler role) | [`OniblockHook.sol:463-468`](contracts/src/OniblockHook.sol#L463-L468) |
-| Calibration gate: `kFromScore` and `isDemoted` (allowlist + `minSamples` + Brier) | [`OniblockHook.sol:476-499`](contracts/src/OniblockHook.sol#L476-L499) |
-| `quoteFee` (quote == execution) | [`OniblockHook.sol:503-512`](contracts/src/OniblockHook.sol#L503-L512) |
-| Hook permissions, pool allowlist in `beforeInitialize` | [`OniblockHook.sol:564-588`](contracts/src/OniblockHook.sol#L564-L588) |
-| JIT penalty (OZ `LiquidityPenaltyHook` + last-LP parking) | [`OniblockHook.sol:658-695`](contracts/src/OniblockHook.sol#L658-L695), flush [`837-848`](contracts/src/OniblockHook.sol#L837-L848) |
-| `Receipt` event and emission | [`OniblockHook.sol:240-258`](contracts/src/OniblockHook.sol#L240-L258), [`622-650`](contracts/src/OniblockHook.sol#L622-L650) |
-| Timelock on config / attestor / role oracle, config validation | [`OniblockHook.sol:705-718`](contracts/src/OniblockHook.sol#L705-L718), [`850-857`](contracts/src/OniblockHook.sol#L850-L857) |
+| Fee law, full spec in NatSpec | [`contracts/src/OniblockHook.sol:38-59`](contracts/src/OniblockHook.sol#L38-L59) |
+| v5 JIT window, full spec in NatSpec (formula, JIT calibration key, window-at-add rule) | [`OniblockHook.sol:71-82`](contracts/src/OniblockHook.sol#L71-L82) |
+| Fee law implementation (`_fee`: directional, feeMax cap, stale → conservative, N-07 floor) | [`OniblockHook.sol:927-942`](contracts/src/OniblockHook.sol#L927-L942) |
+| Per-block anchor + per-direction high-water gap + live `toward` check (`_liveAnchor`) | [`OniblockHook.sol:885-921`](contracts/src/OniblockHook.sol#L885-L921) |
+| Stale detection and fallback | [`OniblockHook.sol:893-897`](contracts/src/OniblockHook.sol#L893-L897), [`846-848`](contracts/src/OniblockHook.sol#L846-L848) |
+| `beforeSwap`: returns `fee \| OVERRIDE_FEE_FLAG`, transient hand-off | [`OniblockHook.sol:691-707`](contracts/src/OniblockHook.sol#L691-L707) |
+| `setAttestation`: quoter role (452), block window + replay (453-456), bounds incl. `pJitBps` (457-460), model allowlist (461), EIP-712 sig (464-465), Chainlink band (468), demotion / step-limited k (470-482), JIT branch: window from `pJitBps` (484-486, stored 496-497), same-block anchor rules (499-515) | [`OniblockHook.sol:448-520`](contracts/src/OniblockHook.sol#L448-L520) |
+| Chainlink sanity band | [`OniblockHook.sol:948-992`](contracts/src/OniblockHook.sol#L948-L992) |
+| Calibration gate: `setCalibration` (settler role; the JIT head's record is written under `jitCalibrationKey`) | [`OniblockHook.sol:524-529`](contracts/src/OniblockHook.sol#L524-L529) |
+| Calibration gate: `kFromScore` and `isDemoted` (allowlist + `minSamples` + Brier; shared rule `_demoted`) | [`OniblockHook.sol:537-555`](contracts/src/OniblockHook.sol#L537-L555), [`852-859`](contracts/src/OniblockHook.sol#L852-L859) |
+| JIT head gate: `jitCalibrationKey` (559-561), `isJitDemoted` (567-569), `jitWindowFromScore` (574-585) | [`OniblockHook.sol:559-585`](contracts/src/OniblockHook.sol#L559-L585) |
+| `quoteFee` (quote == execution) | [`OniblockHook.sol:589-598`](contracts/src/OniblockHook.sol#L589-L598) |
+| Hook permissions, pool allowlist in `beforeInitialize` | [`OniblockHook.sol:651-675`](contracts/src/OniblockHook.sol#L651-L675) |
+| JIT penalty: `_afterAddLiquidity` (window-at-add: max of the running window and the effective window now) | [`OniblockHook.sol:747-770`](contracts/src/OniblockHook.sol#L747-L770) |
+| JIT penalty: `_afterRemoveLiquidity` (position's window, linear decay, `JitPenalty` emitted at 811, last-LP parking) | [`OniblockHook.sol:781-821`](contracts/src/OniblockHook.sol#L781-L821), effective window + decay helpers [`863-878`](contracts/src/OniblockHook.sol#L863-L878), flush [`995-1006`](contracts/src/OniblockHook.sol#L995-L1006) |
+| `JitPenalty` event | [`OniblockHook.sol:310-318`](contracts/src/OniblockHook.sol#L310-L318) |
+| `Receipt` event and emission | [`OniblockHook.sol:283-296`](contracts/src/OniblockHook.sol#L283-L296), [`724-737`](contracts/src/OniblockHook.sol#L724-L737) |
+| Timelock on config / attestor / role oracle, config validation (incl. `1 <= jitWindowMin <= jitWindowDefault <= jitWindowMax`) | [`OniblockHook.sol:831-844`](contracts/src/OniblockHook.sol#L831-L844), [`1008-1017`](contracts/src/OniblockHook.sol#L1008-L1017) |
 | `EnsV2RoleOracle` (`isQuoter` / `isSettler`, fail-closed `hasRoles`) | [`contracts/src/roles/EnsV2RoleOracle.sol:55-72`](contracts/src/roles/EnsV2RoleOracle.sol#L55-L72) |
 | Custom EAC role bits | [`contracts/src/roles/EnsV2Lib.sol:19-22`](contracts/src/roles/EnsV2Lib.sol#L19-L22) |
-| `EnsSetup`: commit (155), finish (167), subnames (193-211), role grants (213-217), role oracle (222-229), settler-only text keys (270-292) | [`contracts/script/EnsSetup.s.sol`](contracts/script/EnsSetup.s.sol) |
-| Hook deploy: allocation-free CREATE2 salt miner | [`contracts/script/DeployBase.s.sol:126-152`](contracts/script/DeployBase.s.sol#L126-L152) |
-| Sepolia deploy (real PoolManager, EnsV2RoleOracle, Chainlink) | [`contracts/script/DeploySepolia.s.sol:30-62`](contracts/script/DeploySepolia.s.sol#L30-L62) |
+| `EnsSetup`: commit (171), finish (183), subnames (209-228), role grants (230-234), role oracle (239-246), settler-only text keys incl. `calibration.jit.*` (336-356; idempotent `_grantKeys` 290-299), `ENS_PHASE=grant-jit` upgrade phase (254-270) | [`contracts/script/EnsSetup.s.sol`](contracts/script/EnsSetup.s.sol) |
+| Hook deploy: allocation-free CREATE2 salt miner (141-167); v5 `JIT_WINDOW_MIN/MAX/DEFAULT` env → `PoolConfig` (124-128) | [`contracts/script/DeployBase.s.sol:141-167`](contracts/script/DeployBase.s.sol#L141-L167) |
+| Sepolia deploy (real PoolManager, EnsV2RoleOracle, Chainlink) | [`contracts/script/DeploySepolia.s.sol:32-63`](contracts/script/DeploySepolia.s.sol#L32-L63) |
 | Keeper tick: features → model → sign → `setAttestation` | [`services/src/keeper.ts:208-285`](services/src/keeper.ts#L208-L285) |
 | Settler: block labels, Brier/gate, `setCalibration` + ENS write | [`services/src/settler.ts:114-171`](services/src/settler.ts#L114-L171), [`282-312`](services/src/settler.ts#L282-L312) |
 | ENS calibration writer (resolver multicall) | [`services/src/ens.ts:120-157`](services/src/ens.ts#L120-L157) |
@@ -255,9 +259,20 @@ pnpm -C app build                               # tsc + eslint + next build
 ./contracts/export-abis.sh                      # regenerate abis/*.json after contract changes
 ```
 
-### Sepolia deployment (requires a funded `DEPLOYER`; not done yet)
+### Sepolia deployment
 
-The owner must be a plain EOA or an ERC1155 receiver such as a Safe (see ENS Gotcha 1). Keep `ENS_SECRET`, `ENS_OWNER` and `ENS_DURATION` identical across both phases.
+Live (2026-09-27): `oniblock.eth` on ENSv2 Sepolia, EnsV2RoleOracle `0xda0078c14d57c93478fa07993188c4a82add5872`, hook `0x8A350b37Ae9B6d7502197db4A45Cd97E34CDB5c3` (v4 attestation layout; the v5 hook is redeployed with the same script). Addresses live in `deployments/11155111.json` / `11155111.ens.json`.
+
+One command does the whole sequence (`DEPLOYER_PK`, `QUOTER_ADDR`, `SETTLER_ADDR`, `ATTESTOR_ADDR` from `.env`): ENSv2 commit → wait → finish (skipped when `11155111.ens.json` already exists), the idempotent `grant-jit` phase, hook + pools with Etherscan verification, the `weth-usdc.pools` records, and the role wiring checks. `REHEARSE=1` runs the identical steps on a local fork of Sepolia with the real keys and nothing broadcast.
+
+```bash
+REHEARSE=1 scripts/deploy-sepolia.sh   # dry run on a fork (uses the real ENS state if it exists)
+scripts/deploy-sepolia.sh              # real broadcast; keeps the previous deployment as 11155111.prev.json
+CHAIN=sepolia pnpm -C services keeper  # both services preflight the ENS roles and refuse to start on a mismatch
+CHAIN=sepolia pnpm -C services settler
+```
+
+Manual equivalent (the owner must be a plain EOA or an ERC1155 receiver such as a Safe, see ENS Gotcha 1; keep `ENS_SECRET`, `ENS_OWNER` and `ENS_DURATION` identical across both phases):
 
 ```bash
 cd contracts && set -a && source ../.env && set +a

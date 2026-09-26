@@ -8,6 +8,7 @@ import {
   decodeFunctionResult,
   encodeFunctionData,
   http,
+  keccak256,
   namehash,
   parseAbi,
   stringToBytes,
@@ -94,6 +95,19 @@ export async function tryRead<T>(c: Ctx, fn: string, args: readonly unknown[], b
 }
 
 export const hasFn = (a: Abi, name: string) => a.some((x) => x.type === 'function' && x.name === name);
+export const hasEvent = (a: Abi, name: string) => a.some((x) => x.type === 'event' && x.name === name);
+
+/**
+ * v5 JIT head: calibration key of a model's JIT predictions = keccak256(abi.encodePacked(modelNode, keccak256("jit"))),
+ * identical to OniblockHook.jitCalibrationKey (pure). Computed locally so the models page needs no extra eth_call per node;
+ * the settler writes the record with setCalibration(jitCalibrationKey(modelNode), ...).
+ */
+export function jitCalibrationKey(modelNode: Hex): Hex {
+  return keccak256(concat([modelNode, keccak256(stringToBytes('jit'))]));
+}
+
+/** The deployed ABI carries the v5 JIT head (jitCalibrationKey / isJitDemoted / jitWindowFromScore, PoolState.jitWindow). */
+export const jitHeadSupported = (c: Ctx) => hasFn(c.hookAbi, 'jitCalibrationKey');
 
 // ------------------------------------------------------------------------------------------ ENS (UR v2)
 
@@ -164,3 +178,5 @@ export async function ensAddr(c: Ctx, name: string): Promise<Address | undefined
 /** calibration.brier = the gate value posted on-chain (skill-normalised, 2500 = base rate); brierRaw / skill / baseRate are detail records. */
 export const CALIBRATION_KEYS = ['calibration.brier', 'calibration.brierRaw', 'calibration.skill', 'calibration.baseRate', 'calibration.hitRate', 'calibration.n', 'calibration.epoch'];
 export const MODEL_KEYS = [...CALIBRATION_KEYS, 'model-hash', 'agent-context', 'description'];
+/** v5: the JIT head's records on the same model name (mirrors CALIBRATION_KEYS under calibration.jit.*). */
+export const JIT_CALIBRATION_KEYS = CALIBRATION_KEYS.map((k) => k.replace(/^calibration\./, 'calibration.jit.'));

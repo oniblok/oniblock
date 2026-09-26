@@ -2,7 +2,8 @@
  * Server-only environment: repo paths, chain selection, RPC. Mirrors services/src/config.ts
  * (CHAIN = local | fork | sepolia) without importing it (that module loads dotenv at import time).
  *
- * Secrets: only SEPOLIA_RPC_HTTPS is read from the root .env (for CHAIN=sepolia reads). Nothing from
+ * Secrets: SEPOLIA_RPC_HTTPS (reads) and, for the public Swap button, SWAPPER_PK / *_ADDR labels are read from the
+ * root .env on demand (rootEnv). Nothing from
  * .env is ever sent to the browser.
  */
 import 'server-only';
@@ -20,7 +21,7 @@ export const KEEPER_FLAGS_FILE = process.env.KEEPER_FLAGS_FILE ?? path.join(RUNT
 export type ChainName = 'local' | 'fork' | 'sepolia';
 
 /** Read a single whitelisted key from the root .env without loading the rest into process.env. */
-function rootEnv(key: string): string | undefined {
+export function rootEnv(key: string): string | undefined {
   if (process.env[key]) return process.env[key];
   const f = path.join(ROOT, '.env');
   if (!existsSync(f)) return undefined;

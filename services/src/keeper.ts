@@ -1,15 +1,43 @@
 /**
- * Keeper: once per block, post (oracleMid, pToxic, confidence, modelNode, sig) to the hook.
+ * Keeper: once per block, post (oracleMid, pToxic, confidence, pJit, modelNode, sig) to the hook.
  *
- *   new block -> CEX mid + pool price + recent Receipts -> features -> model (Jev|heuristic)
- *             -> EIP-712 sign with attestor key -> setAttestation from quoter key
+ *   new block -> CEX mid + pool price + recent Receipts + ModifyLiquidity/JitPenalty logs -> features
+ *             -> model (Jev|heuristic) -> EIP-712 sign with attestor key -> setAttestation from quoter key
+ *
+ * v5 (docs/review/V5_JIT_HEAD_SPEC.md): the same Jev call answers a second typed question — will liquidity added in
+ * the next block be opportunistic JIT? — and its probability (pJitBps) is attested next to pToxic. The hook turns it
+ * into the JIT penalty window for liquidity added from then on (jitWindowMin..Max, jitWindowDefault while the JIT head
+ * is unseasoned/demoted); the keeper logs pJitBps and the resulting window (AttestationPosted.jitWindow).
+ *
+ * Online calibration of the JIT head against the observed churn of recent liquidity (deliberate, see `blendPJit`):
+ * the posted probability is NOT the raw model answer but
+ *     pJitBps = round((1 - w) * pJitModel + w * churn * 10000),   w = JIT_CHURN_WEIGHT (default 0.5, clamped to [0,1])
+ * where `churn` is the keeper's own liqChurn200 feature (share of positions added in the last 200 blocks that were
+ * removed again within JIT_LABEL_BLOCKS — exactly the settler's label rule). With no adds in the last 200 blocks
+ * there is no base rate to calibrate against and the model answer is posted unchanged. Why: the settler grades
+ * pJit only on blocks WITH adds, so in a pool where recent adds have mostly been pulled again the graded base rate
+ * is high; a zero-shot answer near 0.3-0.4 there is confidently wrong (Brier > brierDemoteBps) and the JIT head is
+ * demoted the moment it is seasoned. The blend is a shrinkage toward the empirical base rate the label is built
+ * from; the attested log line carries both inputs (`pJitModel`, `pJitChurn`) next to the posted `pJitBps`.
+ * The same blend is applied to the heuristic fallback (which already uses churn). RULE_SCORE (rule-v1) is not blended.
+ *
+ * v6 (default prompt, docs/JEV_NOTES.md "v6 questions and mapping"): the model answers ONE malicious score plus ONE
+ * attack type; `mapV6` (model/types.ts) allocates the score onto the same two attested numbers (price types ->
+ * pToxicBps -> k, jit_liquidity -> pJitBps -> JIT window) BEFORE the churn blend above, which is unchanged. The attested
+ * log line carries `pMalicious`, `attack`, `attackProbs`, `pPriceShare`, `pJitShare`, `jevPrompt`, and every posted
+ * attestation is appended as one JSON line to the verdicts file (VerdictLog: VERDICTS_FILE, else
+ * <DEMO_RUNTIME_DIR|.runtime>/verdicts.<chainId>.jsonl, capped to the last 5000 lines) for the app (/api/verdicts).
  *
  * CLI: tsx src/keeper.ts [--chain local|fork|sepolia] [--once] [--degraded] [--every N]
  *                        [--mode auto|jev|heuristic|kev|tabular] [--pool NAME]   (kev/tabular: set MODEL_MODE env so the default model node is kev-v1 / kev4b-v1 / tabular-v1)
  * Env: KEEPER_EVERY (default 1), ATTEST_BLOCK_OFFSET (default 1), MODEL_NAME,
  *      FALLBACK_MODEL_NAME, RULE_MODEL_NAME (default rule-v1.models.oniblock.eth),
  *      KEEPER_GATE (default 0 = v4: the model is asked EVERY block; 1 = the v3 rule-v1 gate, kept for comparison),
- *      KEEPER_HYSTERESIS_PIPS (default 100, gate only), JEV_PROMPT (default v4; v1 = pre-v4 question + state),
+ *      KEEPER_HYSTERESIS_PIPS (default 100, gate only), JEV_PROMPT (default v6; v5 = two booleans, v4 = arb-only question, v1 = pre-v4 texts),
+ *      VERDICTS_FILE (default <DEMO_RUNTIME_DIR|.runtime>/verdicts.<chainId>.jsonl: one JSON line per posted attestation for the app),
+ *      JIT_LABEL_BLOCKS (default 100: "removed within N blocks" for the churn feature; keep = SETTLER_JIT_LABEL_BLOCKS),
+ *      JIT_CHURN_WEIGHT (default 0.5: weight of the observed churn in the posted pJit, 0 = raw model answer, 1 = churn only),
+ *      STALE_BLOCKS (fallback when poolConfig.staleBlocks is unreadable; decides whether the attested JIT window or the default is in force),
  *      KEEPER_STATS_EVERY (ticks between `jev_rate` summary lines, default 50),
  *      DEGRADED_FILE (touch file to toggle degraded mode live),
  *      KEEPER_FLAGS_FILE (default <root>/.runtime/keeper-flags.json), BACKUP_QUOTER_PK.
@@ -33,12 +61,14 @@
  *     "useBackupQuoter": boolean } // send setAttestation from the backup quoter key (kill-switch demo)
  * The backup quoter key is BACKUP_QUOTER_PK, or anvil key #6 on dev chains. Whether it may post is
  * decided on-chain by the role oracle (MockRoleOracle locally, ENSv2 roles on a fork) — not here.
+ * Startup preflight (`checkConfig`): the quoter key must be allowed by hook.roleOracle().isQuoter and the attestor key
+ * must equal hook.attestor(), else `fatal_config` (addresses only, never keys) and exit 1.
  * Logs JSON lines. Never crashes on per-block errors.
  */
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { namehash, parseAbi, type Hex, type PublicClient } from 'viem';
-import { oniblockHookAbi } from './abi/oniblockHook.js';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { namehash, parseEventLogs, type Address, type Hex, type PublicClient } from 'viem';
+import { oniblockHookAbi, poolStateAbi, roleOracleAbi } from './abi/oniblockHook.js';
 import { resolveAttestDomain, signAttestation, type DomainOpts } from './attest.js';
 import { MidHistory } from './cex.js';
 import { lazyMidSource } from './pricesource.js';
@@ -60,9 +90,9 @@ import {
   type PairMeta,
   type PoolEntry,
 } from './config.js';
-import { getAttestations, getReceipts, keyTuple, readPool, receiptToSwapObs, TxSender, virtualDepth0 } from './chain.js';
-import { computeFeatures, type SwapObs } from './features.js';
-import { score, type ModelMode, type ModelScore } from './model/index.js';
+import { getAttestations, getJitPenalties, getModifyLiquidity, getReceipts, keyTuple, readPool, receiptToSwapObs, TxSender, virtualDepth0 } from './chain.js';
+import { computeFeatures, JIT_LABEL_BLOCKS_DEFAULT, type JitPenaltyObs, type LiquidityObs, type SwapObs } from './features.js';
+import { defaultJevPrompt, score, type AttackHead, type AttackType, type ModelMode, type ModelScore } from './model/index.js';
 import { midToPriceX96, sqrtPriceX96ToPriceX96 } from './price.js';
 import { createWalletClient, http, type Chain, type Transport, type Account, type WalletClient } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -70,6 +100,14 @@ import { privateKeyToAccount } from 'viem/accounts';
 export interface KeeperFlags {
   degraded?: boolean;
   useBackupQuoter?: boolean;
+}
+
+/** Startup misconfiguration: `details` are addresses / flags only (never keys), logged under `fatal_config`. */
+export class ConfigError extends Error {
+  constructor(message: string, readonly details: Record<string, unknown> = {}) {
+    super(message);
+    this.name = 'ConfigError';
+  }
 }
 
 export function keeperFlagsPath(): string {
@@ -94,10 +132,8 @@ export function readKeeperFlags(path = keeperFlagsPath()): KeeperFlags {
 /** Anvil default account #6 (public dev key) = backup quoter on local/fork chains. */
 const ANVIL_KEYS_BACKUP = '0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e';
 
-/** Minimal poolState view (nested tuples; not in the hand-written ABI). Only state.kBps is used. */
-const poolStateAbi = parseAbi([
-  'function poolState(bytes32 id) view returns ((bool registered,bool initialized,uint8 decimals0,uint8 decimals1,uint32 kBps,uint64 lastAttestBlock,uint64 lastPostBlock,uint32 pToxicBps,uint32 confidenceBps,uint256 oracleMidX96,bytes32 modelNode) state, (uint64 blockNumber,bool stale,uint32 kBps,uint32 gapZeroForOne,uint32 gapOneForZero,uint64 attestBlock,bytes32 modelNode) anchor, bool staleNow)',
-]);
+/** `poolState` view: defined in abi/oniblockHook.ts (shared with the JIT bot); re-exported for existing importers. */
+export { poolStateAbi } from './abi/oniblockHook.js';
 
 export const DEFAULT_MODEL_NAME = 'jev-v1.models.oniblock.eth';
 /** Primary model node name per MODEL_MODE: kev -> kev-v1 (Kev-0.8B) / kev4b-v1 (KEV_MODEL=4b), tabular -> tabular-v1, else jev-v1. */
@@ -108,8 +144,8 @@ export function defaultModelName(mode = env('MODEL_MODE', 'auto')): string {
 }
 export const DEFAULT_FALLBACK_MODEL_NAME = 'heuristic-v1.models.oniblock.eth';
 export const DEFAULT_RULE_MODEL_NAME = 'rule-v1.models.oniblock.eth';
-/** Deterministic below-threshold score (k is irrelevant there: the hook charges baseFee). Low pToxic, full confidence. */
-export const RULE_SCORE = { pToxicBps: 1_000, confidenceBps: 10_000 } as const;
+/** Deterministic below-threshold score (k is irrelevant there: the hook charges baseFee). Low pToxic, full confidence, no JIT signal. */
+export const RULE_SCORE = { pToxicBps: 1_000, confidenceBps: 10_000, pJitBps: 0 } as const;
 
 /** v4: the rule-v1 gate is OFF unless KEEPER_GATE=1 (the model decides every block). */
 export function keeperGateOn(): boolean {
@@ -130,6 +166,26 @@ export function assertGateConfig(gateOn: boolean, kDefaultBps: number | undefine
 export function gateDecision(gapPips: number, arbThresholdPips: number, hysteresisPips = 100): 'rule' | 'model' {
   if (!(arbThresholdPips > 0)) return 'model';
   return gapPips < arbThresholdPips - hysteresisPips ? 'rule' : 'model';
+}
+
+export const JIT_CHURN_WEIGHT_DEFAULT = 0.5;
+/** JIT_CHURN_WEIGHT env: weight of the observed churn in the posted pJit, clamped to [0,1] (unparseable => default). */
+export function jitChurnWeight(raw = env('JIT_CHURN_WEIGHT')): number {
+  const w = raw === undefined || raw === '' ? JIT_CHURN_WEIGHT_DEFAULT : Number(raw);
+  return Number.isFinite(w) ? Math.max(0, Math.min(1, w)) : JIT_CHURN_WEIGHT_DEFAULT;
+}
+
+/**
+ * Online calibration of the JIT head against the observed churn of recent liquidity (see the header):
+ *   posted = round((1 - w) * pModelBps + w * churn * 10000)
+ * `churn` = liqChurn200 in [0,1]; `undefined` = no adds in the last 200 blocks (no base rate) => pModelBps unchanged.
+ * `w` is clamped to [0,1]. All values bps in, bps out (clamped to 0..10000).
+ */
+export function blendPJit(pModelBps: number, churn: number | undefined, w: number): number {
+  if (churn === undefined || !Number.isFinite(churn)) return pModelBps;
+  const ww = Number.isFinite(w) ? Math.max(0, Math.min(1, w)) : JIT_CHURN_WEIGHT_DEFAULT;
+  const c = Math.max(0, Math.min(1, churn));
+  return Math.max(0, Math.min(10_000, Math.round((1 - ww) * pModelBps + ww * c * 10_000)));
 }
 
 export interface KeeperStats {
@@ -164,6 +220,108 @@ export interface KeeperTickResult {
   /** true if the v3 gate posted the rule score (no model call). */
   rule?: boolean;
   arbThresholdPips?: number;
+  /** v5: the JIT window (blocks) the hook set from this attestation (AttestationPosted.jitWindow), if the tx was mined. */
+  jitWindow?: number;
+  /** v5: pJit actually attested = blendPJit(score.pJitBps, observed churn, JIT_CHURN_WEIGHT); score.pJitBps is the raw model answer. */
+  pJitBps?: number;
+  /** v6: the model's attack-type head (choice + full distribution + confidence), if the model has one. */
+  attack?: AttackHead;
+}
+
+// ---------------------------------------------------------------------------------------------- v6 verdicts file
+
+/** One JSON line per posted attestation (the app's /api/verdicts reads the tail). Never carries keys or signatures. */
+export interface Verdict {
+  /** observed block (features) and the attested target block */
+  block: number;
+  target: number;
+  /** P(next block contains LP-costly flow) in [0,1] (null for models without a v6 head) */
+  pMalicious: number | null;
+  /** most likely attack type (null for models without a v6 head) */
+  attack: AttackType | null;
+  /** full type distribution, 2 decimals (null for models without a v6 head) */
+  attackProbs: Record<AttackType, number> | null;
+  /** the two attested numbers (pJitBps after the churn blend) */
+  pToxicBps: number;
+  pJitBps: number;
+  /** what the hook derived (AttestationPosted), when the event was decoded */
+  k?: number;
+  jitWindow?: number;
+  model: ModelScore['model'];
+  txHash: Hex;
+}
+
+/** Round every probability to 2 decimals (compact log / verdict form). */
+export function compactProbs(p: Record<AttackType, number>): Record<AttackType, number> {
+  const out = {} as Record<AttackType, number>;
+  for (const k of Object.keys(p) as AttackType[]) out[k] = Math.round(p[k] * 100) / 100;
+  return out;
+}
+
+/** VERDICTS_FILE, else <DEMO_RUNTIME_DIR | <root>/.runtime>/verdicts.<chainId>.jsonl. */
+export function verdictsPath(chainId: number): string {
+  return env('VERDICTS_FILE') ?? resolve(env('DEMO_RUNTIME_DIR', resolve(ROOT, '.runtime'))!, `verdicts.${chainId}.jsonl`);
+}
+
+export const VERDICTS_KEEP = 5000;
+export const VERDICTS_REWRITE_AT = 6000;
+
+/**
+ * Append-only JSONL verdict log, capped: once the file holds more than `rewriteAt` lines it is rewritten with the last
+ * `keep` lines (so steady state is one cheap append per block and a rewrite every keep-rewriteAt blocks). Never throws:
+ * a write error is logged once per path and the keeper carries on.
+ */
+export class VerdictLog {
+  private lines: number | undefined;
+  private warned = false;
+  constructor(readonly path: string, private readonly keep = VERDICTS_KEEP, private readonly rewriteAt = VERDICTS_REWRITE_AT) {}
+
+  /** Current line count (counted from the file on first use). */
+  size(): number {
+    if (this.lines === undefined) {
+      try {
+        this.lines = existsSync(this.path) ? readFileSync(this.path, 'utf8').split('\n').filter((l) => l.length > 0).length : 0;
+      } catch {
+        this.lines = 0;
+      }
+    }
+    return this.lines;
+  }
+
+  append(v: Verdict): boolean {
+    try {
+      mkdirSync(dirname(this.path), { recursive: true });
+      const n = this.size();
+      if (n + 1 > this.rewriteAt) {
+        const kept = (existsSync(this.path) ? readFileSync(this.path, 'utf8').split('\n').filter((l) => l.length > 0) : []).slice(-(this.keep - 1));
+        kept.push(JSON.stringify(v));
+        writeFileSync(this.path, kept.join('\n') + '\n');
+        this.lines = kept.length;
+      } else {
+        appendFileSync(this.path, JSON.stringify(v) + '\n');
+        this.lines = n + 1;
+      }
+      return true;
+    } catch (e) {
+      if (!this.warned) {
+        this.warned = true;
+        log('keeper', 'verdict_write_error', { path: this.path, error: (e as Error).message.split('\n')[0] });
+      }
+      return false;
+    }
+  }
+}
+
+/** Pool fee/JIT config the keeper needs (hook.poolConfig subset; deployment JSON fallback). */
+export interface PoolCfg {
+  baseFee: number;
+  feeMax: number;
+  arbThresholdPips: number;
+  kDefaultBps?: number;
+  /** v5: window used for adds while the attestation is stale / the JIT head is unseasoned or demoted. */
+  jitWindowDefault?: number;
+  /** poolConfig.staleBlocks (attestation older than this => stale => jitWindowDefault in force). */
+  staleBlocks?: number;
 }
 
 export function modelNodes(d?: Deployment) {
@@ -189,6 +347,9 @@ export class Keeper {
   private readonly attestor;
   private readonly mids = new MidHistory(120);
   private swaps: SwapObs[] = [];
+  /** v5: recent ModifyLiquidity (PoolManager) and JitPenalty (hook) logs of our pool (last ~400 blocks). */
+  private liquidity: LiquidityObs[] = [];
+  private jitPenalties: JitPenaltyObs[] = [];
   private scannedTo = -1;
   private lastAttestBlock = 0;
   private busy = false;
@@ -196,8 +357,10 @@ export class Keeper {
   private readonly nodes;
   private domain: Required<DomainOpts> | undefined;
   private readonly midSource: (block?: number) => Promise<number>;
-  private chainCfg: { baseFee: number; feeMax: number; arbThresholdPips: number; kDefaultBps?: number } | undefined;
+  private chainCfg: PoolCfg | undefined;
   private cfgReadAt = -1;
+  /** v6: per-block verdicts for the app (verdictsPath(chainId)). */
+  readonly verdicts: VerdictLog;
   readonly stats: KeeperStats = { ticks: 0, ruleTicks: 0, modelTicks: 0, jevAnswers: 0, jevCallRate: 0 };
 
   constructor(private readonly o: KeeperOpts) {
@@ -219,6 +382,7 @@ export class Keeper {
     this.attestor = roleAccount('attestor', sel);
     this.nodes = modelNodes(this.d);
     this.midSource = o.midSource ?? lazyMidSource(this.d.startBlock ?? 0, 'keeper');
+    this.verdicts = new VerdictLog(verdictsPath(this.d.chainId));
   }
 
   private isDegraded(): boolean {
@@ -236,22 +400,24 @@ export class Keeper {
   }
 
   /** Pool fee config from the deployment JSON (fallback when hook.poolConfig is unreadable). */
-  private get fileCfg(): { baseFee: number; feeMax: number; arbThresholdPips: number; kDefaultBps?: number } {
-    const c = (this.d.raw.pools as Record<string, { config?: { baseFee?: number; feeMax?: number; arbThresholdPips?: number; kDefaultBps?: number } }> | undefined)?.[this.pool.name]?.config;
+  private get fileCfg(): PoolCfg {
+    const c = (this.d.raw.pools as Record<string, { config?: { baseFee?: number; feeMax?: number; arbThresholdPips?: number; kDefaultBps?: number; jitWindowDefault?: number; staleBlocks?: number } }> | undefined)?.[this.pool.name]?.config;
     return {
       baseFee: Number(c?.baseFee ?? envInt('BASE_FEE_PIPS', 3000)),
       feeMax: Number(c?.feeMax ?? 10_000),
       arbThresholdPips: Number(c?.arbThresholdPips ?? 0),
       kDefaultBps: c?.kDefaultBps === undefined ? undefined : Number(c.kDefaultBps),
+      jitWindowDefault: c?.jitWindowDefault === undefined ? undefined : Number(c.jitWindowDefault),
+      staleBlocks: c?.staleBlocks === undefined ? undefined : Number(c.staleBlocks),
     };
   }
 
   /** Live pool fee config (hook.poolConfig; re-read every 100 blocks and immediately after a PoolConfigUpdated). */
-  private async poolCfg(block: number): Promise<{ baseFee: number; feeMax: number; arbThresholdPips: number; kDefaultBps?: number }> {
+  private async poolCfg(block: number): Promise<PoolCfg> {
     if (this.chainCfg && block - this.cfgReadAt < 100) return this.chainCfg;
     try {
       const c = await this.pc.readContract({ address: this.d.hook, abi: oniblockHookAbi, functionName: 'poolConfig', args: [this.pool.poolId] });
-      this.chainCfg = { baseFee: Number(c.baseFee), feeMax: Number(c.feeMax), arbThresholdPips: Number(c.arbThresholdPips), kDefaultBps: Number(c.kDefaultBps) };
+      this.chainCfg = { baseFee: Number(c.baseFee), feeMax: Number(c.feeMax), arbThresholdPips: Number(c.arbThresholdPips), kDefaultBps: Number(c.kDefaultBps), jitWindowDefault: Number(c.jitWindowDefault), staleBlocks: Number(c.staleBlocks) };
       this.cfgReadAt = block;
       return this.chainCfg;
     } catch {
@@ -259,11 +425,11 @@ export class Keeper {
     }
   }
 
-  /** Stored k of the pool (the k an arbitrageur faces this block). undefined if unreadable -> base-fee wording. */
-  private async currentK(): Promise<number | undefined> {
+  /** Stored pool state: k (what an arbitrageur faces this block) and the v5 JIT window/pJit. undefined if unreadable -> base-fee wording. */
+  private async currentState(): Promise<{ kBps: number; jitWindow: number; pJitBps: number } | undefined> {
     try {
       const [st] = await this.pc.readContract({ address: this.d.hook, abi: poolStateAbi, functionName: 'poolState', args: [this.pool.poolId] });
-      return Number(st.kBps);
+      return { kBps: Number(st.kBps), jitWindow: Number(st.jitWindow), pJitBps: Number(st.pJitBps) };
     } catch {
       return undefined;
     }
@@ -274,15 +440,23 @@ export class Keeper {
     return this.midSource(block);
   }
 
-  /** Incrementally pull Receipt logs for our pool (keeps last ~200 blocks). */
+  /** Incrementally pull Receipt (+ v5 ModifyLiquidity / JitPenalty) logs for our pool (keeps last ~200 / ~400 blocks). */
   private async refreshSwaps(block: number) {
-    const from = this.scannedTo < 0 ? Math.max(0, block - 50) : this.scannedTo + 1;
+    const first = this.scannedTo < 0;
+    const from = first ? Math.max(0, block - 50) : this.scannedTo + 1;
     if (from > block) return;
-    const [rs, cfgEvents] = await Promise.all([
+    // Liquidity events are sparse: on the first scan look further back so churn / lifetime features have history.
+    const liqFrom = first ? Math.max(0, block - 400) : from;
+    const [rs, cfgEvents, liq, pen] = await Promise.all([
       getReceipts(this.pc, this.d.hook, this.pool.poolId, BigInt(from), BigInt(block)),
       this.pc
         .getContractEvents({ address: this.d.hook, abi: oniblockHookAbi, eventName: 'PoolConfigUpdated', args: { id: this.pool.poolId }, fromBlock: BigInt(from), toBlock: BigInt(block) })
         .catch(() => []),
+      getModifyLiquidity(this.pc, this.d.poolManager, this.pool.poolId, BigInt(liqFrom), BigInt(block)).catch((e) => {
+        log('keeper', 'liquidity_logs_error', { block, error: (e as Error).message.split('\n')[0] });
+        return [];
+      }),
+      getJitPenalties(this.pc, this.d.hook, this.pool.poolId, BigInt(liqFrom), BigInt(block)).catch(() => []),
     ]);
     if (cfgEvents.length) {
       this.chainCfg = undefined; // a timelocked config change executed: re-read poolConfig on this tick
@@ -290,6 +464,10 @@ export class Keeper {
     }
     this.swaps.push(...rs.map(receiptToSwapObs));
     this.swaps = this.swaps.filter((s) => s.block > block - 200);
+    this.liquidity.push(...liq);
+    this.liquidity = this.liquidity.filter((o) => o.block > block - 400);
+    this.jitPenalties.push(...pen);
+    this.jitPenalties = this.jitPenalties.filter((o) => o.block > block - 400);
     if (this.scannedTo < 0) {
       const at = await getAttestations(this.pc, this.d.hook, this.pool.poolId, BigInt(from), BigInt(block));
       if (at.length) this.lastAttestBlock = at[at.length - 1]!.blockNumber;
@@ -305,12 +483,16 @@ export class Keeper {
     const gen = ++this.gen;
     const t0 = performance.now();
     try {
-      const [mid, pool, kBps, cfg] = await Promise.all([
+      const [mid, pool, state, cfg] = await Promise.all([
         this.mid(block),
         readPool(this.pc, this.d.poolManager, this.pool.poolId),
-        this.currentK(),
+        this.currentState(),
         this.refreshSwaps(block).then(() => this.poolCfg(block)), // a PoolConfigUpdated in range invalidates the cache first
       ]);
+      const kBps = state?.kBps;
+      // Window in force for adds now: the attested one unless stale (then the pool's default), else unknown.
+      const stale = this.lastAttestBlock > 0 && block - this.lastAttestBlock > (cfg.staleBlocks ?? envInt('STALE_BLOCKS', 5));
+      const jitWindowNow = state && !stale ? state.jitWindow : (cfg.jitWindowDefault ?? state?.jitWindow);
       this.mids.push(mid);
       const oracleX96 = midToPriceX96(mid.toFixed(8), this.meta);
       const poolX96 = sqrtPriceX96ToPriceX96(pool.sqrtPriceX96);
@@ -328,6 +510,11 @@ export class Keeper {
         kBps,
         arbThresholdPips: cfg.arbThresholdPips,
         baseIsToken0: this.meta.baseIsToken0,
+        liquidity: this.liquidity,
+        jitPenalties: this.jitPenalties,
+        currentTick: pool.tick,
+        jitWindowNow,
+        jitLabelBlocks: envInt('JIT_LABEL_BLOCKS', JIT_LABEL_BLOCKS_DEFAULT),
       });
       const gated = keeperGateOn();
       assertGateConfig(gated, cfg.kDefaultBps);
@@ -348,6 +535,12 @@ export class Keeper {
         : s.model === 'jev' || s.model === 'kev' || s.model === 'tabular' || env('FALLBACK_SAME_NODE') === '1'
           ? this.nodes.primary
           : this.nodes.fallback;
+      // v5 online calibration of the JIT head (header): shrink the model's pJit toward the observed churn of recent
+      // liquidity. The churn is only a base rate when there were adds in the last 200 blocks (same window as the feature).
+      const adds200 = this.liquidity.filter((o) => o.liquidityDelta > 0n && o.block > block - 200 && o.block <= block).length;
+      const pJitChurn = adds200 > 0 ? (f.liqChurn200 ?? 0) : undefined;
+      const churnWeight = jitChurnWeight();
+      const pJitPosted = rule ? s.pJitBps : blendPJit(s.pJitBps, pJitChurn, churnWeight);
       this.domain ??= await resolveAttestDomain(this.pc, this.d.hook, (this.d.raw.eip712 ?? {}) as DomainOpts);
       const att = await signAttestation(this.attestor, this.d.chainId, this.d.hook, {
         poolId: this.pool.poolId,
@@ -355,6 +548,7 @@ export class Keeper {
         oracleMidX96: oracleX96,
         pToxicBps: s.pToxicBps,
         confidenceBps: s.confidenceBps,
+        pJitBps: pJitPosted,
         modelNode: node,
       }, this.domain);
       const sender = this.quoterSender();
@@ -368,6 +562,23 @@ export class Keeper {
       });
       const ok = rc?.status === 'success';
       if (ok) this.lastAttestBlock = target;
+      // v5: the window the hook derived from (pJit, confidence, JIT calibration) — from the mined AttestationPosted;
+      // v6 verdicts also record the k it derived.
+      let jitWindow: number | undefined;
+      let kPosted: number | undefined;
+      if (ok && rc?.logs) {
+        try {
+          const ev = parseEventLogs({ abi: oniblockHookAbi, eventName: 'AttestationPosted', logs: rc.logs, strict: false }).find((l) => l.address.toLowerCase() === this.d.hook.toLowerCase());
+          if (ev?.args.jitWindow !== undefined) jitWindow = Number(ev.args.jitWindow);
+          if (ev?.args.kBps !== undefined) kPosted = Number(ev.args.kBps);
+        } catch {
+          /* old hook without the v5 event fields: window unknown */
+        }
+      }
+      // v6: the one score + the type that allocated it (null for models without the head: rule / kev / tabular)
+      const pMalicious = s.pMaliciousBps === undefined ? null : Math.round(s.pMaliciousBps) / 10_000;
+      const attackProbs = s.attack ? compactProbs(s.attack.probabilities) : null;
+      const round4 = (x: number | undefined) => (x === undefined ? null : Math.round(x * 10_000) / 10_000);
       log('keeper', ok ? 'attested' : 'attest_failed', {
         block,
         target,
@@ -384,7 +595,25 @@ export class Keeper {
         degraded: !!s.degraded,
         pToxicBps: s.pToxicBps,
         confidenceBps: s.confidenceBps,
+        // JIT head: pJitBps = posted = blend(pJitModel, pJitChurn, jitChurnWeight); pJitChurn null = no adds in 200 blocks (model unchanged)
+        pJitModel: s.pJitBps,
+        pJitChurn: pJitChurn ?? null,
+        jitChurnWeight: churnWeight,
+        pJitBps: pJitPosted,
+        jitWindow,
+        jitWindowBefore: jitWindowNow,
+        liqAdds20: f.liqAdds20,
+        liqAdds200: adds200,
+        liqChurn200: f.liqChurn200,
         cls: s.cls,
+        // v6 head: pMalicious is the one score, attack the type that allocated it (pPriceShare -> k, pJitShare -> JIT window)
+        pMalicious,
+        attack: s.attack?.choice ?? null,
+        attackProbs,
+        attackConfidence: round4(s.attack?.confidence),
+        pPriceShare: round4(s.pPriceShare),
+        pJitShare: round4(s.pJitShare),
+        jevPrompt: defaultJevPrompt(),
         modelLatencyMs: s.latencyMs,
         tickMs: Math.round(performance.now() - t0),
         quoter: sender.address,
@@ -392,7 +621,22 @@ export class Keeper {
       });
       const statsEvery = envInt('KEEPER_STATS_EVERY', 50);
       if (statsEvery > 0 && st.ticks % statsEvery === 0) log('keeper', 'jev_rate', { ...st, jevCallRate: +st.jevCallRate.toFixed(3) });
-      return { block, posted: ok, hash: rc?.hash, score: s, mid, gapPips: f.gapPips, reason: ok ? undefined : 'tx', rule, arbThresholdPips: cfg.arbThresholdPips };
+      if (ok && rc?.hash) {
+        this.verdicts.append({
+          block,
+          target,
+          pMalicious,
+          attack: s.attack?.choice ?? null,
+          attackProbs,
+          pToxicBps: s.pToxicBps,
+          pJitBps: pJitPosted,
+          ...(kPosted !== undefined ? { k: kPosted } : {}),
+          ...(jitWindow !== undefined ? { jitWindow } : {}),
+          model: s.model,
+          txHash: rc.hash,
+        });
+      }
+      return { block, posted: ok, hash: rc?.hash, score: s, mid, gapPips: f.gapPips, reason: ok ? undefined : 'tx', rule, arbThresholdPips: cfg.arbThresholdPips, jitWindow, pJitBps: pJitPosted, attack: s.attack };
     } catch (e) {
       log('keeper', 'tick_error', { block, error: (e as Error).message.split('\n')[0] });
       return { block, posted: false, reason: (e as Error).message };
@@ -401,10 +645,39 @@ export class Keeper {
     }
   }
 
-  /** Startup check (CLI): refuse KEEPER_GATE=1 on a kDefault = 0 pool (see assertGateConfig). */
+  /**
+   * Startup check (CLI): refuse KEEPER_GATE=1 on a kDefault = 0 pool (see assertGateConfig), and verify the roles
+   * on-chain: hook.roleOracle().isQuoter(quoter key) and hook.attestor() == attestor key. A mismatch throws a
+   * ConfigError carrying the addresses (the CLI logs `fatal_config` and exits 1); an unreadable view is logged as
+   * `preflight_unverified` and does not stop the keeper (transient RPC trouble is not a configuration error).
+   */
   async checkConfig(): Promise<void> {
     const cfg = await this.poolCfg(Number(await this.pc.getBlockNumber()));
     assertGateConfig(keeperGateOn(), cfg.kDefaultBps);
+    await this.checkRoles();
+  }
+
+  /** Quoter / attestor preflight (see checkConfig). Exposed for --once too; never logs keys. */
+  async checkRoles(): Promise<void> {
+    const quoter = this.sender.address;
+    const attestor = this.attestor.address;
+    let roleOracle: Address | undefined;
+    let hookAttestor: Address | undefined;
+    let isQuoter: boolean | undefined;
+    try {
+      [roleOracle, hookAttestor] = await Promise.all([
+        this.pc.readContract({ address: this.d.hook, abi: oniblockHookAbi, functionName: 'roleOracle' }),
+        this.pc.readContract({ address: this.d.hook, abi: oniblockHookAbi, functionName: 'attestor' }),
+      ]);
+      isQuoter = await this.pc.readContract({ address: roleOracle, abi: roleOracleAbi, functionName: 'isQuoter', args: [quoter] });
+    } catch (e) {
+      log('keeper', 'preflight_unverified', { hook: this.d.hook, roleOracle, quoter, attestor, error: (e as Error).message.split('\n')[0] });
+      return;
+    }
+    const details = { hook: this.d.hook, roleOracle, quoter, isQuoter, attestor, hookAttestor };
+    if (!isQuoter) throw new ConfigError(`quoter ${quoter} is not allowed by roleOracle ${roleOracle} (isQuoter = false)`, details);
+    if (hookAttestor.toLowerCase() !== attestor.toLowerCase()) throw new ConfigError(`attestor key ${attestor} != hook.attestor() ${hookAttestor}`, details);
+    log('keeper', 'preflight_ok', details);
   }
 
   /** Watch new blocks forever; returns an unwatch fn. */
@@ -422,8 +695,10 @@ export class Keeper {
       fallbackNode: this.nodes.fallback,
       ruleNode: this.nodes.rule,
       gate: keeperGateOn(),
-      jevPrompt: env('JEV_PROMPT', 'v4'),
+      jevPrompt: defaultJevPrompt(),
+      jitLabelBlocks: envInt('JIT_LABEL_BLOCKS', JIT_LABEL_BLOCKS_DEFAULT),
       priceSource: env('PRICE_SOURCE', 'live'),
+      verdictsFile: this.verdicts.path,
     });
     return this.pc.watchBlockNumber({
       emitOnBegin: true,
@@ -446,7 +721,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   try {
     await k.checkConfig();
   } catch (e) {
-    log('keeper', 'fatal_config', { error: (e as Error).message });
+    log('keeper', 'fatal_config', { ...(e instanceof ConfigError ? e.details : {}), error: (e as Error).message });
     process.exit(1);
   }
   if (a.once) {

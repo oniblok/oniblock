@@ -26,13 +26,17 @@ import {EnsV2RoleOracle} from "../src/roles/EnsV2RoleOracle.sol";
 ///      - subnames: quoter, settler, models -> {jev-v1, heuristic-v1, rule-v1 (v3 gate only)}, pools -> {weth-usdc}
 ///      - v4 pool config (DeployBase): arbThresholdPips 0, kMin 0, kDefault 0, kMax 8000, maxKStep 8000 — Jev decides
 ///      - EAC roles: ROLE_QUOTER on quoter.<label>.eth -> quoter; ROLE_SETTLER on settler.<label>.eth -> settler
-///      - resolver records (addr + text) and settler-only per-key text roles for calibration.*
+///      - resolver records (addr + text) and settler-only per-key text roles for calibration.* and
+///        calibration.jit.* (v5 JIT head)
 ///      - deploys EnsV2RoleOracle pointing at the subregistry
 ///      - writes ../deployments/<chainId>.ens.json
+///   3. grant-jit : (v5 upgrade of an EXISTING setup, no re-registration) grants the settler the per-key setter
+///      roles for calibration.jit.* on the resolver recorded in ENS_OUT / ../deployments/<chainId>.ens.json.
+///      Idempotent: keys the settler already holds are skipped. ENS_SETTLER defaults to the json's settler.
 ///
 /// Env (all optional except where noted):
-///   ENS_PHASE      commit | finish | all  (default all; `all` only works in simulation / on a chain where the
-///                  script's vm.warp is honoured, i.e. forge test. For anvil use commit, then
+///   ENS_PHASE      commit | finish | all | grant-jit  (default all; `all` only works in simulation / on a chain
+///                  where the script's vm.warp is honoured, i.e. forge test. For anvil use commit, then
 ///                  `cast rpc evm_increaseTime 61 && cast rpc anvil_mine`, then finish.)
 ///   ENS_NAME       default "oniblock.eth"
 ///   ENS_OWNER      default: the broadcasting sender (msg.sender of the script)
@@ -58,6 +62,15 @@ contract EnsSetup is Script {
     string internal constant K_CAL_BRIER_RAW = "calibration.brierRaw";
     string internal constant K_CAL_SKILL = "calibration.skill";
     string internal constant K_CAL_BASE_RATE = "calibration.baseRate";
+    // v5: the model's JIT head (pJitBps -> JIT penalty window) has its own calibration record, mirrored on the same
+    // model name under calibration.jit.* (hook key: OniblockHook.jitCalibrationKey(modelNode)). Settler-only too.
+    string internal constant K_JIT_BRIER = "calibration.jit.brier";
+    string internal constant K_JIT_HIT = "calibration.jit.hitRate";
+    string internal constant K_JIT_N = "calibration.jit.n";
+    string internal constant K_JIT_EPOCH = "calibration.jit.epoch";
+    string internal constant K_JIT_BRIER_RAW = "calibration.jit.brierRaw";
+    string internal constant K_JIT_SKILL = "calibration.jit.skill";
+    string internal constant K_JIT_BASE_RATE = "calibration.jit.baseRate";
     string internal constant K_HOOK = "hook";
     string internal constant K_POOL_ID = "pool-id";
     string internal constant K_FEE_MIN = "fee-min";
@@ -113,6 +126,8 @@ contract EnsSetup is Script {
         } else if (p == keccak256("finish")) {
             Result memory r = finishPhase(cfg);
             writeJson(cfg, r);
+        } else if (p == keccak256("grant-jit")) {
+            grantJitPhase(cfg);
         } else {
             commitPhase(cfg);
             vm.warp(block.timestamp + IEnsETHRegistrar(cfg.ens.registrar).MIN_COMMITMENT_AGE() + 1);
@@ -233,7 +248,56 @@ contract EnsSetup is Script {
         vm.stopBroadcast();
     }
 
+    // ================================================================== phase 3: v5 calibration.jit.* grants
+    /// Grants the settler the calibration.jit.* setter roles on an already-deployed setup. Reads the resolver (and,
+    /// unless ENS_SETTLER is set, the settler) from ENS_OUT / ../deployments/<chainId>.ens.json. Idempotent.
+    function grantJitPhase(Config memory cfg) public {
+        string memory path = _jsonPath();
+        require(vm.exists(path), "EnsSetup: ens json not found (set ENS_OUT)");
+        string memory j = vm.readFile(path);
+        address resolver = vm.parseJsonAddress(j, ".resolver");
+        require(resolver != address(0), "EnsSetup: resolver missing in ens json");
+        address settler = vm.envOr("ENS_SETTLER", vm.parseJsonAddress(j, ".settler"));
+        require(settler != address(0), "EnsSetup: settler missing");
+
+        bytes memory nRoot = EnsV2Lib.dnsEncode(string.concat(cfg.label, ".eth"));
+        vm.startBroadcast(cfg.owner);
+        uint256 granted = _grantKeys(IEnsPermissionedResolver(resolver), nRoot, _jitCalKeys(), settler);
+        vm.stopBroadcast();
+        console2.log("grant-jit: resolver", resolver);
+        console2.log("grant-jit: settler ", settler);
+        console2.log("grant-jit: new grants", granted);
+    }
+
+    function _jsonPath() internal view returns (string memory) {
+        return vm.envOr(
+            "ENS_OUT",
+            string.concat(vm.projectRoot(), "/../deployments/", vm.toString(block.chainid), ".ens.json")
+        );
+    }
+
     // ================================================================== helpers
+    function _calKeys() internal pure returns (string[7] memory) {
+        return [K_CAL_BRIER, K_CAL_HIT, K_CAL_N, K_CAL_EPOCH, K_CAL_BRIER_RAW, K_CAL_SKILL, K_CAL_BASE_RATE];
+    }
+
+    function _jitCalKeys() internal pure returns (string[7] memory) {
+        return [K_JIT_BRIER, K_JIT_HIT, K_JIT_N, K_JIT_EPOCH, K_JIT_BRIER_RAW, K_JIT_SKILL, K_JIT_BASE_RATE];
+    }
+
+    /// Per-key setText grants for `account`, skipping keys it already holds (resource = keccak256(key), so a grant
+    /// covers that key on every name served by the resolver). Returns the number of new grants.
+    function _grantKeys(IEnsPermissionedResolver res, bytes memory name, string[7] memory keys, address account)
+        internal
+        returns (uint256 granted)
+    {
+        for (uint256 i; i < keys.length; ++i) {
+            if (res.hasRoles(EnsV2Lib.keyResource(keys[i]), EnsV2Lib.RES_ROLE_SET_TEXT, account)) continue;
+            res.grantSetterRoles(abi.encodeCall(IEnsPermissionedResolver.setText, (name, keys[i], "")), account);
+            ++granted;
+        }
+    }
+
     function _deployResolver(Config memory cfg) internal returns (address) {
         // Owner gets every root role EXCEPT ROLE_SET_TEXT (only its admin bit): text keys are then writable
         // only by accounts holding a per-key grant, so calibration.* is settler-only unless the admin
@@ -288,11 +352,8 @@ contract EnsSetup is Script {
         for (uint256 i; i < ownerKeys.length; ++i) {
             res.grantSetterRoles(abi.encodeCall(IEnsPermissionedResolver.setText, (nRoot, ownerKeys[i], "")), cfg.owner);
         }
-        string[7] memory calKeys =
-            [K_CAL_BRIER, K_CAL_HIT, K_CAL_N, K_CAL_EPOCH, K_CAL_BRIER_RAW, K_CAL_SKILL, K_CAL_BASE_RATE];
-        for (uint256 i; i < calKeys.length; ++i) {
-            res.grantSetterRoles(abi.encodeCall(IEnsPermissionedResolver.setText, (nRoot, calKeys[i], "")), cfg.settler);
-        }
+        _grantKeys(res, nRoot, _calKeys(), cfg.settler);
+        _grantKeys(res, nRoot, _jitCalKeys(), cfg.settler); // v5 JIT head records
 
         bytes[] memory c = new bytes[](18);
         uint256 n;
@@ -306,13 +367,13 @@ contract EnsSetup is Script {
         c[n++] = _text(
             nJev,
             K_AGENT_CONTEXT,
-            "Jev decision model (typesafe-ai/jev via Vercel AI Gateway), asked every block: is there profitable arbitrage at the base fee? -> {pToxicBps, confidenceBps}; public fee law k = kMax * p * c (kMin 0, no gap threshold), so p near 0 = base fee. Calibration written by settler."
+            "Jev decision model (typesafe-ai/jev via Vercel AI Gateway), asked every block: is there profitable arbitrage at the base fee? -> {pToxicBps, confidenceBps}; public fee law k = kMax * p * c (kMin 0, no gap threshold), so p near 0 = base fee. JIT head (v5): will liquidity added next block be short-lived fee capture? -> pJitBps; JIT penalty window = min + (max - min) * pJit * c blocks. Calibration written by settler (calibration.* for k, calibration.jit.* for the JIT head)."
         );
         c[n++] = _text(nHeur, K_MODEL_HASH, cfg.modelHashHeuristic);
         c[n++] = _text(
             nHeur,
             K_AGENT_CONTEXT,
-            "Deterministic heuristic baseline (gap, imbalance, size/depth, realized vol) -> {pToxicBps, confidenceBps}. Fallback when Jev is slow or demoted."
+            "Deterministic heuristic baseline (gap, imbalance, size/depth, realized vol) -> {pToxicBps, confidenceBps}; JIT head (v5) from recent liquidity churn -> pJitBps. Fallback when Jev is slow or demoted."
         );
         c[n++] = _text(nRule, K_MODEL_HASH, vm.toString(keccak256("oniblock/rule-v1")));
         c[n++] = _text(
@@ -396,10 +457,7 @@ contract EnsSetup is Script {
         );
         string memory json = vm.serializeString(o, "namehashes", nhJson);
 
-        string memory path = vm.envOr(
-            "ENS_OUT",
-            string.concat(vm.projectRoot(), "/../deployments/", vm.toString(block.chainid), ".ens.json")
-        );
+        string memory path = _jsonPath();
         vm.writeJson(json, path);
         console2.log("wrote", path);
     }

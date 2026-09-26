@@ -50,7 +50,7 @@ abstract contract DeployBase is Script {
         address attestor;
         address quoter;
         address settler;
-        uint48 jitOffset;
+        uint48 jitOffset; // OZ immutable blockNumberOffset: ABI/deploy compatibility only, v5 uses cfg.jitWindow*
         uint256 initUsdE8;
         int256 liquidity;
         address stateView;
@@ -121,6 +121,11 @@ abstract contract DeployBase is Script {
         c.chainlinkMaxAge = uint32(vm.envOr("CHAINLINK_MAX_AGE", uint256(2 hours)));
         // v4 default 0: no hard-coded gap threshold, the model decides (v3 used baseFee + 300; still settable).
         c.arbThresholdPips = uint24(vm.envOr("ARB_THRESHOLD_PIPS", uint256(0)));
+        // v5 "the AI decides the JIT window" (docs/review/V5_JIT_HEAD_SPEC.md): window = min + (max - min) * pJit * c;
+        // a demoted/unseasoned JIT head or a stale attestation gets jitWindowDefault (= the old 10-block wall).
+        c.jitWindowMin = uint16(vm.envOr("JIT_WINDOW_MIN", uint256(10)));
+        c.jitWindowMax = uint16(vm.envOr("JIT_WINDOW_MAX", uint256(100)));
+        c.jitWindowDefault = uint16(vm.envOr("JIT_WINDOW_DEFAULT", uint256(10)));
     }
 
     function _deployTokens(Deployed memory d) internal {
@@ -211,6 +216,9 @@ abstract contract DeployBase is Script {
         vm.serializeUint(t, "minSamples", c.minSamples);
         vm.serializeUint(t, "chainlinkMaxAge", c.chainlinkMaxAge);
         vm.serializeUint(t, "arbThresholdPips", c.arbThresholdPips);
+        vm.serializeUint(t, "jitWindowMin", c.jitWindowMin);
+        vm.serializeUint(t, "jitWindowMax", c.jitWindowMax);
+        vm.serializeUint(t, "jitWindowDefault", c.jitWindowDefault);
         vm.serializeAddress(t, "chainlinkFeed", c.chainlinkFeed);
         vm.serializeBool(t, "chainlinkInverted", c.chainlinkInverted);
         return vm.serializeUint(t, "brierDemoteBps", c.brierDemoteBps);

@@ -51,10 +51,22 @@
  * fallback: the shared replay path (PRICE_SOURCE=replay) or a Binance 1s kline at block b+1's timestamp.
  * If the CEX mid for a block cannot be fetched (SETTLER_LABEL_MID=cex), that block is not labelled.
  *
+ * v5 JIT head (docs/review/V5_JIT_HEAD_SPEC.md §3.4) — a second label per block, graded from PoolManager
+ * ModifyLiquidity logs (no swaps needed), see `labelJitBlocks`:
+ *   adds(b)  = ModifyLiquidity events with liquidityDelta > 0 in block b; no adds => not graded (skipped_no_liquidity)
+ *   y_jit(b) = 1 iff any position added in b (positionKey = keccak256(sender, tickLower, tickUpper, salt), the v4
+ *              Position key) is removed (liquidityDelta < 0, same key, after the add) within SETTLER_JIT_LABEL_BLOCKS
+ *              (default 100) blocks; graded only once b + SETTLER_JIT_LABEL_BLOCKS <= head (same lag discipline as markouts)
+ *   p        = pJitBps of the attestation in force at b (latest AttestationPosted mined at or before b; its modelNode
+ *              is the graded model; rule-v1 is never graded)
+ * Same rolling window / min-n / Brier-gate maths as the arb head (CALIB_WINDOW, CALIB_MIN_N, CALIB_GATE). Posted with
+ * the existing setCalibration under hook.jitCalibrationKey(modelNode) and mirrored as calibration.jit.* ENS records
+ * on the model name. Log lines: jit_graded, jit_calibration_posted.
+ *
  * CLI: tsx src/settler.ts [--chain local] [--once] [--every M] [--from BLOCK]
  */
-import { namehash, type Hex, type PublicClient } from 'viem';
-import { oniblockHookAbi } from './abi/oniblockHook.js';
+import { namehash, type Address, type Hex, type PublicClient } from 'viem';
+import { oniblockHookAbi, roleOracleAbi } from './abi/oniblockHook.js';
 import { fetchKlines, midAt } from './cex.js';
 import {
   env,
@@ -72,8 +84,9 @@ import {
   type PairMeta,
   type PoolEntry,
 } from './config.js';
-import { getAttestations, getReceipts, TxSender, type AttestationLog, type ReceiptLog } from './chain.js';
-import { EnsV2CalibrationWriter, loadEnsDeployment, NoopCalibrationWriter, type CalibrationRecordWriter } from './ens.js';
+import { getAttestations, getModifyLiquidity, getReceipts, jitCalibrationKey, TxSender, type AttestationLog, type ReceiptLog } from './chain.js';
+import { EnsV2CalibrationWriter, loadEnsDeployment, NoopCalibrationWriter, type CalibrationHead, type CalibrationRecordWriter } from './ens.js';
+import { byPositionKey, JIT_LABEL_BLOCKS_DEFAULT, liquidityObsKey, removedWithin, type LiquidityObs } from './features.js';
 import { midToPriceX96, Q96 } from './price.js';
 import { lazyMidSource } from './pricesource.js';
 
@@ -231,6 +244,15 @@ export function calibrate(labels: LabelledBlock[], window = 0, gate: CalibGate =
 export function attestationIndex(atts: AttestationLog[]) {
   const sorted = [...atts].sort((a, b) => a.minedBlock - b.minedBlock);
   return {
+    /** Latest attestation (any model) mined at or before block b: the one whose JIT window governs adds in b. */
+    inForce(block: number): AttestationLog | undefined {
+      let best: AttestationLog | undefined;
+      for (const a of sorted) {
+        if (a.minedBlock > block) break;
+        best = a;
+      }
+      return best;
+    },
     pAt(block: number, node: Hex): number | undefined {
       let best: AttestationLog | undefined;
       for (const a of sorted) {
@@ -254,6 +276,60 @@ export function attestationIndex(atts: AttestationLog[]) {
       return undefined;
     },
   };
+}
+
+export interface JitLabelStats {
+  /** blocks with adds whose label window closed and that had an attestation in force */
+  graded: number;
+  /** blocks with adds whose window has not closed yet (b + labelBlocks > head) */
+  pending: number;
+  /** attested blocks (window closed) with no liquidity added: not graded */
+  skippedNoLiquidity: number;
+  /** blocks with adds but no attestation in force (or only the rule node): not graded */
+  skippedNoAttestation: number;
+}
+
+/**
+ * v5 JIT labels (see the header): one LabelledBlock per block b with adds, once b + labelBlocks <= head.
+ * y = 1 iff any position added in b was removed (same position key, after the add) within labelBlocks blocks;
+ * p / modelNode from the attestation in force at b. nSwaps carries the number of adds; markout fields are 0.
+ */
+export function labelJitBlocks(
+  liquidity: LiquidityObs[],
+  attestations: AttestationLog[],
+  opts: { labelBlocks?: number; head: number; skipModelNodes?: readonly Hex[]; stats?: JitLabelStats },
+): LabelledBlock[] {
+  const labelBlocks = opts.labelBlocks ?? JIT_LABEL_BLOCKS_DEFAULT;
+  const skip = new Set((opts.skipModelNodes ?? []).map((n) => n.toLowerCase()));
+  const idx = attestationIndex(attestations);
+  const groups = byPositionKey(liquidity);
+  const addsByBlock = new Map<number, LiquidityObs[]>();
+  for (const o of liquidity) if (o.liquidityDelta > 0n) (addsByBlock.get(o.block) ?? addsByBlock.set(o.block, []).get(o.block)!).push(o);
+  const out: LabelledBlock[] = [];
+  for (const b of [...addsByBlock.keys()].sort((x, y) => x - y)) {
+    if (b + labelBlocks > opts.head) {
+      if (opts.stats) opts.stats.pending++;
+      continue;
+    }
+    const att = idx.inForce(b);
+    if (!att || skip.has(att.modelNode.toLowerCase())) {
+      if (opts.stats) opts.stats.skippedNoAttestation++;
+      continue;
+    }
+    const adds = addsByBlock.get(b)!;
+    const y: 0 | 1 = adds.some((a) => removedWithin(a, (groups.get(liquidityObsKey(a)) ?? []).filter((r) => r.liquidityDelta < 0n), labelBlocks)) ? 1 : 0;
+    if (opts.stats) opts.stats.graded++;
+    out.push({ block: b, modelNode: att.modelNode, p: att.pJitBps / 10_000, y, markoutNet: 0, feePaid: 0, nSwaps: adds.length });
+  }
+  if (opts.stats) {
+    const seen = new Set<number>();
+    for (const a of attestations) {
+      if (skip.has(a.modelNode.toLowerCase()) || seen.has(a.minedBlock) || a.minedBlock + labelBlocks > opts.head) continue;
+      seen.add(a.minedBlock);
+      if (!addsByBlock.has(a.minedBlock)) opts.stats.skippedNoLiquidity++;
+    }
+  }
+  return out;
 }
 
 /** Model node of the keeper's deterministic below-threshold rule (never graded). */
@@ -284,6 +360,8 @@ export interface SettlerOpts {
   ens?: CalibrationRecordWriter;
   deployment?: Deployment;
   poolName?: string;
+  /** v5: blocks after an add within which a remove counts as JIT (default SETTLER_JIT_LABEL_BLOCKS / 100). */
+  jitLabelBlocks?: number;
 }
 
 export class Settler {
@@ -310,6 +388,30 @@ export class Settler {
     this.replayMid = env('PRICE_SOURCE') === 'replay' ? lazyMidSource(this.d.startBlock ?? 0, 'settler') : undefined;
     const ensDep = env('ENS_WRITE', '1') === '1' ? loadEnsDeployment(sel.chain.id) : undefined;
     this.ens = o.ens ?? (ensDep ? new EnsV2CalibrationWriter(this.sender, ensDep) : new NoopCalibrationWriter());
+  }
+
+  /**
+   * Startup preflight (CLI): the settler key must be allowed by hook.roleOracle().isSettler, else the CLI logs
+   * `fatal_config` (addresses only, never keys) and exits 1. An unreadable view is logged as `preflight_unverified`
+   * and does not stop the settler (transient RPC trouble is not a configuration error).
+   */
+  async checkConfig(): Promise<void> {
+    const settler = this.sender.address;
+    let roleOracle: Address | undefined;
+    let isSettler: boolean | undefined;
+    try {
+      roleOracle = await this.pc.readContract({ address: this.d.hook, abi: oniblockHookAbi, functionName: 'roleOracle' });
+      isSettler = await this.pc.readContract({ address: roleOracle, abi: roleOracleAbi, functionName: 'isSettler', args: [settler] });
+    } catch (e) {
+      log('settler', 'preflight_unverified', { hook: this.d.hook, roleOracle, settler, error: (e as Error).message.split('\n')[0] });
+      return;
+    }
+    const details = { hook: this.d.hook, roleOracle, settler, isSettler };
+    if (!isSettler) {
+      log('settler', 'fatal_config', { ...details, error: `settler ${settler} is not allowed by roleOracle ${roleOracle} (isSettler = false)` });
+      throw new Error(`settler ${settler} is not allowed by roleOracle ${roleOracle}`);
+    }
+    log('settler', 'preflight_ok', details);
   }
 
   /** Binance fallback for mid at block b+1 (by block timestamp). */
@@ -388,6 +490,12 @@ export class Settler {
   private baseFeeCache: number | undefined;
   /** label stats of the last computeUpTo (dead band) */
   lastStats = { skippedAmbiguous: 0, graded: 0 };
+  /** v5 JIT label stats of the last computeUpTo */
+  lastJitStats: JitLabelStats = { graded: 0, pending: 0, skippedNoLiquidity: 0, skippedNoAttestation: 0 };
+  /** v5: JIT label window (blocks). */
+  get jitLabelBlocks(): number {
+    return this.o.jitLabelBlocks ?? envInt('SETTLER_JIT_LABEL_BLOCKS', JIT_LABEL_BLOCKS_DEFAULT);
+  }
   /** Pool base fee (hook.poolConfig; deployment JSON / 3000 fallback) for the v4 base-fee label. */
   private async baseFee(): Promise<number> {
     if (this.baseFeeCache !== undefined) return this.baseFeeCache;
@@ -401,13 +509,36 @@ export class Settler {
     return this.baseFeeCache;
   }
 
-  async computeUpTo(head: number): Promise<{ labels: LabelledBlock[]; cal: Calibration[] }> {
+  async computeUpTo(head: number): Promise<{ labels: LabelledBlock[]; cal: Calibration[]; jitLabels: LabelledBlock[]; jitCal: Calibration[] }> {
     const from = BigInt(this.o.fromBlock ?? this.d.startBlock ?? 0);
     const to = BigInt(head);
-    const [receipts, atts] = await Promise.all([
+    const [receipts, atts, liquidity] = await Promise.all([
       getReceipts(this.pc, this.d.hook, this.pool.poolId, from, to),
       getAttestations(this.pc, this.d.hook, this.pool.poolId, from, to),
+      getModifyLiquidity(this.pc, this.d.poolManager, this.pool.poolId, from, to).catch((e) => {
+        log('settler', 'liquidity_logs_error', { head, error: (e as Error).message.split('\n')[0] });
+        return [];
+      }),
     ]);
+    // v5 JIT head: independent of swaps / CEX mids.
+    const jitStats: JitLabelStats = { graded: 0, pending: 0, skippedNoLiquidity: 0, skippedNoAttestation: 0 };
+    const jitLabels = labelJitBlocks(liquidity, atts, { labelBlocks: this.jitLabelBlocks, head, skipModelNodes: [ruleModelNode()], stats: jitStats });
+    this.lastJitStats = jitStats;
+    const window = this.o.window ?? envInt('CALIB_WINDOW', 30);
+    // The JIT head sees far fewer samples (one per liquidity add, not one per arb block), so its rolling window can be
+    // set separately: JIT_CALIB_WINDOW (default = CALIB_WINDOW). A cold start (no churn observed yet) is one big miss
+    // that a long window would keep for many cycles.
+    const jitWindow = envInt('JIT_CALIB_WINDOW', window);
+    const jitCal = calibrate(jitLabels, jitWindow);
+    if (liquidity.length)
+      log('settler', 'jit_graded', {
+        head,
+        liquidityEvents: liquidity.length,
+        labelBlocks: this.jitLabelBlocks,
+        ...jitStats,
+        positives: jitLabels.reduce((n, l) => n + l.y, 0),
+        perModel: jitCal.map((c) => ({ modelNode: c.modelNode, n: c.n, brierBps: c.brierBps, hitRateBps: c.hitRateBps, baseRateBps: c.baseRateBps })),
+      });
     const idx = attestationIndex(atts);
     const rule = ruleModelNode();
     const graded = receipts.filter((r) => r.blockNumber < head && r.arbDir && !r.stale && r.modelNode.toLowerCase() !== rule.toLowerCase());
@@ -446,33 +577,55 @@ export class Settler {
     this.lastStats = stats;
     if (graded.length && !labels.length)
       log('settler', 'nothing_labelled', { graded: graded.length, labelMid, skippedAmbiguous: stats.skippedAmbiguous, hint: stats.skippedAmbiguous ? 'every graded block fell inside the dead band' : 'CEX mids unavailable for every graded block?' });
-    return { labels, cal: calibrate(labels, this.o.window ?? envInt('CALIB_WINDOW', 30)) };
+    return { labels, cal: calibrate(labels, window), jitLabels, jitCal };
   }
 
-  async settle(head: number): Promise<Calibration[]> {
+  /** Post one head's record: hook.setCalibration (arb: modelNode; jit: jitCalibrationKey(modelNode)) + ENS text records. */
+  private async post(head: number, c: Calibration, which: CalibrationHead, extra: Record<string, unknown>): Promise<boolean> {
+    const key = which === 'jit' ? jitCalibrationKey(c.modelNode) : c.modelNode;
+    const rc = await this.sender.send({
+      address: this.d.hook,
+      abi: oniblockHookAbi,
+      functionName: 'setCalibration',
+      args: [key, c.brierBps, c.hitRateBps, c.n],
+      label: which === 'jit' ? 'setCalibration(jit)' : 'setCalibration',
+    });
+    const ok = rc?.status === 'success';
+    log('settler', which === 'jit' ? (ok ? 'jit_calibration_posted' : 'jit_calibration_failed') : ok ? 'calibration_set' : 'calibration_failed', {
+      head,
+      ...c,
+      ...(which === 'jit' ? { calibrationKey: key } : {}),
+      ...extra,
+      tx: rc?.hash,
+    });
+    if (ok) await this.ens.write(c.modelNode, { brierBps: c.brierBps, hitRateBps: c.hitRateBps, n: c.n, epoch: head, rawBrierBps: c.rawBrierBps, skillBps: c.skillBps, baseRateBps: c.baseRateBps }, which);
+    return ok;
+  }
+
+  /** Settle both heads up to `head`. Returns the arb records followed by the JIT records (`head: 'jit'`). */
+  async settle(head: number): Promise<(Calibration & { head?: CalibrationHead })[]> {
     if (this.busy) return [];
     this.busy = true;
     try {
-      const { labels, cal } = await this.computeUpTo(head);
+      const { labels, cal, jitLabels, jitCal } = await this.computeUpTo(head);
       const minN = this.o.minN ?? envInt('CALIB_MIN_N', 3);
       for (const c of cal) {
         if (c.n < minN) {
           log('settler', 'skip_low_n', { ...c });
           continue;
         }
-        const rc = await this.sender.send({
-          address: this.d.hook,
-          abi: oniblockHookAbi,
-          functionName: 'setCalibration',
-          args: [c.modelNode, c.brierBps, c.hitRateBps, c.n],
-          label: 'setCalibration',
-        });
-        log('settler', rc?.status === 'success' ? 'calibration_set' : 'calibration_failed', { head, ...c, labelled: labels.length, skippedAmbiguous: this.lastStats.skippedAmbiguous, tx: rc?.hash });
-        if (rc?.status === 'success')
-          await this.ens.write(c.modelNode, { brierBps: c.brierBps, hitRateBps: c.hitRateBps, n: c.n, epoch: head, rawBrierBps: c.rawBrierBps, skillBps: c.skillBps, baseRateBps: c.baseRateBps });
+        await this.post(head, c, 'arb', { labelled: labels.length, skippedAmbiguous: this.lastStats.skippedAmbiguous });
+      }
+      // v5 JIT head: same min-n discipline; skipped entirely while nothing is graded (no adds / windows still open).
+      for (const c of jitCal) {
+        if (c.n < minN) {
+          log('settler', 'jit_skip_low_n', { ...c, minN });
+          continue;
+        }
+        await this.post(head, c, 'jit', { jitLabelled: jitLabels.length, ...this.lastJitStats });
       }
       this.lastSettled = head;
-      return cal;
+      return [...cal, ...jitCal.map((c) => ({ ...c, head: 'jit' as const }))];
     } catch (e) {
       log('settler', 'settle_error', { head, error: (e as Error).message.split('\n')[0] });
       return [];
@@ -493,6 +646,7 @@ export class Settler {
       labelFee: env('SETTLER_LABEL_FEE', 'base'),
       deadband: { usd: Number(env('SETTLER_DEADBAND_USD', '1')), bps: Number(env('SETTLER_DEADBAND_BPS', '1')) },
       skip: ruleModelNode(),
+      jitLabelBlocks: this.jitLabelBlocks,
     });
     return this.pc.watchBlockNumber({
       emitOnBegin: true,
@@ -512,7 +666,13 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     every: a.every ? Number(a.every) : undefined,
     fromBlock: a.from ? Number(a.from) : undefined,
     poolName: a.pool as string | undefined,
+    jitLabelBlocks: a['jit-label-blocks'] ? Number(a['jit-label-blocks']) : undefined,
   });
+  try {
+    await s.checkConfig(); // fatal_config already logged with the addresses
+  } catch {
+    process.exit(1);
+  }
   if (a.once) {
     const cal = await s.settle(Number(await s.pc.getBlockNumber()));
     console.log(JSON.stringify(cal));

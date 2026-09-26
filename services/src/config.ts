@@ -42,8 +42,8 @@ export type ChainName = 'local' | 'fork' | 'sepolia';
 /**
  * Anvil default dev accounts (mnemonic "test test ... junk"). PUBLIC, well-known keys —
  * safe to embed; only valid on local chains.
- * Role assignment (DeployLocal.s.sol must match): 0 deployer, 1 quoter, 2 settler,
- * 3 attestor, 4 arb bot, 5 retail bot.
+ * Role assignment (DeployLocal.s.sol / scripts/demo-fork.sh must match): 0 deployer, 1 quoter, 2 settler,
+ * 3 attestor, 4 arb bot, 5 retail bot, 6 backup quoter, 7 demo swapper (app dev panel), 8 JIT bot (v5), 9 spare.
  */
 export const ANVIL_KEYS: Hex[] = [
   '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80',
@@ -52,8 +52,12 @@ export const ANVIL_KEYS: Hex[] = [
   '0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6',
   '0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a',
   '0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba',
+  '0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e',
+  '0x4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356',
+  '0xdbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97',
+  '0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6',
 ];
-export type Role = 'deployer' | 'quoter' | 'settler' | 'attestor' | 'arb' | 'retail';
+export type Role = 'deployer' | 'quoter' | 'settler' | 'attestor' | 'arb' | 'retail' | 'jit';
 export const ROLE_INDEX: Record<Role, number> = {
   deployer: 0,
   quoter: 1,
@@ -61,6 +65,7 @@ export const ROLE_INDEX: Record<Role, number> = {
   attestor: 3,
   arb: 4,
   retail: 5,
+  jit: 8,
 };
 const ROLE_ENV: Record<Role, string> = {
   deployer: 'DEPLOYER_PK',
@@ -69,6 +74,7 @@ const ROLE_ENV: Record<Role, string> = {
   attestor: 'ATTESTOR_PK',
   arb: 'ARB_PK',
   retail: 'RETAIL_PK',
+  jit: 'JIT_PK',
 };
 
 export function env(name: string, fallback?: string): string | undefined {
@@ -111,12 +117,13 @@ export function selectChain(name: ChainName = (env('CHAIN', 'local') as ChainNam
   }
 }
 
-/** Private key for a role: explicit env var wins; dev chains fall back to anvil keys;
- *  sepolia falls back to DEPLOYER_PK for every role. Never logged. */
+/** Private key for a role: on sepolia the explicit env var wins and every role falls back to DEPLOYER_PK;
+ *  dev chains (local/fork) always use the anvil keys the local deploy authorised, unless
+ *  USE_ENV_KEYS_ON_DEV=1 (the root .env holds the *sepolia* role keys, which no dev deploy knows). Never logged. */
 export function roleKey(role: Role, sel: ChainSelection): Hex {
   const explicit = env(ROLE_ENV[role]);
-  // On dev chains DEPLOYER_PK from .env is the *sepolia* deployer — ignore it unless forced.
-  if (explicit && (role !== 'deployer' || !sel.isDev || env('USE_ENV_DEPLOYER_ON_DEV') === '1')) {
+  const forceEnv = env('USE_ENV_KEYS_ON_DEV') === '1' || (role === 'deployer' && env('USE_ENV_DEPLOYER_ON_DEV') === '1');
+  if (explicit && (!sel.isDev || forceEnv)) {
     return (explicit.startsWith('0x') ? explicit : `0x${explicit}`) as Hex;
   }
   if (sel.isDev) return ANVIL_KEYS[ROLE_INDEX[role]]!;
@@ -178,6 +185,8 @@ export interface Deployment {
   swapRouter?: Address;
   /** Router helper that executes N sub-swaps in one tx (split-swap arb). */
   splitRouter?: Address;
+  /** v4-core PoolModifyLiquidityTest (DeployBase `liquidityRouter`): mints/burns positions (JIT bot). */
+  liquidityRouter?: Address;
   tokens: Record<string, Address>;
   /** Token metadata keyed by address (lower-case). */
   decimals: Record<string, number>;
@@ -288,6 +297,7 @@ export function normaliseDeployment(raw: Record<string, unknown>, chainId: numbe
     roleOracle: pick<Address>(contracts, 'roleOracle', 'RoleOracle', 'MockRoleOracle', 'EnsV2RoleOracle'),
     swapRouter: pick<Address>(contracts, 'swapRouter', 'poolSwapTest', 'PoolSwapTest', 'router'),
     splitRouter: pick<Address>(contracts, 'splitRouter', 'SplitSwapRouter', 'splitSwapRouter'),
+    liquidityRouter: pick<Address>(contracts, 'liquidityRouter', 'PoolModifyLiquidityTest', 'modifyLiquidityRouter', 'liqRouter'),
     tokens,
     decimals,
     pools,

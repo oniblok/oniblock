@@ -11,4 +11,4 @@ export {
   feeLaw,
   type TokenOrder,
 } from '../../../../services/src/price';
-export { ATTESTATION_TYPES, recoverAttestor, attestationDigest } from '../../../../services/src/attest';
+export { ATTESTATION_TYPES, ATTESTATION_TYPE_STRING, recoverAttestor, attestationDigest } from '../../../../services/src/attest';

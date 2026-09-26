@@ -579,6 +579,11 @@
             "internalType": "uint32"
           },
           {
+            "name": "pJitBps",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
             "name": "modelNode",
             "type": "bytes32",
             "internalType": "bytes32"
@@ -1308,6 +1313,83 @@
   },
   {
     "type": "function",
+    "name": "isJitDemoted",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "internalType": "PoolId"
+      },
+      {
+        "name": "modelNode",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "jitCalibrationKey",
+    "inputs": [
+      {
+        "name": "modelNode",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "jitWindowFromScore",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "internalType": "PoolId"
+      },
+      {
+        "name": "pJitBps",
+        "type": "uint32",
+        "internalType": "uint32"
+      },
+      {
+        "name": "confidenceBps",
+        "type": "uint32",
+        "internalType": "uint32"
+      },
+      {
+        "name": "modelNode",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "kFromScore",
     "inputs": [
       {
@@ -1518,6 +1600,21 @@
             "name": "arbThresholdPips",
             "type": "uint24",
             "internalType": "uint24"
+          },
+          {
+            "name": "jitWindowMin",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "jitWindowMax",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "jitWindowDefault",
+            "type": "uint16",
+            "internalType": "uint16"
           }
         ]
       }
@@ -1607,6 +1704,16 @@
             "name": "modelNode",
             "type": "bytes32",
             "internalType": "bytes32"
+          },
+          {
+            "name": "jitWindow",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "pJitBps",
+            "type": "uint32",
+            "internalType": "uint32"
           }
         ]
       },
@@ -1860,6 +1967,21 @@
             "name": "arbThresholdPips",
             "type": "uint24",
             "internalType": "uint24"
+          },
+          {
+            "name": "jitWindowMin",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "jitWindowMax",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "jitWindowDefault",
+            "type": "uint16",
+            "internalType": "uint16"
           }
         ]
       }
@@ -1945,6 +2067,11 @@
           },
           {
             "name": "confidenceBps",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "pJitBps",
             "type": "uint32",
             "internalType": "uint32"
           },
@@ -2142,6 +2269,21 @@
             "name": "arbThresholdPips",
             "type": "uint24",
             "internalType": "uint24"
+          },
+          {
+            "name": "jitWindowMin",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "jitWindowMax",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "jitWindowDefault",
+            "type": "uint16",
+            "internalType": "uint16"
           }
         ]
       }
@@ -2200,6 +2342,18 @@
         "type": "address",
         "indexed": false,
         "internalType": "address"
+      },
+      {
+        "name": "pJitBps",
+        "type": "uint32",
+        "indexed": false,
+        "internalType": "uint32"
+      },
+      {
+        "name": "jitWindow",
+        "type": "uint16",
+        "indexed": false,
+        "internalType": "uint16"
       }
     ],
     "anonymous": false
@@ -2290,6 +2444,55 @@
     "type": "event",
     "name": "EIP712DomainChanged",
     "inputs": [],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "JitPenalty",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "PoolId"
+      },
+      {
+        "name": "sender",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "positionKey",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "addedBlock",
+        "type": "uint48",
+        "indexed": false,
+        "internalType": "uint48"
+      },
+      {
+        "name": "window",
+        "type": "uint16",
+        "indexed": false,
+        "internalType": "uint16"
+      },
+      {
+        "name": "penalty0",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "penalty1",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
     "anonymous": false
   },
   {
@@ -2495,6 +2698,21 @@
             "name": "arbThresholdPips",
             "type": "uint24",
             "internalType": "uint24"
+          },
+          {
+            "name": "jitWindowMin",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "jitWindowMax",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "jitWindowDefault",
+            "type": "uint16",
+            "internalType": "uint16"
           }
         ]
       }
@@ -2609,6 +2827,21 @@
             "name": "arbThresholdPips",
             "type": "uint24",
             "internalType": "uint24"
+          },
+          {
+            "name": "jitWindowMin",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "jitWindowMax",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "jitWindowDefault",
+            "type": "uint16",
+            "internalType": "uint16"
           }
         ]
       }

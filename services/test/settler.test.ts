@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { namehash, type Hex } from 'viem';
-import { attestationIndex, brierStats, calibrate, gateBps, labelBlocks, ruleModelNode, usdPerRawToken1 } from '../src/settler.js';
-import type { AttestationLog, ReceiptLog } from '../src/chain.js';
+import { attestationIndex, brierStats, calibrate, gateBps, labelBlocks, labelJitBlocks, ruleModelNode, usdPerRawToken1, type JitLabelStats } from '../src/settler.js';
+import { jitCalibrationKey, type AttestationLog, type ReceiptLog } from '../src/chain.js';
 import { Q96 } from '../src/price.js';
+import type { LiquidityObs } from '../src/features.js';
 
 const NODE = ('0x' + '11'.repeat(32)) as Hex;
 const NODE2 = ('0x' + '22'.repeat(32)) as Hex;
@@ -72,7 +73,7 @@ describe('settler labelling + calibration', () => {
   });
   it('attestation index: p in force and next mid', () => {
     const at = (mined: number, p: number, mid: bigint, node = NODE): AttestationLog => ({
-      poolId: '0x00', blockNumber: mined, minedBlock: mined, oracleMidX96: mid, pToxicBps: p, confidenceBps: 0, kBps: 0, modelNode: node, quoter: '0x0000000000000000000000000000000000000001', txHash: '0x00',
+      poolId: '0x00', blockNumber: mined, minedBlock: mined, oracleMidX96: mid, pToxicBps: p, confidenceBps: 0, kBps: 0, modelNode: node, quoter: '0x0000000000000000000000000000000000000001', txHash: '0x00', pJitBps: 0, jitWindow: 10,
     });
     const idx = attestationIndex([at(10, 7000, 1n), at(12, 2000, 3n), at(11, 5000, 2n, NODE2)]);
     expect(idx.pAt(9, NODE)).toBeUndefined();
@@ -131,5 +132,83 @@ describe('v3: settler skips the rule-v1 node', () => {
     const cexMid = (Q96 * 99n) / 100n;
     expect(labelBlocks([r(7, -1000n, 995n)], () => cexMid, () => 0.9)[0]!.y).toBe(1);
     expect(labelBlocks([r(7, -1000n, 995n)], () => Q96, () => 0.9)[0]!.y).toBe(0);
+  });
+});
+
+describe('v5: settler JIT label (docs/review/V5_JIT_HEAD_SPEC.md §3.4)', () => {
+  const ROUTER = '0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82' as const;
+  const OTHER = '0x0000000000000000000000000000000000000abc' as const;
+  const S = (n: number): Hex => ('0x' + n.toString(16).padStart(64, '0')) as Hex;
+  const lo = (block: number, liquidityDelta: bigint, salt = S(1), logIndex?: number, ticks: [number, number] = [-120, 60], sender: `0x${string}` = ROUTER): LiquidityObs => ({
+    block, sender, tickLower: ticks[0], tickUpper: ticks[1], liquidityDelta, salt, ...(logIndex !== undefined ? { logIndex } : {}),
+  });
+  const att = (mined: number, pJitBps: number, node = NODE): AttestationLog => ({
+    poolId: '0x00', blockNumber: mined, minedBlock: mined, oracleMidX96: Q96, pToxicBps: 0, confidenceBps: 0, kBps: 0, modelNode: node, quoter: OTHER, txHash: '0x00', pJitBps, jitWindow: 10,
+  });
+  const stats = (): JitLabelStats => ({ graded: 0, pending: 0, skippedNoLiquidity: 0, skippedNoAttestation: 0 });
+
+  it('y = 1 when a position added in b is removed within the window, 0 when removed after; blocks without adds are not graded', () => {
+    const liq = [
+      lo(12, 100n, S(1)), lo(20, -100n, S(1)), // removed at +8  => JIT
+      lo(30, 100n, S(2)), lo(200, -100n, S(2)), // removed at +170 > 100 => stayed
+      lo(40, -50n, S(3)), // a remove without an add in range: not an "adds" block
+    ];
+    const st = stats();
+    const labels = labelJitBlocks(liq, [att(10, 8000)], { labelBlocks: 100, head: 400, stats: st });
+    expect(labels.map((l) => [l.block, l.y, l.p, l.nSwaps])).toEqual([[12, 1, 0.8, 1], [30, 0, 0.8, 1]]);
+    expect(labels[0]!.modelNode).toBe(NODE);
+    expect(st).toEqual({ graded: 2, pending: 0, skippedNoLiquidity: 1, skippedNoAttestation: 0 }); // the attested block 10 had no adds
+    expect(labelJitBlocks([], [att(10, 8000)], { labelBlocks: 100, head: 400 })).toEqual([]);
+  });
+
+  it('grades a block only once b + labelBlocks <= head (pending until then), default window 100', () => {
+    const liq = [lo(12, 100n), lo(20, -100n)];
+    const st = stats();
+    expect(labelJitBlocks(liq, [att(10, 8000)], { labelBlocks: 100, head: 111, stats: st })).toHaveLength(0);
+    expect(st.pending).toBe(1);
+    expect(labelJitBlocks(liq, [att(10, 8000)], { labelBlocks: 100, head: 112 })).toHaveLength(1);
+    expect(labelJitBlocks(liq, [att(10, 8000)], { head: 112 })).toHaveLength(1);
+    // the same add removed exactly at the window edge counts, one block later does not
+    expect(labelJitBlocks([lo(12, 1n), lo(112, -1n)], [att(10, 1)], { labelBlocks: 100, head: 500 })[0]!.y).toBe(1);
+    expect(labelJitBlocks([lo(12, 1n), lo(113, -1n)], [att(10, 1)], { labelBlocks: 100, head: 500 })[0]!.y).toBe(0);
+  });
+
+  it('position identity is the v4 position key (sender, tickLower, tickUpper, salt): other salt / range / owner removes do not count', () => {
+    const liq = [lo(12, 100n, S(1)), lo(15, -100n, S(2)), lo(16, -100n, S(1), undefined, [-60, 60]), lo(17, -100n, S(1), undefined, [-120, 60], OTHER)];
+    expect(labelJitBlocks(liq, [att(10, 5000)], { labelBlocks: 100, head: 500 })[0]!.y).toBe(0);
+    expect(labelJitBlocks([...liq, lo(18, -100n, S(1))], [att(10, 5000)], { labelBlocks: 100, head: 500 })[0]!.y).toBe(1);
+    // any one of several adds in the block being pulled makes the block JIT
+    const two = [lo(12, 1n, S(7)), lo(12, 1n, S(8)), lo(30, -1n, S(8))];
+    expect(labelJitBlocks(two, [att(10, 5000)], { labelBlocks: 100, head: 500 }).map((l) => [l.y, l.nSwaps])).toEqual([[1, 2]]);
+  });
+
+  it('same-block mint -> burn counts (log order); a remove logged before the add does not', () => {
+    expect(labelJitBlocks([lo(12, 100n, S(1), 3), lo(12, -100n, S(1), 9)], [att(10, 5000)], { labelBlocks: 100, head: 500 })[0]!.y).toBe(1);
+    expect(labelJitBlocks([lo(12, -100n, S(1), 1), lo(12, 100n, S(1), 5)], [att(10, 5000)], { labelBlocks: 100, head: 500 })[0]!.y).toBe(0);
+  });
+
+  it('p and model come from the attestation in force at b (latest mined at or before b); rule-v1 is never graded', () => {
+    const rule = ruleModelNode();
+    const atts = [att(10, 1000, NODE), att(20, 9000, NODE2), att(30, 0, rule)];
+    const liq = [lo(5, 1n, S(0)), lo(15, 1n, S(1)), lo(16, -1n, S(1)), lo(25, 1n, S(2)), lo(26, -1n, S(2)), lo(35, 1n, S(3)), lo(36, -1n, S(3))];
+    const st = stats();
+    const labels = labelJitBlocks(liq, atts, { labelBlocks: 100, head: 500, skipModelNodes: [rule], stats: st });
+    expect(labels.map((l) => [l.block, l.modelNode, l.p])).toEqual([[15, NODE, 0.1], [25, NODE2, 0.9]]);
+    expect(st.skippedNoAttestation).toBe(2); // block 5 (before any attestation) and block 35 (rule-v1 in force)
+    expect(attestationIndex(atts).inForce(9)).toBeUndefined();
+    expect(attestationIndex(atts).inForce(20)!.pJitBps).toBe(9000);
+  });
+
+  it('feeds calibrate() like the arb head, and jitCalibrationKey matches the contract derivation (cast vector)', () => {
+    const liq = [lo(12, 1n, S(1)), lo(20, -1n, S(1)), lo(30, 1n, S(2)), lo(31, -1n, S(2)), lo(40, 1n, S(3))];
+    const cal = calibrate(labelJitBlocks(liq, [att(10, 8000)], { labelBlocks: 100, head: 500 }), 0, 'raw');
+    expect(cal).toHaveLength(1);
+    expect(cal[0]!.n).toBe(3);
+    expect(cal[0]!.brierBps).toBe(Math.round(((0.04 + 0.04 + 0.64) / 3) * 10000));
+    expect(cal[0]!.hitRateBps).toBe(6667);
+    expect(cal[0]!.baseRateBps).toBe(6667);
+    // keccak256(abi.encodePacked(node, keccak256("jit"))) for the jev-v1 node, computed with `cast`
+    expect(jitCalibrationKey('0x32a8db0cb3a8a2e435ad7fdcd6b92d2e61ba5c4f8276bdcb6937dde855e0cdcf')).toBe('0x2ccc4a08aeae3ff0269b307ffa9a8ac1577f1d9e79d625c8d35b87dce29111e6');
+    expect(jitCalibrationKey(NODE)).not.toBe(jitCalibrationKey(NODE2));
   });
 });
