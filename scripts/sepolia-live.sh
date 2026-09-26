@@ -12,8 +12,10 @@ PIDS=()
 start() { local name=$1; shift; ( cd "$ROOT/$1" && shift && exec "$@" ) >"$L/$name.log" 2>&1 & PIDS+=($!); echo "[sepolia] $name started (log $L/$name.log)"; }
 trap 'echo; echo "[sepolia] stopping"; kill "${PIDS[@]}" 2>/dev/null; wait; exit 0' INT TERM
 
-start keeper  services env KEEPER_EVERY="${KEEPER_EVERY:-1}" ATTEST_BLOCK_OFFSET=0 MODEL_MODE="${MODEL_MODE:-auto}" pnpm keeper
-start settler services pnpm settler
+# Keeper posts for the NEXT block with a 3 gwei tip: it lands in block N+1 (valid until N+2), so posts no longer arrive
+# late and get rejected (which left the oracle stale and the pool on the conservative fee).
+start keeper  services env KEEPER_EVERY="${KEEPER_EVERY:-1}" ATTEST_BLOCK_OFFSET="${ATTEST_BLOCK_OFFSET:-1}" TX_PRIORITY_GWEI="${TX_PRIORITY_GWEI:-3}" MODEL_MODE="${MODEL_MODE:-auto}" pnpm keeper
+start settler services env TX_PRIORITY_GWEI="${TX_PRIORITY_GWEI:-3}" pnpm settler
 start retail  services pnpm retail --all --lambda "${RETAIL_LAMBDA:-0.15}"
 [ "${SEPOLIA_JIT:-0}" = 1 ] && start jit services pnpm jit --hold "${JIT_HOLD:-12}" --every "${JIT_EVERY:-30}"
 [ -f "$ROOT/app/.next/BUILD_ID" ] || (cd "$ROOT/app" && pnpm build >"$L/app-build.log" 2>&1)

@@ -24,7 +24,7 @@ import {
 } from 'viem';
 import { oniblockHookAbi, poolManagerAbi } from './abi/oniblockHook.js';
 import type { PoolKeyJson } from './config.js';
-import { log, sleep } from './config.js';
+import { env, log, sleep } from './config.js';
 import type { JitPenaltyObs, LiquidityObs, SwapObs } from './features.js';
 import { Q96 } from './price.js';
 
@@ -315,7 +315,12 @@ export class TxSender {
           // Estimates are tight (warm/cold slots differ between the estimate and the mined block): 1.5x headroom,
           // else attestations can die with ReentrancySentryOOG. Unused gas is not charged.
           const est = await this.pc.estimateContractGas({ ...(request as any), account: this.wc.account });
-          const hash = await this.wc.writeContract({ ...(request as any), nonce: this.nonce, gas: (est * 3n) / 2n });
+          // TX_PRIORITY_GWEI (e.g. 3 on Sepolia): a tip high enough to land in the very next block. The keeper's
+          // attestation is only valid for its target block and the one after, so a low default tip means late
+          // landings, AttestationBlockMismatch reverts and a stale oracle.
+          const tipGwei = Number(env('TX_PRIORITY_GWEI', '0'));
+          const tip = tipGwei > 0 ? { maxPriorityFeePerGas: BigInt(Math.round(tipGwei * 1e9)) } : {};
+          const hash = await this.wc.writeContract({ ...(request as any), nonce: this.nonce, gas: (est * 3n) / 2n, ...tip });
           this.nonce!++;
           return hash;
         } catch (e) {
