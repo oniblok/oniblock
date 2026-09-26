@@ -1105,8 +1105,8 @@ export async function runOneV4(cfg: RunConfigV4): Promise<RunResultV4> {
       blockStats.blocks = nBlk;
       const hist: MidObs[] = []; // the keeper's MidHistory: one CEX read per keeper tick (services/src/keeper.ts)
       // A read at time x sees the close of the 1 s kline that opened at x - 1: mid age `age` at the block = the kline
-      // that opened at s - age - 1 (ml build_v2 convention: tabular-v2 reads mid(ts - 12) = age 11 s, oniblock1
-      // mid(ts - 3) = age 2 s; mids[s] = the kline that opened at s, the arbs' and the settler's mid).
+      // that opened at s - age - 1 (ml build_v2 convention: oniblock1 reads mid(ts - 3) = age 2 s;
+      // mids[s] = the kline that opened at s, the arbs' and the settler's mid).
       const readAt = (x: number) => midAtSec(x - 1);
       const pushMid = (s: number) => {
         hist.push({ t: msOf(s), mid: readAt(s) });
