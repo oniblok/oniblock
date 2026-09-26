@@ -353,7 +353,7 @@ export function computeKlineMidFeatures(
  * SPEC_v2 "Orientation": every training row comes from a USDC = token0 / WETH = token1 pool (baseIsToken0 = false).
  * gapSign and imbalance are token-order dependent (pool price = token1/token0, imbalance = token0 buy pressure), so for
  * an ETH = token0 pool they are mirrored into the training orientation before any MODEL input is built (Kev state,
- * tabular). Orientation-free fields (gapPips, edge*, sizeToDepth, vols, ret*Bps, nSwaps, arbShare) are unchanged.
+ * the benchmark's tabular teacher). Orientation-free fields (gapPips, edge*, sizeToDepth, vols, ret*Bps, nSwaps, arbShare) are unchanged.
  * baseIsToken0 undefined / false = already canonical (returned as is). Jev keeps the orientation-aware input.
  */
 export function canonicalFeatures(f: Features, baseIsToken0?: boolean): Features {

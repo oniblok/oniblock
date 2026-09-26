@@ -61,8 +61,8 @@ import {OniblockLiveResolver} from "../src/ens/OniblockLiveResolver.sol";
 ///      rewritten only when they differ, grants only when missing.
 ///   6. set-endpoints : ENSIP-26 `agent-endpoint[web]` on jev-v1 (ENS_ENDPOINT_JEV, default the Vercel AI Gateway
 ///      evaluate URL), heuristic-v1 (ENS_ENDPOINT_HEURISTIC, default "in-process") and
-///      oniblock1 (ENS_ENDPOINT_ONIBLOCK1: its System One URL, services/src/systemone.ts
-///      `POST /v1/systemone`; default empty = skip) for setups from before the key existed. Idempotent.
+///      oniblock1 (ENS_ENDPOINT_ONIBLOCK1: its System One URL, Kev's own server `python -m kev.serve`
+///      (ml/serve/start-kev.sh) `POST /v1/systemone`; default empty = skip) for setups from before the key existed. Idempotent.
 ///   The ens json is written (finish / add-live / add-model) only under `forge script --broadcast` (or --resume);
 ///   a dry run leaves it untouched.
 ///
@@ -84,7 +84,7 @@ import {OniblockLiveResolver} from "../src/ens/OniblockLiveResolver.sol";
 ///   ENS_MODEL_LABEL (required by add-model) / ENS_MODEL_OWNER / ENS_MODEL_HASH / ENS_MODEL_CONTEXT /
 ///   ENS_MODEL_ENDPOINT / ENS_MODEL_DESCRIPTION
 ///   ENS_FEE_MIN / ENS_FEE_MAX / ENS_POLICY_URI / ENS_MODEL_HASH_JEV / ENS_MODEL_HASH_HEURISTIC /
-///   ENS_MODEL_HASH_ONIBLOCK1 (default: sha256 of ml/models/oniblock1.json = the sha256 System One's /health reports)
+///   ENS_MODEL_HASH_ONIBLOCK1 (default: the Kev adapter hash = sha256 of ml/models/kev08b-v1/SHA256, its sorted per-file digests)
 ///   ENS_ETH_REGISTRAR, ENS_VERIFIABLE_FACTORY, ENS_USER_REGISTRY_IMPL, ENS_PERMISSIONED_RESOLVER_IMPL,
 ///   ENS_MOCK_USDC, ENS_UNIVERSAL_RESOLVER   (required; from .env)
 contract EnsSetup is Script {
@@ -149,7 +149,7 @@ contract EnsSetup is Script {
         string policyUri;
         string modelHashJev;
         string modelHashHeuristic;
-        string modelHashOniblock1; // sha256 of ml/models/oniblock1.json
+        string modelHashOniblock1; // sha256 of ml/models/kev08b-v1/SHA256 (the Kev adapter's per-file digests)
         string poolLabel; // "weth-usdc": the pool served by <poolLabel>.live.<label>.eth
         string endpointJev; // ENSIP-26 agent-endpoint[web] of jev-v1
         string endpointHeuristic; // ... of heuristic-v1
@@ -230,9 +230,10 @@ contract EnsSetup is Script {
         cfg.modelHashJev = vm.envOr("ENS_MODEL_HASH_JEV", vm.toString(keccak256("typesafe-ai/jev")));
         cfg.modelHashHeuristic =
             vm.envOr("ENS_MODEL_HASH_HEURISTIC", vm.toString(keccak256("oniblock/heuristic-v1")));
-        // oniblock1's open weights: sha256 of ml/models/oniblock1.json (what services/src/systemone.ts /health reports).
+        // oniblock1's open weights (the Kev-0.8B LoRA adapter ml/models/kev08b-v1/adapter): sha256 of
+        // ml/models/kev08b-v1/SHA256, the sorted per-file digest list (ml/train_kev4b/README.md Step 6).
         cfg.modelHashOniblock1 = vm.envOr(
-            "ENS_MODEL_HASH_ONIBLOCK1", string("0x5a766bf0a501fddd296576baa3315e632fdec841faafd81259e5b3a7cedd32a9")
+            "ENS_MODEL_HASH_ONIBLOCK1", string("0x24f0793d55e0fde516ebe4da1d187e0468a5f7c830ba9a9f4d48e43f007c88be")
         );
         cfg.poolLabel = vm.envOr("ENS_POOL_LABEL", string("weth-usdc"));
         cfg.endpointJev = vm.envOr("ENS_ENDPOINT_JEV", DEFAULT_ENDPOINT_JEV);
@@ -299,7 +300,7 @@ contract EnsSetup is Script {
         models.setParent(r.registry, "models");
         models.register("jev-v1", cfg.owner, address(0), r.resolver, std, forever);
         models.register("heuristic-v1", cfg.owner, address(0), r.resolver, std, forever);
-        models.register("oniblock1", cfg.owner, address(0), r.resolver, std, forever); // production LightGBM model
+        models.register("oniblock1", cfg.owner, address(0), r.resolver, std, forever); // production model: the Kev-0.8B System One fine-tune
         models.register("rule-v1", cfg.owner, address(0), r.resolver, std, forever); // v3 below-threshold rule
 
         IEnsPermissionedRegistry pools = IEnsPermissionedRegistry(r.poolsRegistry);
@@ -634,7 +635,7 @@ contract EnsSetup is Script {
         if (_differs(res, nHeur, K_AGENT_ENDPOINT, cfg.endpointHeuristic)) {
             c[n++] = _text(nHeur, K_AGENT_ENDPOINT, cfg.endpointHeuristic);
         }
-        // oniblock1: its System One URL (services/src/systemone.ts); ENS_ENDPOINT_ONIBLOCK1 empty (default) = skip
+        // oniblock1: its System One URL (Kev's own server, ml/serve/start-kev.sh); ENS_ENDPOINT_ONIBLOCK1 empty (default) = skip
         if (_differs(res, nOni, K_AGENT_ENDPOINT, cfg.endpointOniblock1)) {
             c[n++] = _text(nOni, K_AGENT_ENDPOINT, cfg.endpointOniblock1);
         }
@@ -854,12 +855,12 @@ contract EnsSetup is Script {
         c[n++] = _text(
             nOni,
             K_DESCRIPTION,
-            "oniblock1: gradient-boosted trees (LightGBM, 216 trees, 17 features) on the per-block features, trained on Binance reads ~2 s before the block; open weights ml/models/oniblock1.json; model-hash = sha256 of that file"
+            "oniblock1: Kev-0.8B (jaredpalmer/kev-0.8b) LoRA fine-tune, a TypeSafe System One decision model; weights ml/models/kev08b-v1/adapter; model-hash = sha256 over its sorted per-file digests"
         );
         c[n++] = _text(
             nOni,
             K_AGENT_CONTEXT,
-            "oniblock1 production model (LightGBM trees over the pool and Binance features, evaluated in-process by the keeper or over TypeSafe's System One API), asked every block: is there profitable arbitrage at the base fee? -> {pToxicBps, confidenceBps}; same public fee law k = kMax * p * c. Charge gate (keeper CHARGE_THRESHOLD; the model's chargeThreshold is 0.8224): c = 10000 when p >= threshold, else 0 (base fee). No JIT head (pJitBps 0 -> jitWindowMin, 10 blocks with the defaults). Active from its first attestation once allowlisted; Brier-demoted to kDefault (0 = base fee) if its calibration (written by the settler) exceeds brierDemoteBps."
+            "oniblock1 production model (Kev-0.8B LoRA fine-tune, served by Kev's own TypeSafe System One server, POST /v1/systemone), asked every block: is this block's arbitrage flow informed? -> {pToxicBps, confidenceBps}; same public fee law k = kMax * p * c. Charge gate 0.8175 (keeper CHARGE_THRESHOLD; validation-chosen, ml/models/kev08b-v1/charge_threshold.json): c = 10000 when p >= threshold, else 0 (base fee). No JIT head (pJitBps 0 -> jitWindowMin, 10 blocks with the defaults). Active from its first attestation once allowlisted; Brier-demoted to kDefault (0 = base fee) if its calibration (written by the settler) exceeds brierDemoteBps."
         );
         c[n++] = _text(nRule, K_MODEL_HASH, vm.toString(keccak256("oniblock/rule-v1")));
         c[n++] = _text(

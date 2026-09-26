@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One-time owner steps that enable oniblock1 on the EXISTING live Sepolia deployment (a hook / ENS setup made before
 # oniblock1 existed; a fresh scripts/deploy-sepolia.sh does all of this itself):
-#   1. ENS add-model oniblock1   registers oniblock1.models.$ENS_NAME with model-hash = 0x + sha256(ml/models/oniblock1.json)
+#   1. ENS add-model oniblock1   registers oniblock1.models.$ENS_NAME with model-hash = 0x + sha256(ml/models/kev08b-v1/SHA256)
 #                                and the description / agent-context EnsSetup writes (scripts/sepolia-ens.sh)
 #   2. ENS add-live              the live wildcard resolver knows the oniblock1 label (oniblock1.live.$ENS_NAME)
 #   3. ENS grant-cal             the settler may write every calibration.* key, incl. calibration.chargeThreshold
@@ -46,7 +46,7 @@ model_spec oniblock1
 say "mode: $([ "$BROADCAST" = 1 ] && echo BROADCAST || echo 'dry run (read-only; --broadcast to send)')"
 say "hook $HOOK  poolId $POOL_ID"
 say "model $MODEL_NAME  node $NODE"
-say "model-hash $MODEL_HASH (sha256 of ml/models/oniblock1.json)"
+say "model-hash $MODEL_HASH (sha256 of ml/models/kev08b-v1/SHA256: the Kev adapter per-file digests)"
 
 # --- read-only checks ------------------------------------------------------------------------------------------------
 HOOK_OWNER=$(cast call --rpc-url "$RPC" "$HOOK" 'owner()(address)')

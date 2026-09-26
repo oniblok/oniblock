@@ -1,20 +1,19 @@
 /**
- * oniblock1, the production model: gradient-boosted trees (LightGBM, trained in ml/src/train_tabular_v2.py on real mainnet
- * blocks with a Binance read ~2 s before the block, early-stopped on the validation split; see docs/RESULTS_ONIBLOCK1.md)
- * evaluated in pure TypeScript from the exported JSON (ml/models/oniblock1.json). No native deps, ~0.1 ms per prediction,
- * deterministic.
+ * benchmark/teacher only, not a production model. The keeper never loads it: production oniblock1 is the Kev System One
+ * LLM (model/kev.ts). This is the pure-TypeScript evaluator of teacher-lightgbm (ml/models/teacher-lightgbm.json):
+ * gradient-boosted trees (LightGBM, trained in ml/src/train_tabular_v2.py on real mainnet blocks with a Binance read
+ * ~2 s before the block) whose p are Kev v2's soft targets. Kept as a library for the benchmark (benchmark/src/v4/sim4.ts)
+ * and its TS/Python parity test. No native deps, ~0.1 ms per prediction, deterministic.
  *
  * The JSON carries its own ordered feature list; every name must be one of TABULAR_FEATURES below (unknown names are a
  * load error). Pool inputs, all orientation-free functions of the keeper's Features:
  *   gapPips, edgePips = gap - baseFee, baseFee, imb_arb (imbalance signed so + = recent flow in the arb direction),
  *   abs_imbalance, sizeToDepth, realizedVolBps, nSwaps, arbShare, gap_over_fee = gap / baseFee, log_size = log10(sizeToDepth + 1e-9)
  * Mid inputs (SPEC_v2 "Tabular v2"): edgeSigma, vol5mBps, ret12Bps, ret36Bps, ret900Bps and sgap = gapSign * gapPips
- * (orientation-dependent: the caller passes canonical features, features.ts canonicalFeatures; index.ts score() does).
- * The fee is always the BASE fee (what the training pools charged, and k-free: the hook's arb fee depends on the k that
- * this model's own answer sets, which would feed back into its input).
+ * (orientation-dependent: the caller passes canonical features, features.ts canonicalFeatures).
+ * The fee is always the BASE fee (what the training pools charged, and k-free).
  * Confidence is 10000 (one calibrated probability, like Kev): k = kMax * p * c stays monotonic in p.
- * Env: MODEL_MODE=tabular or MODEL_MODE=oniblock1 (both load oniblock1), TABULAR_MODEL (oniblock1, the only and default
- * model; anything else is ignored), TABULAR_MODEL_PATH (explicit file; default ml/models/oniblock1.json).
+ * Env: TABULAR_MODEL_PATH (explicit file; default ml/models/teacher-lightgbm.json).
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -28,11 +27,7 @@ export interface TabularModel {
   name: string;
   features: string[];
   trees: Node[];
-  /**
-   * Validation-chosen charge threshold (v2 export; JSON key `chargeThreshold` or `charge_threshold`). Used by the keeper
-   * as the last `CHARGE_THRESHOLD=auto` fallback for the primary tabular model (after the settler's rolling threshold and
-   * CHARGE_THRESHOLD_FALLBACK; keeper.ts resolveChargeThreshold), and reported by System One's /health.
-   */
+  /** Validation-chosen charge threshold (v2 export; JSON key `chargeThreshold` or `charge_threshold`; the benchmark's gate). */
   chargeThreshold?: number;
 }
 
@@ -62,65 +57,10 @@ export const TABULAR_FEATURES: Record<string, (f: Features) => number> = {
   sgap: (f) => f.gapSign * f.gapPips,
 };
 
-/**
- * The Features fields each TABULAR_FEATURES input is computed from (keep in sync with the functions above). `required`
- * must be finite numbers; `optional` may be absent (the documented default applies: no mid history) but, when present,
- * must be finite too. Used to validate untrusted states (System One): a NaN / missing field would otherwise flow
- * silently into the trees (NaN <= t is false: always the right branch).
- */
-export const TABULAR_FEATURE_INPUTS: Record<string, { required: readonly (keyof Features)[]; optional?: readonly (keyof Features)[] }> = {
-  gapPips: { required: ['gapPips'] },
-  edgePips: { required: ['gapPips', 'baseFee'] },
-  baseFee: { required: ['baseFee'] },
-  imb_arb: { required: ['gapSign', 'imbalance'] },
-  abs_imbalance: { required: ['imbalance'] },
-  sizeToDepth: { required: ['sizeToDepth'] },
-  realizedVolBps: { required: ['realizedVolBps'] },
-  nSwaps: { required: ['nSwaps'] },
-  arbShare: { required: ['arbShare'] },
-  gap_over_fee: { required: ['gapPips', 'baseFee'] },
-  log_size: { required: ['sizeToDepth'] },
-  edgeSigma: { required: ['gapPips', 'baseFee', 'realizedVolBps'], optional: ['edgeSigma', 'edgePips'] },
-  vol5mBps: { required: [], optional: ['vol5mBps'] },
-  ret12Bps: { required: [], optional: ['ret12Bps'] },
-  ret36Bps: { required: [], optional: ['ret36Bps'] },
-  ret900Bps: { required: [], optional: ['ret900Bps'] },
-  sgap: { required: ['gapSign', 'gapPips'] },
-};
-
-/**
- * Features fields of `state` that model inputs `names` need but that are missing / not finite numbers (sorted, unique).
- * `gapSign` and `imbalance` are always checked (canonicalFeatures flips them).
- */
-export function invalidTabularFields(state: Record<string, unknown>, names: readonly string[]): string[] {
-  const finite = (v: unknown) => typeof v === 'number' && Number.isFinite(v);
-  const bad = new Set<string>();
-  const req = new Set<string>(['gapSign', 'imbalance']);
-  const opt = new Set<string>();
-  for (const n of names) {
-    const d = TABULAR_FEATURE_INPUTS[n];
-    if (!d) continue; // unknown names are a load error already
-    for (const k of d.required) req.add(k);
-    for (const k of d.optional ?? []) opt.add(k);
-  }
-  for (const k of req) if (!finite(state[k])) bad.add(k);
-  for (const k of opt) if (k in state && state[k] !== undefined && !finite(state[k])) bad.add(k);
-  return [...bad].sort();
-}
-
-/** oniblock1 = the production model (trained on a Binance read ~2 s before the block: for a keeper whose post lands first
- *  in the block). It is the only tabular model; the type stays so callers and System One name it explicitly. */
-export type TabularVersion = 'oniblock1';
-export const TABULAR_VERSIONS: readonly TabularVersion[] = ['oniblock1'];
-/** Model name = file stem = ENS label (<name>.models.oniblock.eth). */
-export const tabularModelName = (v: TabularVersion): string => v;
-export const parseTabularVersion = (v: string | undefined): TabularVersion | undefined =>
-  TABULAR_VERSIONS.find((x) => x === v || tabularModelName(x) === v);
-/** Always oniblock1 (MODEL_MODE=tabular and MODEL_MODE=oniblock1 alike); kept as a function so call sites stay mode-keyed. */
-export const tabularVersion = (_mode?: string): TabularVersion => 'oniblock1';
-
-export function defaultTabularPath(v: TabularVersion = tabularVersion()): string {
-  return resolve(ROOT, 'ml', 'models', `${tabularModelName(v)}.json`);
+/** The teacher model file (ml/models/teacher-lightgbm.json). */
+export const TEACHER_MODEL_NAME = 'teacher-lightgbm';
+export function defaultTabularPath(): string {
+  return resolve(ROOT, 'ml', 'models', `${TEACHER_MODEL_NAME}.json`);
 }
 
 let cached: { path: string; model: TabularModel } | undefined;
@@ -158,12 +98,12 @@ export function predictTabular(m: TabularModel, f: Features): number {
 
 /**
  * Never throws; null if the model file is missing/invalid (caller falls back to the heuristic). `f` must be canonical.
- * `version` picks the model file when no `model` is given (default: TABULAR_MODEL_PATH, else tabularVersion()).
+ * Without `model`: TABULAR_MODEL_PATH, else the teacher file.
  */
-export function scoreTabular(f: Features, model?: TabularModel | null, version?: TabularVersion): ModelScore | null {
+export function scoreTabular(f: Features, model?: TabularModel | null): ModelScore | null {
   const t0 = performance.now();
   try {
-    const m = model ?? loadTabularModel(env('TABULAR_MODEL_PATH') ?? defaultTabularPath(version));
+    const m = model ?? loadTabularModel(env('TABULAR_MODEL_PATH') ?? defaultTabularPath());
     if (!m) return null;
     const p = predictTabular(m, f);
     if (!Number.isFinite(p)) return null;

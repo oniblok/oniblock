@@ -32,9 +32,11 @@ ur_text() { # name key -> "<value>\t<resolver>" through the UniversalResolverV2,
 lower() { tr 'A-F' 'a-f' <<<"$1"; }
 
 # Default model names an older setup predates (EnsSetup._writeRecords writes the same records in `finish`; keep in sync).
-ONI_HASH="0x$(shasum -a 256 "$ROOT/ml/models/oniblock1.json" | cut -d' ' -f1)"
-ONI_DESC="oniblock1: gradient-boosted trees (LightGBM, 216 trees, 17 features) on the per-block features, trained on Binance reads ~2 s before the block; open weights ml/models/oniblock1.json; model-hash = sha256 of that file"
-ONI_CTX="oniblock1 production model (LightGBM trees over the pool and Binance features, evaluated in-process by the keeper or over TypeSafe's System One API), asked every block: is there profitable arbitrage at the base fee? -> {pToxicBps, confidenceBps}; same public fee law k = kMax * p * c. Charge gate (keeper CHARGE_THRESHOLD; the model's chargeThreshold is 0.8224): c = 10000 when p >= threshold, else 0 (base fee). No JIT head (pJitBps 0 -> jitWindowMin, 10 blocks with the defaults). Active from its first attestation once allowlisted; Brier-demoted to kDefault (0 = base fee) if its calibration (written by the settler) exceeds brierDemoteBps."
+# oniblock1 = the Kev-0.8B LoRA adapter ml/models/kev08b-v1/adapter; model-hash = sha256 of its sorted per-file digest
+# list ml/models/kev08b-v1/SHA256 (ml/train_kev4b/README.md Step 6) = 0x24f0793d...c88be (EnsSetup default).
+ONI_HASH="0x$(shasum -a 256 "$ROOT/ml/models/kev08b-v1/SHA256" | cut -d' ' -f1)"
+ONI_DESC="oniblock1: Kev-0.8B (jaredpalmer/kev-0.8b) LoRA fine-tune, a TypeSafe System One decision model; weights ml/models/kev08b-v1/adapter; model-hash = sha256 over its sorted per-file digests"
+ONI_CTX="oniblock1 production model (Kev-0.8B LoRA fine-tune, served by Kev's own TypeSafe System One server, POST /v1/systemone), asked every block: is this block's arbitrage flow informed? -> {pToxicBps, confidenceBps}; same public fee law k = kMax * p * c. Charge gate 0.8175 (keeper CHARGE_THRESHOLD; validation-chosen, ml/models/kev08b-v1/charge_threshold.json): c = 10000 when p >= threshold, else 0 (base fee). No JIT head (pJitBps 0 -> jitWindowMin, 10 blocks with the defaults). Active from its first attestation once allowlisted; Brier-demoted to kDefault (0 = base fee) if its calibration (written by the settler) exceeds brierDemoteBps."
 
 # add-model arguments of a default model label: model_spec LABEL -> sets MODEL_HASH / MODEL_DESC / MODEL_CTX
 model_spec() {

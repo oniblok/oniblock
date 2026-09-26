@@ -1,12 +1,12 @@
 {
- "generatedAt": "2026-09-26T22:39:01.096Z",
+ "generatedAt": "2026-09-26T23:21:09.435Z",
  "tiers": {
   "500": [
    {
     "arm": "R",
     "run": "realistic",
     "pool": "ai",
-    "label": "R: post lands last in the previous block (no builder deal), mid 13 s old; oniblock1 + charge gate",
+    "label": "R: post lands last in the previous block (no builder deal), mid 13 s old; teacher (LightGBM) + charge gate",
     "all": {
      "n": 6,
      "grossBps": {
@@ -986,7 +986,7 @@
      },
      "threshold": 0.8224
     },
-    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
     "rows": [
      {
       "windowId": "ETH-vol1",
@@ -1036,8 +1036,8 @@
       "reverts": 0,
       "runtimeSec": 5,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -1101,8 +1101,8 @@
       "reverts": 0,
       "runtimeSec": 5,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -1166,8 +1166,8 @@
       "reverts": 0,
       "runtimeSec": 6,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -1231,8 +1231,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -1296,8 +1296,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -1361,8 +1361,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -2364,7 +2364,7 @@
      },
      "threshold": 0.8224
     },
-    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
     "rows": [
      {
       "windowId": "ETH-vol1",
@@ -2412,8 +2412,8 @@
       "reverts": 0,
       "runtimeSec": 5,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -2476,8 +2476,8 @@
       "reverts": 0,
       "runtimeSec": 5,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -2540,8 +2540,8 @@
       "reverts": 0,
       "runtimeSec": 6,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -2604,8 +2604,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -2668,8 +2668,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -2732,8 +2732,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -2755,7 +2755,7 @@
     "arm": "C",
     "run": "coop",
     "pool": "ai",
-    "label": "C: keeper posts first in the block (cooperating builder), mid 2 s old; oniblock1 + charge gate",
+    "label": "C: keeper posts first in the block (cooperating builder), mid 2 s old; teacher (LightGBM) + charge gate",
     "all": {
      "n": 6,
      "grossBps": {
@@ -3735,7 +3735,7 @@
      },
      "threshold": 0.8224
     },
-    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
     "rows": [
      {
       "windowId": "ETH-vol1",
@@ -3785,8 +3785,8 @@
       "reverts": 0,
       "runtimeSec": 5,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -3850,8 +3850,8 @@
       "reverts": 0,
       "runtimeSec": 4,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -3915,8 +3915,8 @@
       "reverts": 0,
       "runtimeSec": 4,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -3980,8 +3980,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -4045,8 +4045,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -4110,8 +4110,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -5113,7 +5113,7 @@
      },
      "threshold": 0.8224
     },
-    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
     "rows": [
      {
       "windowId": "ETH-vol1",
@@ -5161,8 +5161,8 @@
       "reverts": 0,
       "runtimeSec": 5,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -5225,8 +5225,8 @@
       "reverts": 0,
       "runtimeSec": 4,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -5289,8 +5289,8 @@
       "reverts": 0,
       "runtimeSec": 4,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -5353,8 +5353,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -5417,8 +5417,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -5481,8 +5481,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -6426,7 +6426,7 @@
       "calm": []
      }
     },
-    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
     "rows": [
      {
       "windowId": "ETH-vol1",
@@ -7640,7 +7640,7 @@
       "calm": []
      }
     },
-    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
     "rows": [
      {
       "windowId": "ETH-vol1",
@@ -7934,7 +7934,7 @@
     "arm": "R",
     "run": "realistic",
     "pool": "ai",
-    "label": "R: post lands last in the previous block (no builder deal), mid 13 s old; oniblock1 + charge gate",
+    "label": "R: post lands last in the previous block (no builder deal), mid 13 s old; teacher (LightGBM) + charge gate",
     "all": {
      "n": 6,
      "grossBps": {
@@ -8898,7 +8898,7 @@
      },
      "threshold": 0.8224
     },
-    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
     "rows": [
      {
       "windowId": "ETH-vol1",
@@ -8948,8 +8948,8 @@
       "reverts": 0,
       "runtimeSec": 5,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -9013,8 +9013,8 @@
       "reverts": 0,
       "runtimeSec": 4,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -9078,8 +9078,8 @@
       "reverts": 0,
       "runtimeSec": 6,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -9140,8 +9140,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -9202,8 +9202,8 @@
       "reverts": 0,
       "runtimeSec": 4,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -9264,8 +9264,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -10251,7 +10251,7 @@
      },
      "threshold": 0.8224
     },
-    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
     "rows": [
      {
       "windowId": "ETH-vol1",
@@ -10301,8 +10301,8 @@
       "reverts": 0,
       "runtimeSec": 5,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -10365,8 +10365,8 @@
       "reverts": 0,
       "runtimeSec": 4,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -10429,8 +10429,8 @@
       "reverts": 0,
       "runtimeSec": 6,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -10492,8 +10492,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -10555,8 +10555,8 @@
       "reverts": 0,
       "runtimeSec": 4,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -10618,8 +10618,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -10641,7 +10641,7 @@
     "arm": "C",
     "run": "coop",
     "pool": "ai",
-    "label": "C: keeper posts first in the block (cooperating builder), mid 2 s old; oniblock1 + charge gate",
+    "label": "C: keeper posts first in the block (cooperating builder), mid 2 s old; teacher (LightGBM) + charge gate",
     "all": {
      "n": 6,
      "grossBps": {
@@ -11605,7 +11605,7 @@
      },
      "threshold": 0.8224
     },
-    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
     "rows": [
      {
       "windowId": "ETH-vol1",
@@ -11655,8 +11655,8 @@
       "reverts": 0,
       "runtimeSec": 4,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -11720,8 +11720,8 @@
       "reverts": 0,
       "runtimeSec": 4,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -11785,8 +11785,8 @@
       "reverts": 0,
       "runtimeSec": 4,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -11847,8 +11847,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -11909,8 +11909,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -11971,8 +11971,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": true,
        "threshold": 0.8224,
        "decisions": 283,
@@ -12958,7 +12958,7 @@
      },
      "threshold": 0.8224
     },
-    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
     "rows": [
      {
       "windowId": "ETH-vol1",
@@ -13006,8 +13006,8 @@
       "reverts": 0,
       "runtimeSec": 4,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -13070,8 +13070,8 @@
       "reverts": 0,
       "runtimeSec": 4,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -13133,8 +13133,8 @@
       "reverts": 0,
       "runtimeSec": 4,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -13196,8 +13196,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -13259,8 +13259,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -13322,8 +13322,8 @@
       "reverts": 0,
       "runtimeSec": 3,
       "tab": {
-       "model": "oniblock1",
-       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+       "model": "teacher-lightgbm",
+       "path": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
        "gate": false,
        "threshold": 0.8224,
        "decisions": 283,
@@ -14251,7 +14251,7 @@
       "calm": []
      }
     },
-    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
     "rows": [
      {
       "windowId": "ETH-vol1",
@@ -15451,7 +15451,7 @@
       "calm": []
      }
     },
-    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/oniblock1.json",
+    "modelPath": "/Users/aviralshukla/Developer/ethglobaljapan/oniblock/ml/models/teacher-lightgbm.json",
     "rows": [
      {
       "windowId": "ETH-vol1",
@@ -15745,7 +15745,7 @@
  "paired": {
   "500": {
    "C-R": {
-    "what": "value of the builder deal for oniblock1 (first position + 2 s mid vs no deal, same model)",
+    "what": "value of the builder deal for the teacher (LightGBM) (first position + 2 s mid vs no deal, same model)",
     "net": {
      "n": 6,
      "mean": 0.47,
@@ -15934,7 +15934,7 @@
     }
    },
    "C-Ch": {
-    "what": "oniblock1 vs the heuristic, coop timing",
+    "what": "teacher (LightGBM) vs the heuristic, coop timing",
     "net": {
      "n": 6,
      "mean": -0.0249,
@@ -15997,7 +15997,7 @@
     }
    },
    "R-Rh": {
-    "what": "oniblock1 vs the heuristic, realistic timing",
+    "what": "teacher (LightGBM) vs the heuristic, realistic timing",
     "net": {
      "n": 6,
      "mean": -0.0302,
@@ -16062,7 +16062,7 @@
   },
   "3000": {
    "C-R": {
-    "what": "value of the builder deal for oniblock1 (first position + 2 s mid vs no deal, same model)",
+    "what": "value of the builder deal for the teacher (LightGBM) (first position + 2 s mid vs no deal, same model)",
     "net": {
      "n": 6,
      "mean": 0.129,
@@ -16251,7 +16251,7 @@
     }
    },
    "C-Ch": {
-    "what": "oniblock1 vs the heuristic, coop timing",
+    "what": "teacher (LightGBM) vs the heuristic, coop timing",
     "net": {
      "n": 6,
      "mean": 0.0156,
@@ -16314,7 +16314,7 @@
     }
    },
    "R-Rh": {
-    "what": "oniblock1 vs the heuristic, realistic timing",
+    "what": "teacher (LightGBM) vs the heuristic, realistic timing",
     "net": {
      "n": 6,
      "mean": 0.0462,

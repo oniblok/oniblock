@@ -10,7 +10,7 @@ Everything needed to (re)build the informed-flow dataset, score baseline models,
 | Get the training data | `train_kev4b.zip` (2 MB) → `cd ml && unzip -o train_kev4b.zip` recreates `train_kev4b/data/*.jsonl` |
 | Read the dataset card / publish to Hugging Face | `hf_release/` — README (dataset card), `data/{train,validation,test}.parquet`, `sample.csv`, `manifest.json` |
 | See baseline scores | `models/tabular_results.json` (raw labels); the dead-band baselines are in `train_kev4b/README.md` |
-| Use the production model | `models/oniblock1.json` (LightGBM, 17 features, Binance read ~2 s before the block) — the only model weights in the repo; the keeper evaluates it in `services/src/model/tabular.ts` |
+| Use the production model | oniblock1 = `models/kev08b-v1/adapter` (Kev-0.8B LoRA fine-tune, a TypeSafe System One model; charge gate `models/kev08b-v1/charge_threshold.json`), served by `serve/start-kev.sh` and asked by the keeper through `services/src/model/kev.ts` (`MODEL_MODE=oniblock1`). `models/teacher-lightgbm.json` is the LightGBM teacher (Kev v2's soft targets, benchmark reference only) |
 | Rebuild everything | `src/` (see below) |
 
 ## The dataset in one paragraph
@@ -31,9 +31,9 @@ export_release.py   -> hf_release/
 train_tabular.py    base-rate / heuristic / logreg / LightGBM / XGBoost baselines (v1) -> runs/tabular-v1/ (gitignored; the
                     stored results in models/ are not overwritten; export_tabular.py turns its LightGBM into tabular-v1 JSON there)
 build_v2.py         v2 data: past-only CEX features, dead band, curation (--query-lag 3 -> train_kev4b/data/v2-fresh)
-train_tabular_v2.py oniblock1 from train_kev4b/data/v2-fresh -> models/oniblock1.json
-oniblock1_parity_fixture.py   services/test/fixtures/oniblock1-parity.json (TS evaluator parity)
-eval_selective.py   No hook vs Jev vs oniblock1 on test -> models/oniblock1_selective_results.json (Jev inputs: models/jev-eval/)
+train_tabular_v2.py teacher-lightgbm from train_kev4b/data/v2-fresh -> models/teacher-lightgbm.json (not a production model)
+teacher_lightgbm_parity_fixture.py   services/test/fixtures/teacher-lightgbm-parity.json (TS evaluator parity)
+eval_selective.py   No hook vs Jev vs oniblock1 (Kev v1) vs teacher LightGBM on test -> models/selective_results.json
 kev_export_deadband.py  -> train_kev4b/data/*.jsonl (Kev native JSONL, dead-band labels)
 jev_eval.py, tabpfn_eval.py   optional model evals (Jev via AI Gateway; TabPFN)
 ```

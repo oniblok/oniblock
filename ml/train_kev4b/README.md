@@ -105,7 +105,7 @@ Flag substitutions everywhere in Steps 2–6:
 | zero-shot `--run jaredpalmer/kev-4b` | `--run jaredpalmer/kev-0.8b` |
 | results folder (Step 7) `$HOME/oniblock-results/kev4b` | `$HOME/oniblock-results/kev08b` |
 
-`--weights_dtype bf16` and `--checkpointing 1` are harmless on 0.8B but not needed. The ENS model node for this adapter is `kev-v1` (4B is `kev4b-v1`). Expect a weaker starting point than 4B; the point is a real, open, hash-verifiable model — report the numbers as they are.
+`--weights_dtype bf16` and `--checkpointing 1` are harmless on 0.8B but not needed. The 0.8B adapter kept in the repo (`ml/models/kev08b-v1/`) is the production model, ENS node `oniblock1`. Expect a weaker starting point than 4B; the point is a real, open, hash-verifiable model — report the numbers as they are.
 
 ## Requirements
 
@@ -255,8 +255,8 @@ cd ../..
 
 ## Step 7 — Collect the results (outside the repo)
 
-The Oniblock repo ships only its production model (`ml/models/oniblock1.json`, LightGBM); it keeps no Kev adapter
-weights. Collect everything in one folder outside the repo, publish the adapter (e.g. a Hugging Face model repo) and
+The Oniblock repo ships only its production model, oniblock1 = the Kev-0.8B adapter in `ml/models/kev08b-v1/` (Kev v2
+will replace it); other Kev adapters are not kept in the repo. Collect everything in one folder outside the repo, publish the adapter (e.g. a Hugging Face model repo) and
 send the link. `<name>` is `kev08b` for the 0.8B run or `kev4b` for 4B. Adjust `KEV=` to where you cloned Kev and
 `RUN=` to your run name.
 

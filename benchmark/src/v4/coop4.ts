@@ -1,20 +1,22 @@
 /**
- * Mainnet block timing with and without a cooperating block builder, with our LightGBM models in the keeper
- * (sim4.ts mainnet block mode). Every Oniblock pool competes with its own vanilla neighbour (same fee tier, same
+ * Mainnet block timing with and without a cooperating block builder, with the teacher LightGBM in the keeper
+ * (sim4.ts mainnet block mode). The teacher (ml/models/teacher-lightgbm.json, formerly ml/models/oniblock1.json) is
+ * not deployed: it generates Kev v2's soft targets. The production model oniblock1 is the Kev System One LLM; these
+ * runs are to be repeated with Kev v2. Every Oniblock pool competes with its own vanilla neighbour (same fee tier, same
  * liquidity) for the same routed retail and the same two arbitrageurs; the vanilla neighbour is the "without this
  * hook" baseline.
  *
  * Runs (one per keeper placement; ETH windows; post policy `change`):
  *   realistic : keeper post lands at the END of the previous block (no builder deal), Binance mid read 13 s before the
- *               block it prices; model oniblock1 (trained on ~2 s-old mids, so here it is fed an older mid than it
- *               was trained on: the production model deployed without a builder deal)
+ *               block it prices; model teacher (LightGBM) (trained on ~2 s-old mids, so here it is fed an older mid
+ *               than it was trained on)
  *   coop      : a cooperating builder puts the keeper post FIRST in the block, mid read 2 s before it; model
- *               oniblock1
+ *               teacher (LightGBM)
  * Arms (pools inside those runs; same order flow):
- *   R  = realistic, pool ai      : oniblock1 + charge gate at its chargeThreshold
- *   R0 = realistic, pool aigated : oniblock1, gate off (k = 0.8 p)
- *   C  = coop, pool ai           : oniblock1 + charge gate
- *   C0 = coop, pool aigated      : oniblock1, gate off (k = 0.8 p)
+ *   R  = realistic, pool ai      : teacher (LightGBM) + charge gate at its chargeThreshold
+ *   R0 = realistic, pool aigated : teacher (LightGBM), gate off (k = 0.8 p)
+ *   C  = coop, pool ai           : teacher (LightGBM) + charge gate
+ *   C0 = coop, pool aigated      : teacher (LightGBM), gate off (k = 0.8 p)
  *   Rh / Ch = pool aiheur        : the heuristic at the same timing (reference)
  *
  *   tsx src/v4/coop4.ts --run realistic|coop [--tier 3000|500] [--windows ...] [--steps 3600] [--port 12000]
@@ -43,7 +45,11 @@ for (let i = 0; i < argv.length; i++) {
 const outDir = resolve(String(a.out ?? resolve(BENCH_DIR, 'results_v4/coop-builder')));
 const steps = Number(a.steps ?? 3600);
 const WARMUP_SEC = 1800; // keeper MidHistory before the window: ret900 needs 15 min, realizedVol 120 reads = 24 min
-const MODELS = { oniblock1: resolve(ROOT, 'ml/models/oniblock1.json') };
+const MODELS = { teacher: resolve(ROOT, 'ml/models/teacher-lightgbm.json') };
+/** Saved runs name the teacher by its old file / node name (oniblock1); the file was renamed, its content is unchanged. */
+const TEACHER = 'teacher (LightGBM)';
+const teacherName = (m: string | undefined) => (m === undefined ? '?' : m === 'oniblock1' ? 'teacher-lightgbm' : m);
+const teacherPath = (p: string) => p.replace(/ml\/models\/oniblock1\.json$/, 'ml/models/teacher-lightgbm.json');
 
 /** Block-mode config: BASE (results_v4/heuristic-full) with mainnet timing, post-on-change, the live settler's dead band. */
 const BLOCK: Partial<RunConfigV4> = {
@@ -51,17 +57,17 @@ const BLOCK: Partial<RunConfigV4> = {
   staleSteps: 5, // mainnet blocks (DeployBase STALE_BLOCKS 5) = 10 anvil blocks
   heartbeatBlocks: 8, // 4 mainnet blocks
   settleEvery: 2, // blocks (24 s; the 1 s benchmark settled every 20 s)
-  deadbandUsd: 1, // services default: y = markout > max($1, 1 bp of arb volume), the label oniblock1 is trained on
+  deadbandUsd: 1, // services default: y = markout > max($1, 1 bp of arb volume), the label the teacher is trained on
   deadbandBps: 1,
 };
 const RUNS: Record<string, { label: string; over: Partial<RunConfigV4>; model: keyof typeof MODELS }> = {
-  realistic: { label: 'keeper post lands last in the previous block (no builder deal), mid 13 s old', over: { blockMode: { placement: 'realistic' } }, model: 'oniblock1' },
-  coop: { label: 'keeper post first in the block (cooperating builder), mid 2 s old', over: { blockMode: { placement: 'coop' } }, model: 'oniblock1' },
+  realistic: { label: 'keeper post lands last in the previous block (no builder deal), mid 13 s old', over: { blockMode: { placement: 'realistic' } }, model: 'teacher' },
+  coop: { label: 'keeper post first in the block (cooperating builder), mid 2 s old', over: { blockMode: { placement: 'coop' } }, model: 'teacher' },
 };
 const ARMS = [
-  { arm: 'R', run: 'realistic', pool: 'ai', label: 'R: post lands last in the previous block (no builder deal), mid 13 s old; oniblock1 + charge gate' },
+  { arm: 'R', run: 'realistic', pool: 'ai', label: `R: post lands last in the previous block (no builder deal), mid 13 s old; ${TEACHER} + charge gate` },
   { arm: 'R0', run: 'realistic', pool: 'aigated', label: 'R0: as R, gate off (k = 0.8 p)' },
-  { arm: 'C', run: 'coop', pool: 'ai', label: 'C: keeper posts first in the block (cooperating builder), mid 2 s old; oniblock1 + charge gate' },
+  { arm: 'C', run: 'coop', pool: 'ai', label: `C: keeper posts first in the block (cooperating builder), mid 2 s old; ${TEACHER} + charge gate` },
   { arm: 'C0', run: 'coop', pool: 'aigated', label: 'C0: as C, gate off (k = 0.8 p)' },
   { arm: 'Rh', run: 'realistic', pool: 'aiheur', label: 'Rh: realistic timing, heuristic scorer (reference)' },
   { arm: 'Ch', run: 'coop', pool: 'aiheur', label: 'Ch: coop timing, heuristic scorer (reference)' },
@@ -242,7 +248,9 @@ const tiers = [...new Set(raws.map((x) => x.tier))].sort((x, y) => y - x);
 const out: Record<string, unknown> = { generatedAt: new Date().toISOString(), tiers: {} };
 const L: string[] = [];
 const r0 = raws[0]!.results[0]!;
-L.push('# Mainnet block timing, with and without a cooperating builder (v4 benchmark, LightGBM models)');
+L.push('# Mainnet block timing, with and without a cooperating builder (v4 benchmark, teacher LightGBM)');
+L.push('');
+L.push('> **These runs used the teacher LightGBM** (`ml/models/teacher-lightgbm.json`, saved runs name it by its old name `oniblock1`), which generates Kev v2\'s soft targets and is **not deployed**. The production model oniblock1 is the Kev System One LLM (Kev v1 weights today, Kev v2 training); these runs will be repeated with Kev v2.');
 L.push('');
 L.push(
   `Generated ${new Date().toISOString()} by \`benchmark/src/v4/coop4.ts\` (sim4.ts mainnet block mode). ${raws[0]!.results.length} ETHUSDT one-hour windows (3 volatile, 3 calm; data/windows_v2.json), ${raws[0]!.steps} s each = ${r0.blockMode?.blocks ?? '?'} blocks of 12 s, $${(r0.initialTvlUsd / 1e6).toFixed(0)}M full-range TVL per pool. Each Oniblock pool competes with its own vanilla neighbour (same fee tier, same liquidity) for the same routed retail and the same two arbitrageurs; **the vanilla neighbour is the "without this hook" baseline** and every LP number below is Oniblock minus that neighbour.`,
@@ -251,9 +259,9 @@ L.push('');
 L.push('## What the mainnet block mode simulates');
 L.push('');
 L.push('- Time advances in 12 s blocks. In block b (timestamp s) everything acts at s, in this order: settler, keeper (if its post lands in this block), the two arbitrageurs (vs the Binance mid at s), then retail. Nothing trades between blocks. Arbs and retail are in the same anvil block, so retail that follows an arb in the arb direction pays the hook\'s per-block high-water fee (the fee quote for retail is taken after the arbs on a throw-away copy of the chain, then the real block is mined).');
-L.push('- **realistic** (no builder deal): the keeper reads Binance 13 s before the block it prices and the chain as it is then (pool state and swaps up to block b−1; block b is not built yet); its post lands last in block b and prices block b+1. Model `oniblock1`, the production model deployed without a builder deal: it is trained on ~2 s-old mids, so this arm feeds it a mid 11 s older than it was trained on (part of what the arm measures).');
-L.push('- **coop** (cooperating builder): the keeper reads Binance 2 s before block b and the chain after block b−1; the builder puts its post first in block b, so it prices block b. Model `oniblock1` (trained on ~2 s-old mids).');
-L.push('- Keeper: in-process LightGBM (services/src/model/tabular.ts) on the features the live keeper computes (services/src/features.ts computeFeatures: a MidHistory with one CEX read per block, pre-filled from the 30 min before the window; realized vol over its last 120 reads; 20-block swap window; inputs canonicalised to the training orientation), then the keeper\'s charge gate at the model JSON\'s `chargeThreshold` (confidence = p ≥ t ? 1 : 0, so k = 0.8·p above the gate and 0 below; pToxic is posted unchanged and graded). Post policy `change` (services/src/postPolicy.ts), heartbeat 4 blocks, stale after 5 blocks, 5% of posts missed.');
+L.push('- **realistic** (no builder deal): the keeper reads Binance 13 s before the block it prices and the chain as it is then (pool state and swaps up to block b−1; block b is not built yet); its post lands last in block b and prices block b+1. Model: the teacher (LightGBM). It is trained on ~2 s-old mids, so this arm feeds it a mid 11 s older than it was trained on (part of what the arm measures).');
+L.push('- **coop** (cooperating builder): the keeper reads Binance 2 s before block b and the chain after block b−1; the builder puts its post first in block b, so it prices block b. Model: the teacher (LightGBM) (trained on ~2 s-old mids).');
+L.push('- Keeper: the teacher LightGBM evaluated in-process (services/src/model/tabular.ts) on the features the live keeper computes (services/src/features.ts computeFeatures: a MidHistory with one CEX read per block, pre-filled from the 30 min before the window; realized vol over its last 120 reads; 20-block swap window; inputs canonicalised to the training orientation), then the keeper\'s charge gate at the model JSON\'s `chargeThreshold` (confidence = p ≥ t ? 1 : 0, so k = 0.8·p above the gate and 0 below; pToxic is posted unchanged and graded). Post policy `change` (services/src/postPolicy.ts), heartbeat 4 blocks, stale after 5 blocks, 5% of posts missed.');
 L.push('- Settler: grades every block with arb-direction flow against the Binance mid at the block timestamp, label y = markout at the base fee > max($1, 1 bp of arb volume) (the live settler default and the label the models are trained on; blocks inside the dead band are not graded), posts calibration every 2 blocks once a model has 10 graded blocks. No probation (the hook since PR #5): an allowlisted model sets k from its first attestation, and is demoted to k = kDefault = 0 (a vanilla pool) only while its posted Brier > 0.25.');
 L.push('- Retail: the v4 model (Poisson 0.1 orders/s → 1.2 per block, lognormal size median $400, autocorrelated direction, 5% informed over 30 s), routed per market between the two pools by best execution (optimal split). Keeper gas from the setAttestation receipts; net = gross − keeper gas at 1 gwei (LPs fund the keeper).');
 L.push('- Not modelled: priority fees / bribes other than the break-even payment computed below, arbs that are also builders (the arb here never outbids the keeper), backruns within a block by other searchers, CEX–DEX arbs that trade between blocks on other venues, gas-price volatility, the Chainlink sanity-band gas (see the 110k columns), settler gas. Retail demand does not react to the fee except by routing between the two pools.');
@@ -293,9 +301,9 @@ for (const tier of tiers) {
         threshold: thr,
       };
     };
-    return { ...A, rows, all: g(() => true), volatile: g((x) => x.regime === 'volatile'), calm: g((x) => x.regime === 'calm'), modelPath: raw.spec.modelPath };
+    return { ...A, rows, all: g(() => true), volatile: g((x) => x.regime === 'volatile'), calm: g((x) => x.regime === 'calm'), modelPath: teacherPath(raw.spec.modelPath) };
   });
-  (out.tiers as Record<string, unknown>)[tier] = armOut.map(({ rows, ...x }) => ({ ...x, rows: rows.map(({ bps: _b, tab, ...r }) => ({ ...r, tab: tab ? { ...tab, pairs: undefined, graded: tab.pairs.length } : undefined })) }));
+  (out.tiers as Record<string, unknown>)[tier] = armOut.map(({ rows, ...x }) => ({ ...x, rows: rows.map(({ bps: _b, tab, ...r }) => ({ ...r, tab: tab ? { ...tab, model: teacherName(tab.model), path: teacherPath(tab.path), pairs: undefined, graded: tab.pairs.length } : undefined })) }));
   const model = armOut.filter((x) => x.all.sel);
   L.push(`## Base fee ${(tier / 1e4).toFixed(2)}% (every pool)`);
   L.push('');
@@ -330,7 +338,7 @@ for (const tier of tiers) {
     const s = x.all.sel!;
     const v = x.volatile.sel!;
     const c = x.calm.sel!;
-    const name = x.rows[0]?.tab?.model ?? '?';
+    const name = teacherName(x.rows[0]?.tab?.model);
     L.push(
       `| ${x.arm} | ${name} (${fmt(x.all.threshold, 4)}) | ${s.n} | ${pct(s.baseRate)} | ${s.charged} | ${pct(s.pass)} | ${pct(s.fpr)} | ${pct(s.coverage)} | ${pct(s.tpr)} | ${fmt(s.brier, 3)} | ${pct(x.all.chargedDecisionShare.mean)} | ${pct(v.pass)} / ${pct(v.fpr)} / ${pct(v.tpr)} | ${pct(c.pass)} / ${pct(c.fpr)} / ${pct(c.tpr)} |`,
     );
@@ -339,11 +347,11 @@ for (const tier of tiers) {
   // paired per window (same price path, same seeded retail orders and arb draws in every run)
   const armBy = Object.fromEntries(armOut.map((x) => [x.arm, x]));
   const PAIRS = [
-    ['C', 'R', 'value of the builder deal for oniblock1 (first position + 2 s mid vs no deal, same model)'],
+    ['C', 'R', `value of the builder deal for the ${TEACHER} (first position + 2 s mid vs no deal, same model)`],
     ['C', 'C0', 'charge gate on vs off (coop)'],
     ['R', 'R0', 'charge gate on vs off (realistic)'],
-    ['C', 'Ch', 'oniblock1 vs the heuristic, coop timing'],
-    ['R', 'Rh', 'oniblock1 vs the heuristic, realistic timing'],
+    ['C', 'Ch', `${TEACHER} vs the heuristic, coop timing`],
+    ['R', 'Rh', `${TEACHER} vs the heuristic, realistic timing`],
   ] as const;
   const paired: Record<string, unknown> = {};
   L.push('### Paired differences (per window, then over windows)');

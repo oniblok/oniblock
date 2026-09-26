@@ -7,7 +7,7 @@ Outputs: ml/train_kev4b/data/v2/ (gitignored)
   train_20k.jsonl val_1k.jsonl test_3k.jsonl EXACTLY the (pool, block) rows of the v1 subsets (verified row by row)
   train_soft.jsonl                          train.jsonl + soft target {"true": q, "false": 1-q} in the question
   tabular_features.parquet                  every row of every split: ids, label columns, curation flags,
-                                            keeper Features (rounded like features.ts), v2 tabular inputs (oniblock1's)
+                                            keeper Features (rounded like features.ts), v2 tabular inputs (teacher-lightgbm's)
   manifest.json                             counts, verification, soft-target stats, sha256
 Features (names = services/src/features.ts Features fields; canonical orientation baseIsToken0 = false):
   edgePips   = gapPips - baseFee
@@ -29,7 +29,7 @@ Fresh-CEX variant (--query-lag S, default 12 = the dataset's cex_mid_obs convent
   subset rows are unchanged (verified against v1 / the v2 key files). The parity fixture is only written for S = 12.
 
 usage: python build_v2.py [--query-lag 12] [--out DIR] [--no-fixture]
-       python build_v2.py --query-lag 3 --out ml/train_kev4b/data/v2-fresh      (age 2 s: keeper posts first in the block; oniblock1)
+       python build_v2.py --query-lag 3 --out ml/train_kev4b/data/v2-fresh      (age 2 s: keeper posts first in the block; teacher-lightgbm)
 """
 import argparse, json, hashlib, os
 from pathlib import Path
