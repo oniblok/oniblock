@@ -30,7 +30,7 @@ import {OniblockLiveResolver} from "../src/ens/OniblockLiveResolver.sol";
 ///      - VerifiableFactory proxies: PermissionedResolver, UserRegistry for <label>.eth, models.<label>.eth,
 ///        pools.<label>.eth (all owned by `owner` via root grants)
 ///      - ETH registry: setSubregistry / setResolver on <label>.eth
-///      - subnames: quoter, settler, models -> {jev-v1, heuristic-v1, kev-v1, oniblock1,
+///      - subnames: quoter, settler, models -> {jev-v1, heuristic-v1, oniblock1,
 ///        rule-v1 (v3 gate only)}, pools -> {weth-usdc},
 ///        live (ENSIP-10 wildcard namespace, see add-live)
 ///      - v4 pool config (DeployBase): arbThresholdPips 0, kMin 0, kDefault 0, kMax 8000, maxKStep 8000 — Jev decides
@@ -50,7 +50,7 @@ import {OniblockLiveResolver} from "../src/ens/OniblockLiveResolver.sol";
 ///      models/pools nodes from ENS_NAME) unless the json's `liveResolver` already serves that hook + pool with the
 ///      same base name, pool label and owner, registers `live` in the <label>.eth registry with it (or repoints the
 ///      resolver of an existing `live`), sets the known labels (ENS_LIVE_LABELS, default
-///      jev-v1,heuristic-v1,kev-v1,oniblock1,rule-v1) and records hook / liveResolver / liveName / liveNode + the live
+///      jev-v1,heuristic-v1,oniblock1,rule-v1) and records hook / liveResolver / liveName / liveNode + the live
 ///      namehashes in the ens json. Idempotent.
 ///   5. add-model : registers ENS_MODEL_LABEL in the models registry (owner ENS_MODEL_OWNER, default ENS_OWNER) with
 ///      the shared PermissionedResolver, writes model-hash / agent-context / agent-endpoint[web] / description
@@ -60,8 +60,8 @@ import {OniblockLiveResolver} from "../src/ens/OniblockLiveResolver.sol";
 ///      when the name exists (with a warning, and no transfer, if its owner is not ENS_MODEL_OWNER), records are
 ///      rewritten only when they differ, grants only when missing.
 ///   6. set-endpoints : ENSIP-26 `agent-endpoint[web]` on jev-v1 (ENS_ENDPOINT_JEV, default the Vercel AI Gateway
-///      evaluate URL), heuristic-v1 (ENS_ENDPOINT_HEURISTIC, default "in-process"), kev-v1 (ENS_ENDPOINT_KEV,
-///      default empty = skip) and oniblock1 (ENS_ENDPOINT_ONIBLOCK1: its System One URL, services/src/systemone.ts
+///      evaluate URL), heuristic-v1 (ENS_ENDPOINT_HEURISTIC, default "in-process") and
+///      oniblock1 (ENS_ENDPOINT_ONIBLOCK1: its System One URL, services/src/systemone.ts
 ///      `POST /v1/systemone`; default empty = skip) for setups from before the key existed. Idempotent.
 ///   The ens json is written (finish / add-live / add-model) only under `forge script --broadcast` (or --resume);
 ///   a dry run leaves it untouched.
@@ -78,14 +78,12 @@ import {OniblockLiveResolver} from "../src/ens/OniblockLiveResolver.sol";
 ///   ENS_DURATION   seconds (default 365 days)   ENS_SALT  factory salt nonce (default 0)
 ///   ENS_OUT        output json path (default ../deployments/<chainId>.ens.json; use a different path for fork runs)
 ///   ENS_DEPLOYMENT_JSON  hook deployment json (default ../deployments/<chainId>.json; add-live / finish-with-hook)
-///   ENS_POOL_LABEL default "weth-usdc"   ENS_LIVE_LABELS comma list (default jev-v1,heuristic-v1,kev-v1,oniblock1,
-///                  rule-v1)
-///   ENS_ENDPOINT_JEV / ENS_ENDPOINT_HEURISTIC / ENS_ENDPOINT_KEV / ENS_ENDPOINT_ONIBLOCK1   ENSIP-26
+///   ENS_POOL_LABEL default "weth-usdc"   ENS_LIVE_LABELS comma list (default jev-v1,heuristic-v1,oniblock1,rule-v1)
+///   ENS_ENDPOINT_JEV / ENS_ENDPOINT_HEURISTIC / ENS_ENDPOINT_ONIBLOCK1   ENSIP-26
 ///                  agent-endpoint[web] values
 ///   ENS_MODEL_LABEL (required by add-model) / ENS_MODEL_OWNER / ENS_MODEL_HASH / ENS_MODEL_CONTEXT /
 ///   ENS_MODEL_ENDPOINT / ENS_MODEL_DESCRIPTION
 ///   ENS_FEE_MIN / ENS_FEE_MAX / ENS_POLICY_URI / ENS_MODEL_HASH_JEV / ENS_MODEL_HASH_HEURISTIC /
-///   ENS_MODEL_HASH_KEV (default: sha256 model hash of ml/models/kev08b-v1, see its NOTE.md) /
 ///   ENS_MODEL_HASH_ONIBLOCK1 (default: sha256 of ml/models/oniblock1.json = the sha256 System One's /health reports)
 ///   ENS_ETH_REGISTRAR, ENS_VERIFIABLE_FACTORY, ENS_USER_REGISTRY_IMPL, ENS_PERMISSIONED_RESOLVER_IMPL,
 ///   ENS_MOCK_USDC, ENS_UNIVERSAL_RESOLVER   (required; from .env)
@@ -151,12 +149,10 @@ contract EnsSetup is Script {
         string policyUri;
         string modelHashJev;
         string modelHashHeuristic;
-        string modelHashKev;
         string modelHashOniblock1; // sha256 of ml/models/oniblock1.json
         string poolLabel; // "weth-usdc": the pool served by <poolLabel>.live.<label>.eth
         string endpointJev; // ENSIP-26 agent-endpoint[web] of jev-v1
         string endpointHeuristic; // ... of heuristic-v1
-        string endpointKev; // ... of kev-v1 ("" = leave unset / unchanged)
         string endpointOniblock1; // ... of oniblock1 (its System One URL; "" = leave unset / unchanged)
     }
 
@@ -234,10 +230,6 @@ contract EnsSetup is Script {
         cfg.modelHashJev = vm.envOr("ENS_MODEL_HASH_JEV", vm.toString(keccak256("typesafe-ai/jev")));
         cfg.modelHashHeuristic =
             vm.envOr("ENS_MODEL_HASH_HEURISTIC", vm.toString(keccak256("oniblock/heuristic-v1")));
-        // Published adapter's model hash: sha256 over ml/models/kev08b-v1/SHA256 (sorted per-file digests).
-        cfg.modelHashKev = vm.envOr(
-            "ENS_MODEL_HASH_KEV", string("0x24f0793d55e0fde516ebe4da1d187e0468a5f7c830ba9a9f4d48e43f007c88be")
-        );
         // oniblock1's open weights: sha256 of ml/models/oniblock1.json (what services/src/systemone.ts /health reports).
         cfg.modelHashOniblock1 = vm.envOr(
             "ENS_MODEL_HASH_ONIBLOCK1", string("0x5a766bf0a501fddd296576baa3315e632fdec841faafd81259e5b3a7cedd32a9")
@@ -245,7 +237,6 @@ contract EnsSetup is Script {
         cfg.poolLabel = vm.envOr("ENS_POOL_LABEL", string("weth-usdc"));
         cfg.endpointJev = vm.envOr("ENS_ENDPOINT_JEV", DEFAULT_ENDPOINT_JEV);
         cfg.endpointHeuristic = vm.envOr("ENS_ENDPOINT_HEURISTIC", DEFAULT_ENDPOINT_HEURISTIC);
-        cfg.endpointKev = vm.envOr("ENS_ENDPOINT_KEV", string(""));
         cfg.endpointOniblock1 = vm.envOr("ENS_ENDPOINT_ONIBLOCK1", string(""));
     }
 
@@ -308,7 +299,6 @@ contract EnsSetup is Script {
         models.setParent(r.registry, "models");
         models.register("jev-v1", cfg.owner, address(0), r.resolver, std, forever);
         models.register("heuristic-v1", cfg.owner, address(0), r.resolver, std, forever);
-        models.register("kev-v1", cfg.owner, address(0), r.resolver, std, forever); // Kev-0.8B fine-tune
         models.register("oniblock1", cfg.owner, address(0), r.resolver, std, forever); // production LightGBM model
         models.register("rule-v1", cfg.owner, address(0), r.resolver, std, forever); // v3 below-threshold rule
 
@@ -478,12 +468,11 @@ contract EnsSetup is Script {
     }
 
     function _liveLabels() internal view returns (string[] memory labels) {
-        labels = new string[](5);
+        labels = new string[](4);
         labels[0] = "jev-v1";
         labels[1] = "heuristic-v1";
-        labels[2] = "kev-v1";
-        labels[3] = "oniblock1";
-        labels[4] = "rule-v1";
+        labels[2] = "oniblock1";
+        labels[3] = "rule-v1";
         labels = vm.envOr("ENS_LIVE_LABELS", ",", labels);
     }
 
@@ -627,8 +616,8 @@ contract EnsSetup is Script {
         vm.stopBroadcast();
     }
 
-    /// Writes agent-endpoint[web] on jev-v1, heuristic-v1 and (when ENS_ENDPOINT_KEV / ENS_ENDPOINT_ONIBLOCK1 is set)
-    /// kev-v1 / oniblock1 when they differ (grants the key to the owner first if missing). Caller broadcasts as `cfg.owner`.
+    /// Writes agent-endpoint[web] on jev-v1, heuristic-v1 and (when ENS_ENDPOINT_ONIBLOCK1 is set) oniblock1 when
+    /// they differ (grants the key to the owner first if missing). Caller broadcasts as `cfg.owner`.
     function setEndpoints(Config memory cfg, address resolver) public returns (uint256 writes, uint256 grants) {
         IEnsPermissionedResolver res = IEnsPermissionedResolver(resolver);
         string memory root = string.concat(cfg.label, ".eth");
@@ -638,16 +627,13 @@ contract EnsSetup is Script {
 
         bytes memory nJev = EnsV2Lib.dnsEncode(string.concat("jev-v1.models.", root));
         bytes memory nHeur = EnsV2Lib.dnsEncode(string.concat("heuristic-v1.models.", root));
-        bytes memory nKev = EnsV2Lib.dnsEncode(string.concat("kev-v1.models.", root));
         bytes memory nOni = EnsV2Lib.dnsEncode(string.concat("oniblock1.models.", root));
-        bytes[] memory c = new bytes[](4);
+        bytes[] memory c = new bytes[](3);
         uint256 n;
         if (_differs(res, nJev, K_AGENT_ENDPOINT, cfg.endpointJev)) c[n++] = _text(nJev, K_AGENT_ENDPOINT, cfg.endpointJev);
         if (_differs(res, nHeur, K_AGENT_ENDPOINT, cfg.endpointHeuristic)) {
             c[n++] = _text(nHeur, K_AGENT_ENDPOINT, cfg.endpointHeuristic);
         }
-        // kev-v1 (served locally by the keeper) has no public endpoint by default: ENS_ENDPOINT_KEV empty = skip
-        if (_differs(res, nKev, K_AGENT_ENDPOINT, cfg.endpointKev)) c[n++] = _text(nKev, K_AGENT_ENDPOINT, cfg.endpointKev);
         // oniblock1: its System One URL (services/src/systemone.ts); ENS_ENDPOINT_ONIBLOCK1 empty (default) = skip
         if (_differs(res, nOni, K_AGENT_ENDPOINT, cfg.endpointOniblock1)) {
             c[n++] = _text(nOni, K_AGENT_ENDPOINT, cfg.endpointOniblock1);
@@ -820,7 +806,6 @@ contract EnsSetup is Script {
         bytes memory nSettler = EnsV2Lib.dnsEncode(string.concat("settler.", root));
         bytes memory nJev = EnsV2Lib.dnsEncode(string.concat("jev-v1.models.", root));
         bytes memory nHeur = EnsV2Lib.dnsEncode(string.concat("heuristic-v1.models.", root));
-        bytes memory nKev = EnsV2Lib.dnsEncode(string.concat("kev-v1.models.", root));
         bytes memory nOni = EnsV2Lib.dnsEncode(string.concat("oniblock1.models.", root));
         bytes memory nPool = EnsV2Lib.dnsEncode(string.concat(cfg.poolLabel, ".pools.", root));
         bytes memory nRule = EnsV2Lib.dnsEncode(string.concat("rule-v1.models.", root));
@@ -843,7 +828,7 @@ contract EnsSetup is Script {
         _grantKeys(res, nRoot, _calKeys(), cfg.settler);
         _grantKeys(res, nRoot, _jitCalKeys(), cfg.settler); // v5 JIT head records
 
-        bytes[] memory c = new bytes[](26); // = number of c[n++] entries below
+        bytes[] memory c = new bytes[](23); // = number of c[n++] entries below
         uint256 n;
         c[n++] = _addr(nRoot, cfg.owner);
         c[n++] = _text(nRoot, K_DESCRIPTION, "Oniblock: attested, directional LVR fee law for Uniswap v4");
@@ -865,17 +850,6 @@ contract EnsSetup is Script {
             "Deterministic heuristic baseline (gap, imbalance, size/depth, realized vol) -> {pToxicBps, confidenceBps}; JIT head (v5) from recent liquidity churn -> pJitBps. Fallback when Jev is slow or demoted."
         );
         c[n++] = _text(nHeur, K_AGENT_ENDPOINT, cfg.endpointHeuristic);
-        c[n++] = _text(nKev, K_MODEL_HASH, cfg.modelHashKev);
-        c[n++] = _text(
-            nKev,
-            K_DESCRIPTION,
-            "Kev-0.8B (jaredpalmer/kev-0.8b) fine-tuned on Oniblock's mainnet informed-flow dataset; open weights at ml/models/kev08b-v1/adapter; model-hash = sha256 over the sorted per-file digests (ml/models/kev08b-v1/SHA256)"
-        );
-        c[n++] = _text(
-            nKev,
-            K_AGENT_CONTEXT,
-            "Kev-0.8B open-weights decision model (LoRA fine-tune of jaredpalmer/kev-0.8b, served locally by the keeper), asked every block: is there profitable arbitrage at the base fee? -> {pToxicBps, confidenceBps}; same public fee law k = kMax * p * c. Active from its first attestation; Brier-demoted to kDefault (0 = base fee) if its calibration (written by the settler) exceeds brierDemoteBps."
-        );
         c[n++] = _text(nOni, K_MODEL_HASH, cfg.modelHashOniblock1);
         c[n++] = _text(
             nOni,
@@ -981,26 +955,24 @@ contract EnsSetup is Script {
         string memory root = string.concat(cfg.label, ".eth");
         string memory live = string.concat(LIVE_LABEL, ".", root);
         string memory nh = string.concat("namehash-", vm.toString(uint256(keccak256(bytes(existingJson)))));
-        string[] memory names = new string[](19);
+        string[] memory names = new string[](17);
         names[0] = root;
         names[1] = string.concat("quoter.", root);
         names[2] = string.concat("settler.", root);
         names[3] = string.concat("models.", root);
         names[4] = string.concat("jev-v1.models.", root);
         names[5] = string.concat("heuristic-v1.models.", root);
-        names[6] = string.concat("kev-v1.models.", root);
-        names[7] = string.concat("oniblock1.models.", root);
-        names[8] = string.concat("rule-v1.models.", root);
-        names[9] = string.concat("pools.", root);
-        names[10] = string.concat(cfg.poolLabel, ".pools.", root);
-        names[11] = live;
-        names[12] = string.concat(cfg.poolLabel, ".", live);
-        names[13] = string.concat("current.", live);
-        names[14] = string.concat("jev-v1.", live);
-        names[15] = string.concat("heuristic-v1.", live);
-        names[16] = string.concat("kev-v1.", live);
-        names[17] = string.concat("oniblock1.", live);
-        names[18] = string.concat("rule-v1.", live);
+        names[6] = string.concat("oniblock1.models.", root);
+        names[7] = string.concat("rule-v1.models.", root);
+        names[8] = string.concat("pools.", root);
+        names[9] = string.concat(cfg.poolLabel, ".pools.", root);
+        names[10] = live;
+        names[11] = string.concat(cfg.poolLabel, ".", live);
+        names[12] = string.concat("current.", live);
+        names[13] = string.concat("jev-v1.", live);
+        names[14] = string.concat("heuristic-v1.", live);
+        names[15] = string.concat("oniblock1.", live);
+        names[16] = string.concat("rule-v1.", live);
         for (uint256 i; i < names.length; ++i) {
             out = vm.serializeBytes32(nh, names[i], EnsV2Lib.namehash(names[i]));
         }

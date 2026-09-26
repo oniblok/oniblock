@@ -58,7 +58,7 @@ abstract contract DeployBase is Script {
         bytes32[] modelNodes; // allowlisted for the Oniblock pool (default: jev-v1 + heuristic-v1 + oniblock1; + rule-v1 if KEEPER_GATE=1)
     }
 
-    /// ENS namehash helpers for the default model names (jev-v1 / heuristic-v1 / kev-v1 / oniblock1 / rule-v1 .models.oniblock.eth).
+    /// ENS namehash helpers for the default model names (jev-v1 / heuristic-v1 / oniblock1 / rule-v1 .models.oniblock.eth).
     function _subnode(bytes32 parent, string memory label) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked(parent, keccak256(bytes(label))));
     }
@@ -72,9 +72,8 @@ abstract contract DeployBase is Script {
     /// (the v3 keeper's deterministic below-threshold rule) only when KEEPER_GATE=1 — the v4 keeper asks the model
     /// every block and never posts under rule-v1. An allowlisted node has fee power from its first attestation (there
     /// is no probation); only Brier demotion (brierDemoteBps, once the settler has posted a record) sends it back to
-    /// kDefault (0 = base fee). That is why kev-v1 (the open-weights Kev-0.8B fine-tune, ml/models/kev08b-v1) is
-    /// registered in ENS by EnsSetup but NOT allowlisted by default: add it with MODEL_NODES or
-    /// hook.setModelAllowed when it should set fees.
+    /// kDefault (0 = base fee). Any other model name (e.g. one added with EnsSetup's add-model phase) gets fee
+    /// power only when the owner adds it with MODEL_NODES or hook.setModelAllowed.
     function _defaultModelNodes() internal view returns (bytes32[] memory nodes) {
         bool gate = vm.envOr("KEEPER_GATE", uint256(0)) == 1;
         nodes = new bytes32[](gate ? 4 : 3);

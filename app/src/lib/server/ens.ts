@@ -17,7 +17,7 @@ export const LIVE_MODEL_KEYS = ['calibration.brier', 'calibration.n', 'calibrati
 export const LIVE_POOL_KEYS = ['k', 'jit-window', 'p-toxic', 'p-jit', 'model', 'stale', 'fee-zero-for-one', 'fee-one-for-zero', 'hook', 'pool-id'];
 /** Text keys of the current.live.<root> alias (the model in force: anchor model, or the last accepted one while stale). */
 export const LIVE_CURRENT_KEYS = ['model-node', 'label', 'models-name', 'k', 'status', 'jit.status', 'stale'];
-export const LIVE_MODELS = ['oniblock1', 'jev-v1', 'kev-v1', 'heuristic-v1'];
+export const LIVE_MODELS = ['oniblock1', 'jev-v1', 'heuristic-v1'];
 
 export function liveNames(root: string, pool: string): Omit<EnsLiveName, 'records'>[] {
   return [

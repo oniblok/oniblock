@@ -64,7 +64,7 @@ contract OniblockLiveResolverTest is OniblockTestBase {
     bytes32 modelsNode;
     bytes32 poolsNode;
     bytes32 jev;
-    bytes32 kev;
+    bytes32 oni;
     bytes32 heur;
     uint256 calibratedAt;
 
@@ -78,11 +78,11 @@ contract OniblockLiveResolverTest is OniblockTestBase {
         );
         live.setKnownLabels(_labels());
         jev = live.modelNodeOf("jev-v1");
-        kev = live.modelNodeOf("kev-v1");
+        oni = live.modelNodeOf("oniblock1");
         heur = live.modelNodeOf("heuristic-v1");
         assertEq(jev, EnsV2Lib.namehash("jev-v1.models.oniblock.eth"));
         hook.setModelAllowed(pid, jev, true);
-        hook.setModelAllowed(pid, kev, true);
+        hook.setModelAllowed(pid, oni, true);
         vm.prank(settler);
         hook.setCalibration(jev, 1830, 6120, 12); // brier <= brierDemoteBps => active
         calibratedAt = block.number;
@@ -93,7 +93,7 @@ contract OniblockLiveResolverTest is OniblockTestBase {
         l = new string[](4);
         l[0] = "jev-v1";
         l[1] = "heuristic-v1";
-        l[2] = "kev-v1";
+        l[2] = "oniblock1";
         l[3] = "rule-v1";
     }
 
@@ -147,7 +147,7 @@ contract OniblockLiveResolverTest is OniblockTestBase {
         assertEq(address(k.hooks), address(hook));
         assertEq(k.fee, pkey.fee);
         assertEq(keccak256(abi.encode(live.knownLabels())), keccak256(abi.encode(_labels())));
-        assertEq(live.labelOf(kev), "kev-v1");
+        assertEq(live.labelOf(oni), "oniblock1");
         assertEq(live.labelOf(keccak256("nope")), "");
     }
 
@@ -228,7 +228,7 @@ contract OniblockLiveResolverTest is OniblockTestBase {
     }
 
     function test_status_unknown_demoted_active() public {
-        string memory n = "kev-v1.live.oniblock.eth";
+        string memory n = "oniblock1.live.oniblock.eth";
         // allowlisted, no calibration => active (isDemoted false)
         assertEq(_text(n, "allowed"), "true");
         assertEq(_text(n, "status"), "active");
@@ -236,21 +236,21 @@ contract OniblockLiveResolverTest is OniblockTestBase {
         assertEq(_text(n, "calibration.n"), "0");
         // a single graded sample with a good Brier => still active
         vm.prank(settler);
-        hook.setCalibration(kev, 1000, 5000, 1);
+        hook.setCalibration(oni, 1000, 5000, 1);
         assertEq(_text(n, "status"), "active");
         // Brier over brierDemoteBps (2500) => demoted
         vm.prank(settler);
-        hook.setCalibration(kev, 2600, 5000, CAL_N);
+        hook.setCalibration(oni, 2600, 5000, CAL_N);
         assertEq(_text(n, "status"), "demoted");
         assertEq(_text(n, "demoted"), "true");
         assertEq(_text(n, "calibration.brier"), "2600");
         // good Brier => active
         vm.prank(settler);
-        hook.setCalibration(kev, 1200, 5500, CAL_N);
+        hook.setCalibration(oni, 1200, 5500, CAL_N);
         assertEq(_text(n, "status"), "active");
         assertEq(_text(n, "demoted"), "false");
         // de-allowlisted => unknown, whatever the record says
-        hook.setModelAllowed(pid, kev, false);
+        hook.setModelAllowed(pid, oni, false);
         assertEq(_text(n, "status"), "unknown");
         assertEq(_text(n, "allowed"), "false");
         assertEq(_text(n, "calibration.brier"), "1200");
@@ -423,7 +423,7 @@ contract OniblockLiveResolverTest is OniblockTestBase {
         assertEq(_text(n, "pool-name"), "weth-usdc.live.oniblock.eth");
         assertEq(_text(n, "models-name"), "models.oniblock.eth");
         assertEq(_text(n, "resolver"), _hexAddr(address(live)));
-        assertEq(_text(n, "known-labels"), "jev-v1,heuristic-v1,kev-v1,rule-v1");
+        assertEq(_text(n, "known-labels"), "jev-v1,heuristic-v1,oniblock1,rule-v1");
         assertEq(_text(n, "nonsense"), "");
     }
 
@@ -615,7 +615,7 @@ contract OniblockLiveResolverTest is OniblockTestBase {
     // ------------------------------------------------------------------ direct getters (known nodes only)
     function test_directGetters() public {
         assertEq(live.text(live.liveNodeOf("jev-v1"), "status"), "active");
-        assertEq(live.text(live.liveNodeOf("kev-v1"), "status"), "active");
+        assertEq(live.text(live.liveNodeOf("oniblock1"), "status"), "active");
         assertEq(live.text(live.baseNode(), "pool"), POOL_LABEL);
         assertEq(live.text(live.poolLiveNode(), "k"), "5000");
         assertEq(live.text(live.currentNode(), "label"), "");

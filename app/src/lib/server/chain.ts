@@ -50,7 +50,6 @@ export interface Ctx {
 const DEFAULT_NAMES = [
   'jev-v1.models.oniblock.eth',
   'heuristic-v1.models.oniblock.eth',
-  'kev-v1.models.oniblock.eth',
   'oniblock1.models.oniblock.eth',
   'rule-v1.models.oniblock.eth',
   'quoter.oniblock.eth',
