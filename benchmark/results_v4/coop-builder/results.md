@@ -1,13 +1,15 @@
-# Mainnet block timing, with and without a cooperating builder (v4 benchmark, LightGBM models)
+# Mainnet block timing, with and without a cooperating builder (v4 benchmark, teacher LightGBM)
 
-Generated 2026-09-26T22:39:01.097Z by `benchmark/src/v4/coop4.ts` (sim4.ts mainnet block mode). 6 ETHUSDT one-hour windows (3 volatile, 3 calm; data/windows_v2.json), 3600 s each = 300 blocks of 12 s, $20M full-range TVL per pool. Each Oniblock pool competes with its own vanilla neighbour (same fee tier, same liquidity) for the same routed retail and the same two arbitrageurs; **the vanilla neighbour is the "without this hook" baseline** and every LP number below is Oniblock minus that neighbour.
+> **These runs used the teacher LightGBM** (`ml/models/teacher-lightgbm.json`, saved runs name it by its old name `oniblock1`), which generates Kev v2's soft targets and is **not deployed**. The production model oniblock1 is the Kev System One LLM (Kev v1 weights today, Kev v2 training); these runs will be repeated with Kev v2.
+
+Generated 2026-09-26T23:21:09.436Z by `benchmark/src/v4/coop4.ts` (sim4.ts mainnet block mode). 6 ETHUSDT one-hour windows (3 volatile, 3 calm; data/windows_v2.json), 3600 s each = 300 blocks of 12 s, $20M full-range TVL per pool. Each Oniblock pool competes with its own vanilla neighbour (same fee tier, same liquidity) for the same routed retail and the same two arbitrageurs; **the vanilla neighbour is the "without this hook" baseline** and every LP number below is Oniblock minus that neighbour.
 
 ## What the mainnet block mode simulates
 
 - Time advances in 12 s blocks. In block b (timestamp s) everything acts at s, in this order: settler, keeper (if its post lands in this block), the two arbitrageurs (vs the Binance mid at s), then retail. Nothing trades between blocks. Arbs and retail are in the same anvil block, so retail that follows an arb in the arb direction pays the hook's per-block high-water fee (the fee quote for retail is taken after the arbs on a throw-away copy of the chain, then the real block is mined).
-- **realistic** (no builder deal): the keeper reads Binance 13 s before the block it prices and the chain as it is then (pool state and swaps up to block b−1; block b is not built yet); its post lands last in block b and prices block b+1. Model `oniblock1`, the production model deployed without a builder deal: it is trained on ~2 s-old mids, so this arm feeds it a mid 11 s older than it was trained on (part of what the arm measures).
-- **coop** (cooperating builder): the keeper reads Binance 2 s before block b and the chain after block b−1; the builder puts its post first in block b, so it prices block b. Model `oniblock1` (trained on ~2 s-old mids).
-- Keeper: in-process LightGBM (services/src/model/tabular.ts) on the features the live keeper computes (services/src/features.ts computeFeatures: a MidHistory with one CEX read per block, pre-filled from the 30 min before the window; realized vol over its last 120 reads; 20-block swap window; inputs canonicalised to the training orientation), then the keeper's charge gate at the model JSON's `chargeThreshold` (confidence = p ≥ t ? 1 : 0, so k = 0.8·p above the gate and 0 below; pToxic is posted unchanged and graded). Post policy `change` (services/src/postPolicy.ts), heartbeat 4 blocks, stale after 5 blocks, 5% of posts missed.
+- **realistic** (no builder deal): the keeper reads Binance 13 s before the block it prices and the chain as it is then (pool state and swaps up to block b−1; block b is not built yet); its post lands last in block b and prices block b+1. Model: the teacher (LightGBM). It is trained on ~2 s-old mids, so this arm feeds it a mid 11 s older than it was trained on (part of what the arm measures).
+- **coop** (cooperating builder): the keeper reads Binance 2 s before block b and the chain after block b−1; the builder puts its post first in block b, so it prices block b. Model: the teacher (LightGBM) (trained on ~2 s-old mids).
+- Keeper: the teacher LightGBM evaluated in-process (services/src/model/tabular.ts) on the features the live keeper computes (services/src/features.ts computeFeatures: a MidHistory with one CEX read per block, pre-filled from the 30 min before the window; realized vol over its last 120 reads; 20-block swap window; inputs canonicalised to the training orientation), then the keeper's charge gate at the model JSON's `chargeThreshold` (confidence = p ≥ t ? 1 : 0, so k = 0.8·p above the gate and 0 below; pToxic is posted unchanged and graded). Post policy `change` (services/src/postPolicy.ts), heartbeat 4 blocks, stale after 5 blocks, 5% of posts missed.
 - Settler: grades every block with arb-direction flow against the Binance mid at the block timestamp, label y = markout at the base fee > max($1, 1 bp of arb volume) (the live settler default and the label the models are trained on; blocks inside the dead band are not graded), posts calibration every 2 blocks once a model has 10 graded blocks. No probation (the hook since PR #5): an allowlisted model sets k from its first attestation, and is demoted to k = kDefault = 0 (a vanilla pool) only while its posted Brier > 0.25.
 - Retail: the v4 model (Poisson 0.1 orders/s → 1.2 per block, lognormal size median $400, autocorrelated direction, 5% informed over 30 s), routed per market between the two pools by best execution (optimal split). Keeper gas from the setAttestation receipts; net = gross − keeper gas at 1 gwei (LPs fund the keeper).
 - Not modelled: priority fees / bribes other than the break-even payment computed below, arbs that are also builders (the arb here never outbids the keeper), backruns within a block by other searchers, CEX–DEX arbs that trade between blocks on other venues, gas-price volatility, the Chainlink sanity-band gas (see the 110k columns), settler gas. Retail demand does not react to the fee except by routing between the two pools.
@@ -20,9 +22,9 @@ Mean over the 6 windows with a **two-sided 95% Student-t interval over windows**
 
 | arm | gross bps/h [95% t] | gross $/h | keeper $/h @1 gwei | net bps/h @1 gwei [95% t] | net bps/h: 95% bootstrap (too narrow at n = 6) | net $/h | net bps/h, 110k gas [95% t] | reading (net @1 gwei) | windows positive (net): volatile / calm | posts/h | retail share % | retail cost bps: Oniblock / vanilla | market retail cost vs control bps | mean arb fee: Oniblock / vanilla | arb trades vs vanilla |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| R: post lands last in the previous block (no builder deal), mid 13 s old; oniblock1 + charge gate | 0.171 [-0.043, 0.386] | 343 | 23.1 | 0.160 [-0.049, 0.368] | [0.030, 0.316] | 320 | 0.156 [-0.050, 0.363] | positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero | 3/3 / 0/3 | 121 | 44.9 | 29.5 / 31.1 | -0.32 | 0.542% / 0.300% | 71% |
+| R: post lands last in the previous block (no builder deal), mid 13 s old; teacher (LightGBM) + charge gate | 0.171 [-0.043, 0.386] | 343 | 23.1 | 0.160 [-0.049, 0.368] | [0.030, 0.316] | 320 | 0.156 [-0.050, 0.363] | positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero | 3/3 / 0/3 | 121 | 44.9 | 29.5 / 31.1 | -0.32 | 0.542% / 0.300% | 71% |
 | R0: as R, gate off (k = 0.8 p) | 0.170 [-0.082, 0.421] | 339 | 28.2 | 0.155 [-0.090, 0.401] | [-0.004, 0.323] | 311 | 0.151 [-0.092, 0.394] | positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero | 3/3 / 0/3 | 147 | 41.2 | 28.4 / 31.3 | -0.40 | 0.629% / 0.300% | 62% |
-| C: keeper posts first in the block (cooperating builder), mid 2 s old; oniblock1 + charge gate | 0.300 [-0.135, 0.736] | 601 | 23.1 | 0.289 [-0.142, 0.720] | [0.024, 0.618] | 578 | 0.285 [-0.144, 0.714] | positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero | 3/3 / 0/3 | 126 | 43.3 | 28.3 / 31.0 | -0.87 | 0.792% / 0.300% | 51% |
+| C: keeper posts first in the block (cooperating builder), mid 2 s old; teacher (LightGBM) + charge gate | 0.300 [-0.135, 0.736] | 601 | 23.1 | 0.289 [-0.142, 0.720] | [0.024, 0.618] | 578 | 0.285 [-0.144, 0.714] | positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero | 3/3 / 0/3 | 126 | 43.3 | 28.3 / 31.0 | -0.87 | 0.792% / 0.300% | 51% |
 | C0: as C, gate off (k = 0.8 p) | 0.303 [-0.163, 0.769] | 605 | 29.5 | 0.288 [-0.171, 0.746] | [0.011, 0.645] | 576 | 0.283 [-0.173, 0.739] | positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero | 3/3 / 0/3 | 160 | 39.4 | 28.4 / 30.9 | -0.78 | 0.896% / 0.300% | 45% |
 | Rh: realistic timing, heuristic scorer (reference) | 0.129 [-0.082, 0.339] | 257 | 29.9 | 0.114 [-0.089, 0.316] | [-0.007, 0.272] | 227 | 0.109 [-0.091, 0.309] | positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero | 3/3 / 0/3 | 156 | 40.4 | 28.9 / 31.4 | -0.23 | 0.586% / 0.300% | 67% |
 | Ch: coop timing, heuristic scorer (reference) | 0.288 [-0.156, 0.733] | 576 | 29.7 | 0.273 [-0.164, 0.710] | [0.005, 0.612] | 547 | 0.268 [-0.166, 0.702] | positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero | 3/3 / 0/3 | 162 | 38.3 | 28.2 / 31.1 | -0.70 | 0.864% / 0.300% | 46% |
@@ -44,10 +46,10 @@ charged = the probability in force at the block ≥ the model's chargeThreshold 
 
 | arm | model (chargeThreshold) | graded blocks | toxic base rate | charged | pass rate | FPR | coverage | TPR | Brier | keeper decisions charged | volatile pass / FPR / TPR | calm pass / FPR / TPR |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| R | oniblock1 (0.8224) | 290 | 32.8% | 57 | 89.5% | 3.1% | 19.7% | 53.7% | 0.087 | 16.0% | 89.5% / 9.2% / 53.7% | - / 0.0% / - |
-| R0 | oniblock1 (0.8224) | 283 | 35.7% | 75 | 90.7% | 3.8% | 26.5% | 67.3% | 0.081 | 19.9% | 90.7% / 12.1% / 67.3% | - / 0.0% / - |
-| C | oniblock1 (0.8224) | 280 | 31.4% | 73 | 98.6% | 0.5% | 26.1% | 81.8% | 0.026 | 20.3% | 98.6% / 1.6% / 81.8% | - / 0.0% / - |
-| C0 | oniblock1 (0.8224) | 257 | 35.0% | 81 | 98.8% | 0.6% | 31.5% | 88.9% | 0.023 | 22.0% | 98.8% / 2.2% / 88.9% | - / 0.0% / - |
+| R | teacher-lightgbm (0.8224) | 290 | 32.8% | 57 | 89.5% | 3.1% | 19.7% | 53.7% | 0.087 | 16.0% | 89.5% / 9.2% / 53.7% | - / 0.0% / - |
+| R0 | teacher-lightgbm (0.8224) | 283 | 35.7% | 75 | 90.7% | 3.8% | 26.5% | 67.3% | 0.081 | 19.9% | 90.7% / 12.1% / 67.3% | - / 0.0% / - |
+| C | teacher-lightgbm (0.8224) | 280 | 31.4% | 73 | 98.6% | 0.5% | 26.1% | 81.8% | 0.026 | 20.3% | 98.6% / 1.6% / 81.8% | - / 0.0% / - |
+| C0 | teacher-lightgbm (0.8224) | 257 | 35.0% | 81 | 98.8% | 0.6% | 31.5% | 88.9% | 0.023 | 22.0% | 98.8% / 2.2% / 88.9% | - / 0.0% / - |
 
 ### Paired differences (per window, then over windows)
 
@@ -55,11 +57,11 @@ Mean over the 6 windows with a **two-sided 95% Student-t interval over windows**
 
 | difference | net bps/h @1 gwei [95% t] | 95% bootstrap (too narrow at n = 6) | net $/h | reading | windows positive: volatile / calm | retail share pp | volatile net bps/h, per window | calm net bps/h, per window |
 |---|---|---|---|---|---|---|---|---|
-| C − R: value of the builder deal for oniblock1 (first position + 2 s mid vs no deal, same model) | 0.129 [-0.158, 0.417] | [-0.009, 0.359] | 258 | positive in 2/3 volatile, 0/3 calm windows; t-interval includes zero | 2/3 / 0/3 | -1.6 | 0.677, -0.022, 0.129 (mean 0.261) | -0.004, -0.004, -0.002 (mean -0.003) |
+| C − R: value of the builder deal for the teacher (LightGBM) (first position + 2 s mid vs no deal, same model) | 0.129 [-0.158, 0.417] | [-0.009, 0.359] | 258 | positive in 2/3 volatile, 0/3 calm windows; t-interval includes zero | 2/3 / 0/3 | -1.6 | 0.677, -0.022, 0.129 (mean 0.261) | -0.004, -0.004, -0.002 (mean -0.003) |
 | C − C0: charge gate on vs off (coop) | 0.001 [-0.039, 0.041] | [-0.030, 0.024] | 2 | positive in 1/3 volatile, 3/3 calm windows; t-interval includes zero | 1/3 / 3/3 | 3.8 | -0.070, -0.012, 0.035 (mean -0.016) | 0.026, 0.013, 0.014 (mean 0.018) |
 | R − R0: charge gate on vs off (realistic) | 0.004 [-0.072, 0.081] | [-0.054, 0.054] | 9 | positive in 1/3 volatile, 3/3 calm windows; t-interval includes zero | 1/3 / 3/3 | 3.7 | -0.121, 0.104, -0.012 (mean -0.010) | 0.030, 0.013, 0.013 (mean 0.019) |
-| C − Ch: oniblock1 vs the heuristic, coop timing | 0.016 [-0.024, 0.055] | [-0.013, 0.040] | 31 | positive in 1/3 volatile, 3/3 calm windows; t-interval includes zero | 1/3 / 3/3 | 5.0 | -0.002, -0.050, 0.053 (mean 0.000) | 0.038, 0.035, 0.020 (mean 0.031) |
-| R − Rh: oniblock1 vs the heuristic, realistic timing | 0.046 [0.006, 0.086] | [0.025, 0.077] | 92 | positive in 3/3 volatile, 3/3 calm windows; t-interval excludes zero (> 0) | 3/3 / 3/3 | 4.5 | 0.121, 0.036, 0.021 (mean 0.060) | 0.044, 0.035, 0.020 (mean 0.033) |
+| C − Ch: teacher (LightGBM) vs the heuristic, coop timing | 0.016 [-0.024, 0.055] | [-0.013, 0.040] | 31 | positive in 1/3 volatile, 3/3 calm windows; t-interval includes zero | 1/3 / 3/3 | 5.0 | -0.002, -0.050, 0.053 (mean 0.000) | 0.038, 0.035, 0.020 (mean 0.031) |
+| R − Rh: teacher (LightGBM) vs the heuristic, realistic timing | 0.046 [0.006, 0.086] | [0.025, 0.077] | 92 | positive in 3/3 volatile, 3/3 calm windows; t-interval excludes zero (> 0) | 3/3 / 3/3 | 4.5 | 0.121, 0.036, 0.021 (mean 0.060) | 0.044, 0.035, 0.020 (mean 0.033) |
 
 ### Break-even payment to the builder (arm C)
 
@@ -125,9 +127,9 @@ Mean over the 6 windows with a **two-sided 95% Student-t interval over windows**
 
 | arm | gross bps/h [95% t] | gross $/h | keeper $/h @1 gwei | net bps/h @1 gwei [95% t] | net bps/h: 95% bootstrap (too narrow at n = 6) | net $/h | net bps/h, 110k gas [95% t] | reading (net @1 gwei) | windows positive (net): volatile / calm | posts/h | retail share % | retail cost bps: Oniblock / vanilla | market retail cost vs control bps | mean arb fee: Oniblock / vanilla | arb trades vs vanilla |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| R: post lands last in the previous block (no builder deal), mid 13 s old; oniblock1 + charge gate | 0.053 [-0.036, 0.142] | 105 | 31.6 | 0.037 [-0.045, 0.119] | [-0.010, 0.103] | 74 | 0.032 [-0.048, 0.113] | positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero | 3/3 / 0/3 | 165 | 37.8 | 5.5 / 6.2 | 0.02 | 0.083% / 0.050% | 39% |
+| R: post lands last in the previous block (no builder deal), mid 13 s old; teacher (LightGBM) + charge gate | 0.053 [-0.036, 0.142] | 105 | 31.6 | 0.037 [-0.045, 0.119] | [-0.010, 0.103] | 74 | 0.032 [-0.048, 0.113] | positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero | 3/3 / 0/3 | 165 | 37.8 | 5.5 / 6.2 | 0.02 | 0.083% / 0.050% | 39% |
 | R0: as R, gate off (k = 0.8 p) | 0.076 [-0.051, 0.203] | 152 | 33.7 | 0.059 [-0.060, 0.179] | [-0.008, 0.149] | 119 | 0.054 [-0.063, 0.171] | positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero | 3/3 / 0/3 | 177 | 33.6 | 5.2 / 6.4 | 0.11 | 0.104% / 0.050% | 35% |
-| C: keeper posts first in the block (cooperating builder), mid 2 s old; oniblock1 + charge gate | 0.522 [-0.205, 1.249] | 1044 | 30.0 | 0.507 [-0.213, 1.227] | [0.061, 1.045] | 1014 | 0.502 [-0.216, 1.220] | positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero | 3/3 / 0/3 | 164 | 36.5 | 4.9 / 6.2 | -0.19 | 0.357% / 0.050% | 25% |
+| C: keeper posts first in the block (cooperating builder), mid 2 s old; teacher (LightGBM) + charge gate | 0.522 [-0.205, 1.249] | 1044 | 30.0 | 0.507 [-0.213, 1.227] | [0.061, 1.045] | 1014 | 0.502 [-0.216, 1.220] | positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero | 3/3 / 0/3 | 164 | 36.5 | 4.9 / 6.2 | -0.19 | 0.357% / 0.050% | 25% |
 | C0: as C, gate off (k = 0.8 p) | 0.537 [-0.214, 1.289] | 1075 | 32.0 | 0.521 [-0.223, 1.266] | [0.063, 1.096] | 1043 | 0.516 [-0.226, 1.257] | positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero | 3/3 / 0/3 | 175 | 34.2 | 5.1 / 6.3 | -0.05 | 0.439% / 0.050% | 21% |
 | Rh: realistic timing, heuristic scorer (reference) | 0.086 [-0.053, 0.225] | 172 | 37.7 | 0.067 [-0.066, 0.200] | [-0.006, 0.172] | 134 | 0.061 [-0.070, 0.193] | positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero | 3/3 / 0/3 | 202 | 35.8 | 4.9 / 6.5 | 0.04 | 0.107% / 0.050% | 35% |
 | Ch: coop timing, heuristic scorer (reference) | 0.549 [-0.212, 1.311] | 1099 | 35.1 | 0.532 [-0.224, 1.288] | [0.063, 1.112] | 1064 | 0.526 [-0.228, 1.280] | positive in 3/3 volatile, 0/3 calm windows; t-interval includes zero | 3/3 / 0/3 | 196 | 35.1 | 4.8 / 6.3 | -0.13 | 0.451% / 0.050% | 20% |
@@ -149,10 +151,10 @@ charged = the probability in force at the block ≥ the model's chargeThreshold 
 
 | arm | model (chargeThreshold) | graded blocks | toxic base rate | charged | pass rate | FPR | coverage | TPR | Brier | keeper decisions charged | volatile pass / FPR / TPR | calm pass / FPR / TPR |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| R | oniblock1 (0.8224) | 189 | 89.4% | 89 | 98.9% | 5.0% | 47.1% | 52.1% | 0.150 | 48.4% | 100.0% / 0.0% / 51.5% | 66.7% / 10.0% / 100.0% |
-| R0 | oniblock1 (0.8224) | 178 | 91.6% | 114 | 98.2% | 13.3% | 64.0% | 68.7% | 0.115 | 50.6% | 99.1% / 14.3% / 68.3% | 66.7% / 12.5% / 100.0% |
-| C | oniblock1 (0.8224) | 217 | 91.2% | 158 | 99.4% | 5.3% | 72.8% | 79.3% | 0.053 | 54.6% | 100.0% / 0.0% / 79.1% | 66.7% / 10.0% / 100.0% |
-| C0 | oniblock1 (0.8224) | 197 | 92.9% | 165 | 99.4% | 7.1% | 83.8% | 89.6% | 0.036 | 56.5% | 100.0% / 0.0% / 89.5% | 66.7% / 11.1% / 100.0% |
+| R | teacher-lightgbm (0.8224) | 189 | 89.4% | 89 | 98.9% | 5.0% | 47.1% | 52.1% | 0.150 | 48.4% | 100.0% / 0.0% / 51.5% | 66.7% / 10.0% / 100.0% |
+| R0 | teacher-lightgbm (0.8224) | 178 | 91.6% | 114 | 98.2% | 13.3% | 64.0% | 68.7% | 0.115 | 50.6% | 99.1% / 14.3% / 68.3% | 66.7% / 12.5% / 100.0% |
+| C | teacher-lightgbm (0.8224) | 217 | 91.2% | 158 | 99.4% | 5.3% | 72.8% | 79.3% | 0.053 | 54.6% | 100.0% / 0.0% / 79.1% | 66.7% / 10.0% / 100.0% |
+| C0 | teacher-lightgbm (0.8224) | 197 | 92.9% | 165 | 99.4% | 7.1% | 83.8% | 89.6% | 0.036 | 56.5% | 100.0% / 0.0% / 89.5% | 66.7% / 11.1% / 100.0% |
 
 ### Paired differences (per window, then over windows)
 
@@ -160,11 +162,11 @@ Mean over the 6 windows with a **two-sided 95% Student-t interval over windows**
 
 | difference | net bps/h @1 gwei [95% t] | 95% bootstrap (too narrow at n = 6) | net $/h | reading | windows positive: volatile / calm | retail share pp | volatile net bps/h, per window | calm net bps/h, per window |
 |---|---|---|---|---|---|---|---|---|
-| C − R: value of the builder deal for oniblock1 (first position + 2 s mid vs no deal, same model) | 0.470 [-0.170, 1.110] | [0.071, 0.955] | 940 | positive in 3/3 volatile, 1/3 calm windows; t-interval includes zero | 3/3 / 1/3 | -1.2 | 1.457, 0.938, 0.425 (mean 0.940) | -0.001, -0.000, 0.001 (mean 0.000) |
+| C − R: value of the builder deal for the teacher (LightGBM) (first position + 2 s mid vs no deal, same model) | 0.470 [-0.170, 1.110] | [0.071, 0.955] | 940 | positive in 3/3 volatile, 1/3 calm windows; t-interval includes zero | 3/3 / 1/3 | -1.2 | 1.457, 0.938, 0.425 (mean 0.940) | -0.001, -0.000, 0.001 (mean 0.000) |
 | C − C0: charge gate on vs off (coop) | -0.014 [-0.043, 0.014] | [-0.036, 0.001] | -29 | positive in 0/3 volatile, 3/3 calm windows; t-interval includes zero | 0/3 / 3/3 | 2.3 | -0.065, -0.004, -0.023 (mean -0.031) | 0.002, 0.002, 0.003 (mean 0.002) |
 | R − R0: charge gate on vs off (realistic) | -0.022 [-0.059, 0.015] | [-0.052, -0.002] | -45 | positive in 0/3 volatile, 3/3 calm windows; t-interval includes zero | 0/3 / 3/3 | 4.2 | -0.088, -0.029, -0.024 (mean -0.047) | 0.002, 0.003, 0.002 (mean 0.002) |
-| C − Ch: oniblock1 vs the heuristic, coop timing | -0.025 [-0.061, 0.012] | [-0.052, -0.002] | -50 | positive in 0/3 volatile, 3/3 calm windows; t-interval includes zero | 0/3 / 3/3 | 1.4 | -0.079, -0.047, -0.036 (mean -0.054) | 0.004, 0.003, 0.005 (mean 0.004) |
-| R − Rh: oniblock1 vs the heuristic, realistic timing | -0.030 [-0.082, 0.021] | [-0.069, -0.001] | -60 | positive in 0/3 volatile, 3/3 calm windows; t-interval includes zero | 0/3 / 3/3 | 2.0 | -0.122, -0.027, -0.043 (mean -0.064) | 0.005, 0.003, 0.003 (mean 0.003) |
+| C − Ch: teacher (LightGBM) vs the heuristic, coop timing | -0.025 [-0.061, 0.012] | [-0.052, -0.002] | -50 | positive in 0/3 volatile, 3/3 calm windows; t-interval includes zero | 0/3 / 3/3 | 1.4 | -0.079, -0.047, -0.036 (mean -0.054) | 0.004, 0.003, 0.005 (mean 0.004) |
+| R − Rh: teacher (LightGBM) vs the heuristic, realistic timing | -0.030 [-0.082, 0.021] | [-0.069, -0.001] | -60 | positive in 0/3 volatile, 3/3 calm windows; t-interval includes zero | 0/3 / 3/3 | 2.0 | -0.122, -0.027, -0.043 (mean -0.064) | 0.005, 0.003, 0.003 (mean 0.003) |
 
 ### Break-even payment to the builder (arm C)
 

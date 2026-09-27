@@ -1,7 +1,7 @@
 /**
  * Training-exact CEX mids for the v2 mid features (realizedVolBps, vol5mBps, ret12/36/900Bps).
  *
- * oniblock1 / kev2 were trained (ml/src/build_v2.py) on ml/src/common.py `Mids`, which reads Binance
+ * The kev2 state (Kev v2) and the teacher LightGBM were trained (ml/src/build_v2.py) on ml/src/common.py `Mids`, which reads Binance
  * klines at EXACT offsets from t_obs (unix seconds):
  *   eth_usdt(t)  = close of the latest ETHUSDT 1s kline with openTime <= t, NaN if it opened > 5 s before t
  *   usdc_usdt(t) = close of the latest USDCUSDT 1m kline with openTime <= t, NaN if it opened > 180 s before t
@@ -16,8 +16,7 @@
 import { cexQuoteSymbol, fetchKlines, type FetchOpts, type Kline } from './cex.js';
 import { env } from './config.js';
 import { REALIZED_VOL_SAMPLES as VOL_SAMPLES, VOL5M_STEP_S as VOL_STEP_S } from './features.js';
-import { defaultTabularPath } from './model/tabular.js';
-import { kevStateFormat, loadTabularModel, tabularVersion, type ModelMode } from './model/index.js';
+import { isKevMode, kevStateFormat, type ModelMode } from './model/index.js';
 
 /** common.py: 1s ETHUSDT holes tolerated up to 5 s; 1m USDCUSDT up to 180 s. */
 export const ETH_KLINE_MAX_AGE_S = 5;
@@ -117,23 +116,13 @@ export async function fetchKlineMids(tObsS: number, o: KlineMidsFetchOpts = {}):
   return new KlineMids([...a, ...b], q);
 }
 
-/** Mid-feature names that only exist in the v2 models (a tabular model reading any of them needs the kline path). */
-const V2_MID_INPUTS = ['edgeSigma', 'vol5mBps', 'ret12Bps', 'ret36Bps', 'ret900Bps'];
-
 /**
- * Whether this keeper's model reads the v2 mid features and so must get them from klines: MODEL_MODE=kev with
- * KEV_STATE_FORMAT=kev2, or tabular / oniblock1 whose model file has a v2 mid input (oniblock1, or TABULAR_MODEL_PATH
- * to such a file). The v1 Kev text / Jev / heuristic keep the per-tick path. A replay or injected mid source
- * (`liveMid` false) has no Binance history to match, so it keeps the per-tick path too.
+ * Whether this keeper's model reads the v2 mid features and so must get them from klines: MODEL_MODE=oniblock1 (or its
+ * alias kev) with KEV_STATE_FORMAT=kev2 (a Kev v2 adapter). The v1 Kev text (KEV_STATE_FORMAT=auto, today's oniblock1
+ * weights) / Jev / heuristic keep the per-tick path. A replay or injected mid source (`liveMid` false) has no Binance
+ * history to match, so it keeps the per-tick path too.
  */
 export function klineMidFeaturesNeeded(mode: ModelMode, liveMid: boolean): boolean {
   if (!liveMid) return false;
-  if (mode === 'kev') return kevStateFormat() === 'kev2';
-  if (mode !== 'tabular' && mode !== 'oniblock1') return false;
-  try {
-    const m = loadTabularModel(env('TABULAR_MODEL_PATH') ?? defaultTabularPath(tabularVersion(mode)));
-    return !!m?.features.some((n) => V2_MID_INPUTS.includes(n));
-  } catch {
-    return false; // invalid model file: scoreTabular falls back to the heuristic, which reads no v2 mid feature
-  }
+  return isKevMode(mode) && kevStateFormat() === 'kev2';
 }

@@ -329,7 +329,7 @@ export const attackLabel = (t: string | null | undefined) => (t == null ? '—' 
 
 /**
  * One line of the keeper's verdicts file (services/src/keeper.ts VerdictLog): the v6 model answer behind a posted
- * attestation. pMalicious / attack / attackProbs are null for models without the v6 head (rule-v1, tabular).
+ * attestation. pMalicious / attack / attackProbs are null for models without the v6 head (rule-v1, oniblock1 = Kev).
  */
 export interface VerdictJson {
   /** observed block (features) and the attested target block */

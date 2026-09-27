@@ -1,5 +1,6 @@
 /**
- * Scorer entry point: Jev first (bounded latency), deterministic heuristic fallback.
+ * Scorer entry point. MODEL_MODE=oniblock1 (production; alias kev) = the Kev System One fine-tune over KEV_URL; auto = Jev
+ * (bounded latency); every mode falls back to the deterministic heuristic.
  * `degraded` mode deliberately inverts predictions with high confidence so the settler's
  * Brier score worsens and the on-chain calibration gate demotes the model (demo step 5).
  */
@@ -8,21 +9,22 @@ import { canonicalFeatures, featuresToState, type Features } from '../features.j
 import { scoreHeuristic } from './heuristic.js';
 import { defaultJevPrompt, scoreWithJev, type JevCache, type JevPrompt } from './jev.js';
 import { scoreWithKev } from './kev.js';
-import { scoreTabular } from './tabular.js';
 import { clampBps, type ModelScore } from './types.js';
 
 export * from './types.js';
 export { scoreHeuristic, heuristicAttack, heuristicPJitBps } from './heuristic.js';
 export { scoreWithJev, parseJev, JevCache, JEV_QUESTIONS, JEV_QUESTIONS_V1, JEV_QUESTIONS_V4, JEV_QUESTIONS_V5, JEV_QUESTIONS_V6, JEV_MODEL, jevCacheKey, jevQuestions, defaultJevPrompt, type JevPrompt } from './jev.js';
 
-export { scoreWithKev, parseKev, KEV_QUESTIONS, kevModelName, kevSize } from './kev.js';
-export { scoreTabular, predictTabular, loadTabularModel, tabularInputs, tabularVersion, tabularModelName, TABULAR_FEATURES } from './tabular.js';
+export { scoreWithKev, parseKev, KEV_QUESTIONS, KEV_MODEL_NAME, loadKevThreshold, kevThresholdPath } from './kev.js';
 
 /**
- * kev = local fine-tuned Kev server (KEV_URL, KEV_MODEL=0.8b|4b, KEV_STATE_FORMAT=auto|kev2); tabular = LightGBM trees in-process
- * with the oniblock1 model (MODEL_MODE=tabular and MODEL_MODE=oniblock1 are the same). All fall back to the heuristic.
+ * oniblock1 = the production model: the local fine-tuned Kev System One server (KEV_URL, KEV_STATE_FORMAT=auto|kev2),
+ * posted under oniblock1.models.oniblock.eth; kev = the same (alias). All fall back to the heuristic.
  */
-export type ModelMode = 'auto' | 'jev' | 'heuristic' | 'kev' | 'tabular' | 'oniblock1';
+export type ModelMode = 'auto' | 'jev' | 'heuristic' | 'kev' | 'oniblock1';
+
+/** MODEL_MODE values scored by the Kev System One client (oniblock1 and its alias kev). */
+export const isKevMode = (mode: string | undefined): boolean => mode === 'oniblock1' || mode === 'kev';
 
 export interface ScoreOpts {
   /** auto = Jev then heuristic (default); jev = Jev only (heuristic still used if Jev fails); heuristic = skip Jev. */
@@ -51,7 +53,8 @@ export function degrade(s: ModelScore): ModelScore {
   };
 }
 
-/** Kev state format (env KEV_STATE_FORMAT): auto = the v1 adapter's 8-line base-fee text (default), kev2 = + the 3 v2 lines. */
+/** Kev state format (env KEV_STATE_FORMAT): auto = the v1 adapter's 8-line base-fee text (default: today's oniblock1
+ *  weights, ml/models/kev08b-v1), kev2 = + the 3 v2 lines (a Kev v2 adapter only). */
 export type KevStateFormat = 'auto' | 'kev2';
 export const kevStateFormat = (): KevStateFormat => (env('KEV_STATE_FORMAT', 'auto') === 'kev2' ? 'kev2' : 'auto');
 
@@ -72,10 +75,8 @@ export function kevState(f: Features, baseIsToken0?: boolean, format: KevStateFo
 export async function score(f: Features, opts: ScoreOpts = {}): Promise<ModelScore> {
   const mode = opts.mode ?? (env('MODEL_MODE', 'auto') as ModelMode);
   let s: ModelScore | null = null;
-  if (mode === 'kev') {
+  if (isKevMode(mode)) {
     s = await scoreWithKev(kevState(f, opts.baseIsToken0), { timeoutMs: opts.timeoutMs });
-  } else if (mode === 'tabular' || mode === 'oniblock1') {
-    s = scoreTabular(canonicalFeatures(f, opts.baseIsToken0), undefined, mode === 'oniblock1' ? 'oniblock1' : undefined);
   } else if (mode !== 'heuristic') {
     const prompt = opts.prompt ?? defaultJevPrompt();
     s = await scoreWithJev(featuresToState(f, { baseIsToken0: opts.baseIsToken0, format: stateFormatFor(prompt) }), {

@@ -1,0 +1,234 @@
+{
+ "definition": "Selective-metric evaluation on the held-out test split: No hook vs Jev vs oniblock1 (= Kev v1 weights).\n\nThe hook charges a premium on a block iff p >= t, else it behaves as a vanilla pool.\n  pass rate = toxic charged / charged   FPR = benign charged / all benign\n  coverage  = charged / all             TPR = toxic charged / all toxic\nTarget for the production model: pass rate >= 75% and FPR < 7%.\nThresholds never see the scored rows. Jev's gate is chosen on validation (FPR <= 5%). oniblock1 (Kev v1 LoRA,\ntest_3k scored post-temperature T = 1.1225) is reported two ways: (a) the fixed charge gate 0.8175, chosen on the\ntemperature-corrected val_1k (FPR <= 5%); (b) walk-forward, each test day re-picking t on the trailing 7 days of\nlabelled rows available before it (val_1k + earlier test_3k days, FPR <= 5%, >= 100 benign labels in the window,\nelse the fixed gate). The rolling windows are thin (1k/3k subsets, a few hundred benign labels each).\nCIs: 95% day-block bootstrap (resample whole days).\nThe teacher LightGBM (generates Kev v2's soft targets; not deployed) is kept for reference, walk-forward on the\nfull test split as before.",
+ "no_hook": {
+  "coverage": 0.0,
+  "fpr": 0.0,
+  "tpr": 0.0
+ },
+ "jev_deployed_no_gate_test_3k": {
+  "n": 3000,
+  "coverage": 1.0,
+  "pass_rate": 0.599,
+  "fpr": 1.0,
+  "tpr": 1.0,
+  "auc": 0.6047478687810246,
+  "note": "k = 0.8 p: premium on every block"
+ },
+ "jev_calibrated_gate_test_3k": {
+  "n": 3000,
+  "coverage": 0.13766666666666666,
+  "pass_rate": 0.8111380145278451,
+  "fpr": 0.06483790523690773,
+  "tpr": 0.1864218141346689,
+  "auc": 0.6047478687810246,
+  "threshold": 0.7681573991568513,
+  "ci95": {
+   "pass_rate": [
+    0.7690240820373544,
+    0.8464092521980794
+   ],
+   "fpr": [
+    0.05225225225225225,
+    0.08212028102549652
+   ],
+   "tpr": [
+    0.16695993377287177,
+    0.2025018288761284
+   ]
+  }
+ },
+ "oniblock1_kev1_fixed_gate_test_3k": {
+  "n": 3000,
+  "coverage": 0.10866666666666666,
+  "pass_rate": 0.7730061349693251,
+  "fpr": 0.06151288445552785,
+  "tpr": 0.14023372287145242,
+  "auc": 0.699406186814544,
+  "threshold": 0.8175,
+  "inference_temperature": 1.1224620483093728,
+  "val_1k_fpr": 0.04856512141280353,
+  "ci95": {
+   "pass_rate": [
+    0.7398832181963437,
+    0.8121971031082152
+   ],
+   "fpr": [
+    0.048534172445446826,
+    0.07182647958330886
+   ],
+   "tpr": [
+    0.12746199513726603,
+    0.15273852966045123
+   ]
+  },
+  "gate_sensitivity": {
+   "t=0.81606": {
+    "pass_rate": 0.7787356321839081,
+    "fpr": 0.06400665004156277,
+    "coverage": 0.116,
+    "tpr": 0.15080690038953812
+   },
+   "t=0.81882": {
+    "pass_rate": 0.7662337662337663,
+    "fpr": 0.059850374064837904,
+    "coverage": 0.10266666666666667,
+    "tpr": 0.13132999443516974
+   }
+  },
+  "note": "any t in (lo, hi] charges the same 22/453 T-corrected val_1k benign blocks"
+ },
+ "oniblock1_kev1_rolling_test_3k": {
+  "n": 3000,
+  "coverage": 0.08566666666666667,
+  "pass_rate": 0.7665369649805448,
+  "fpr": 0.04987531172069826,
+  "tpr": 0.10962715637173066,
+  "auc": 0.699406186814544,
+  "ci95": {
+   "pass_rate": [
+    0.7231936300639659,
+    0.8139654759050587
+   ],
+   "fpr": [
+    0.03703362033620336,
+    0.06101623768733343
+   ],
+   "tpr": [
+    0.09252706023313431,
+    0.12567264357716007
+   ]
+  },
+  "windows": [
+   {
+    "day": 20711,
+    "window_rows": 546,
+    "window_benign": 235,
+    "threshold": 0.8255320254115001,
+    "fallback": false
+   },
+   {
+    "day": 20712,
+    "window_rows": 756,
+    "window_benign": 334,
+    "threshold": 0.821740066358253,
+    "fallback": false
+   },
+   {
+    "day": 20713,
+    "window_rows": 977,
+    "window_benign": 412,
+    "threshold": 0.8190682679062298,
+    "fallback": false
+   },
+   {
+    "day": 20714,
+    "window_rows": 1105,
+    "window_benign": 476,
+    "threshold": 0.821740066358253,
+    "fallback": false
+   },
+   {
+    "day": 20715,
+    "window_rows": 1348,
+    "window_benign": 602,
+    "threshold": 0.820139313345339,
+    "fallback": false
+   },
+   {
+    "day": 20716,
+    "window_rows": 1495,
+    "window_benign": 665,
+    "threshold": 0.8177680129487974,
+    "fallback": false
+   },
+   {
+    "day": 20717,
+    "window_rows": 1640,
+    "window_benign": 710,
+    "threshold": 0.821740066358253,
+    "fallback": false
+   },
+   {
+    "day": 20718,
+    "window_rows": 1982,
+    "window_benign": 846,
+    "threshold": 0.8209626552329131,
+    "fallback": false
+   },
+   {
+    "day": 20719,
+    "window_rows": 1985,
+    "window_benign": 831,
+    "threshold": 0.8232025153409264,
+    "fallback": false
+   },
+   {
+    "day": 20720,
+    "window_rows": 1933,
+    "window_benign": 798,
+    "threshold": 0.824313498631233,
+    "fallback": false
+   },
+   {
+    "day": 20721,
+    "window_rows": 2007,
+    "window_benign": 804,
+    "threshold": 0.8236102216369907,
+    "fallback": false
+   }
+  ],
+  "note": "walk-forward: trailing 7 days of val_1k + earlier test_3k, FPR <= 0.05, >= 100 benign else fixed gate; thin windows (1k/3k subsets)"
+ },
+ "teacher_lightgbm_rolling_full_test": {
+  "n": 12837,
+  "coverage": 0.4652956298200514,
+  "pass_rate": 0.953624644232379,
+  "fpr": 0.055344655344655345,
+  "tpr": 0.7272727272727273,
+  "auc": 0.9355700224188478,
+  "ci95": {
+   "pass_rate": [
+    0.9422038469890099,
+    0.9661437833368574
+   ],
+   "fpr": [
+    0.04181788712070402,
+    0.06848499262180513
+   ],
+   "tpr": [
+    0.7058216240339018,
+    0.745944055868894
+   ]
+  }
+ },
+ "teacher_lightgbm_rolling_test_3k": {
+  "n": 3000,
+  "coverage": 0.45166666666666666,
+  "pass_rate": 0.9505535055350554,
+  "fpr": 0.05569409808811305,
+  "tpr": 0.7167501391207568,
+  "auc": 0.9287549073892897,
+  "ci95": {
+   "pass_rate": [
+    0.9375794760029146,
+    0.9650711111931665
+   ],
+   "fpr": [
+    0.04125514308168832,
+    0.06833683180517158
+   ],
+   "tpr": [
+    0.6842851834224207,
+    0.7493767703281874
+   ]
+  }
+ },
+ "teacher_lightgbm_fixed_threshold_full_test": {
+  "n": 12837,
+  "coverage": 0.5129703201682636,
+  "pass_rate": 0.9438116932422171,
+  "fpr": 0.07392607392607392,
+  "tpr": 0.7935393258426966,
+  "threshold": 0.8224
+ }
+}

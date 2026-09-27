@@ -90,7 +90,8 @@ contract EnsSetupForkTest is Test {
         cfg.policyUri = "urn:oniblock:fee-law:v1";
         cfg.modelHashJev = vm.toString(keccak256("typesafe-ai/jev"));
         cfg.modelHashHeuristic = vm.toString(keccak256("oniblock/heuristic-v1"));
-        cfg.modelHashOniblock1 = "0x5a766bf0a501fddd296576baa3315e632fdec841faafd81259e5b3a7cedd32a9";
+        // oniblock1 = the Kev-0.8B LoRA adapter: sha256 of ml/models/kev08b-v1/SHA256 (EnsSetup default)
+        cfg.modelHashOniblock1 = "0x24f0793d55e0fde516ebe4da1d187e0468a5f7c830ba9a9f4d48e43f007c88be";
         cfg.poolLabel = "weth-usdc";
         cfg.endpointJev = "https://ai-gateway.vercel.sh/v1/evaluate";
         cfg.endpointHeuristic = "in-process";
@@ -250,8 +251,8 @@ contract EnsSetupForkTest is Test {
         assertTrue(res.hasRoles(thrRes, EnsV2Lib.RES_ROLE_SET_TEXT, settler));
         assertFalse(res.hasRoles(thrRes, EnsV2Lib.RES_ROLE_SET_TEXT, owner), "owner holds no setter role for it");
         vm.prank(settler);
-        res.setText(oni, "calibration.chargeThreshold", "8224");
-        assertEq(_text(oni, "calibration.chargeThreshold"), "8224");
+        res.setText(oni, "calibration.chargeThreshold", "8175");
+        assertEq(_text(oni, "calibration.chargeThreshold"), "8175");
         vm.prank(owner);
         vm.expectRevert();
         res.setText(oni, "calibration.chargeThreshold", "0");
@@ -299,8 +300,15 @@ contract EnsSetupForkTest is Test {
         assertEq(_urText("jev-v1.models.oniblock.eth", "model-hash"), cfg.modelHashJev);
         assertEq(_urText("heuristic-v1.models.oniblock.eth", "model-hash"), cfg.modelHashHeuristic);
         assertEq(_urText("oniblock1.models.oniblock.eth", "model-hash"), cfg.modelHashOniblock1);
-        assertGt(bytes(_urText("oniblock1.models.oniblock.eth", "agent-context")).length, 0);
-        assertGt(bytes(_urText("oniblock1.models.oniblock.eth", "description")).length, 0);
+        string memory oniCtx = _urText("oniblock1.models.oniblock.eth", "agent-context");
+        assertTrue(vm.contains(oniCtx, "Kev-0.8B"), "oniblock1 agent-context names the Kev model");
+        assertTrue(vm.contains(oniCtx, "is this block's arbitrage flow informed?"));
+        assertTrue(vm.contains(oniCtx, "Charge gate 0.8175"));
+        assertFalse(vm.contains(oniCtx, "LightGBM"), "oniblock1 is not the LightGBM teacher");
+        assertEq(
+            _urText("oniblock1.models.oniblock.eth", "description"),
+            "oniblock1: Kev-0.8B (jaredpalmer/kev-0.8b) LoRA fine-tune, a TypeSafe System One decision model; weights ml/models/kev08b-v1/adapter; model-hash = sha256 over its sorted per-file digests"
+        );
         assertGt(bytes(_urText("jev-v1.models.oniblock.eth", "agent-context")).length, 0);
         assertEq(_urText("weth-usdc.pools.oniblock.eth", "fee-max"), "10000");
         // ENSIP-26 agent-endpoint[<protocol>]

@@ -29,7 +29,7 @@
  * <DEMO_RUNTIME_DIR|.runtime>/verdicts.<chainId>.jsonl, capped to the last 5000 lines) for the app (/api/verdicts).
  *
  * CLI: tsx src/keeper.ts [--chain local|fork|sepolia] [--once] [--degraded] [--every N]
- *                        [--mode auto|jev|heuristic|kev|tabular|oniblock1] [--pool NAME]   (kev/tabular/oniblock1: set MODEL_MODE env so the default model node is kev-v1 / kev4b-v1 / oniblock1)
+ *                        [--mode auto|jev|heuristic|oniblock1|kev] [--pool NAME]   (oniblock1 / its alias kev: set MODEL_MODE env so the default model node is oniblock1)
  * Env: KEEPER_EVERY (default 1), ATTEST_BLOCK_OFFSET (default 1), MODEL_NAME (default per MODEL_MODE; MODEL_NODE overrides
  *      the node; the deployment json's modelNode, jev-v1's, is used only for the default Jev name),
  *      FALLBACK_MODEL_NAME, RULE_MODEL_NAME (default rule-v1.models.oniblock.eth),
@@ -54,7 +54,8 @@
  *        posts the minimum JIT window.) `auto` (resolveChargeThreshold): t = the settler's walk-forward threshold for this
  *        tick's model node from CHARGE_THRESHOLD_FILE (default <ROOT>/.runtime/charge-threshold.json, re-read on mtime
  *        change; FPR <= CHARGE_FPR_MAX on the trailing CHARGE_WINDOW_BLOCKS of labels, see chargeThreshold.ts); absent or
- *        null -> CHARGE_THRESHOLD_FALLBACK (0..1), else for tabular models the model JSON's chargeThreshold, else source
+ *        null -> CHARGE_THRESHOLD_FALLBACK (0..1), else for Kev (oniblock1) answers the adapter's validation-chosen
+ *        chargeThreshold (KEV_THRESHOLD_FILE, default ml/models/kev08b-v1/charge_threshold.json: 0.8175), else source
  *        `none` = charge nothing (fail-safe: confidence 0 => k = 0, vanilla pool; pToxic unchanged). The file is keyed
  *        <chainId>:<poolId>:<modelNode> (legacy modelNode-only keys still read) and an entry older than
  *        CHARGE_THRESHOLD_MAX_AGE_S (default 3600; <= 0 = no limit) is ignored (falls through the same chain).
@@ -86,9 +87,12 @@
  *        minedTxIndex and landedNext (mined in N+1).
  *      KEEPER_PRIORITY_GWEI (unset = viem's default, the node's eth_maxPriorityFeePerGas): maxPriorityFeePerGas of the
  *        keeper's setAttestation (quoter and backup quoter); maxFeePerGas = 1.2 x base fee + this.
- *      KEV_STATE_FORMAT (auto = v1 adapter text, default | kev2 = + the 3 v2 lines), MODEL_MODE=oniblock1 or tabular (both
- *        load the oniblock1 model, node oniblock1), TABULAR_MODEL (oniblock1, the only one), TABULAR_MODEL_PATH. Kev and tabular inputs are canonicalised to the training orientation
- *        (USDC token0, WETH token1; features.ts canonicalFeatures); Jev's input is unchanged.
+ *      MODEL_MODE=oniblock1 (production; alias kev): the Kev System One fine-tune (model/kev.ts; KEV_URL, default
+ *        http://127.0.0.1:8008/v1/systemone = ml/serve/start-kev.sh), node oniblock1.models.oniblock.eth. KEV_STATE_FORMAT
+ *        (auto = the v1 adapter's text, default | kev2 = + the 3 v2 lines, a Kev v2 adapter only; kev2 also fetches the
+ *        kline mids). MODEL_MODE=tabular is gone (LightGBM is not a production model): fatal_config. Kev inputs are
+ *        canonicalised to the training orientation (USDC token0, WETH token1; features.ts canonicalFeatures); Jev's input
+ *        is unchanged.
  *
  * v4 default ("the AI decides the fee", docs/review/V4_AI_DECIDES.md): no gate. Jev is asked every block and its
  * probability is the fee decision: with arbThresholdPips = 0 and kMin = kDefault = 0 the hook charges
@@ -154,8 +158,8 @@ import { getAttestations, getJitPenalties, getModifyLiquidity, getReceipts, keyT
 import { computeFeatures, JIT_LABEL_BLOCKS_DEFAULT, type JitPenaltyObs, type LiquidityObs, type SwapObs } from './features.js';
 import { fetchKlineMids, klineMidFeaturesNeeded, type KlineMids } from './klinemids.js';
 import { chargeThresholdMaxAgeS, chargeThresholdPath, rollingThresholdFor, type ChargeScope } from './chargeThreshold.js';
-import { defaultTabularPath } from './model/tabular.js';
-import { defaultJevPrompt, kevStateFormat, loadTabularModel, score, tabularModelName, tabularVersion, type AttackHead, type AttackType, type ModelMode, type ModelScore } from './model/index.js';
+import { KEV_URL } from './model/kev.js';
+import { defaultJevPrompt, isKevMode, KEV_MODEL_NAME, kevStateFormat, kevThresholdPath, loadKevThreshold, score, type AttackHead, type AttackType, type ModelMode, type ModelScore } from './model/index.js';
 import { midToPriceX96, sqrtPriceX96ToPriceX96 } from './price.js';
 import { postDecision, type PostedState, type PostPolicy, type PostReason } from './postPolicy.js';
 import { createWalletClient, type Chain, type Transport, type Account, type WalletClient } from 'viem';
@@ -203,11 +207,21 @@ export { poolStateAbi } from './abi/oniblockHook.js';
 const RECENT_MIDS = 120;
 
 export const DEFAULT_MODEL_NAME = 'jev-v1.models.oniblock.eth';
-/** Primary model node name per MODEL_MODE: kev -> kev-v1 (Kev-0.8B) / kev4b-v1 (KEV_MODEL=4b), oniblock1 / tabular -> oniblock1, else jev-v1. */
+/** Primary model node name per MODEL_MODE: oniblock1 / kev (the Kev System One model) -> oniblock1, else jev-v1. */
 export function defaultModelName(mode = env('MODEL_MODE', 'auto')): string {
-  if (mode === 'kev') return env('KEV_MODEL', '0.8b') === '4b' ? 'kev4b-v1.models.oniblock.eth' : 'kev-v1.models.oniblock.eth';
-  if (mode === 'tabular' || mode === 'oniblock1') return `${tabularModelName(tabularVersion(mode))}.models.oniblock.eth`;
+  if (isKevMode(mode)) return KEV_MODEL_NAME;
   return DEFAULT_MODEL_NAME;
+}
+
+export const MODEL_MODES: readonly ModelMode[] = ['auto', 'jev', 'heuristic', 'oniblock1', 'kev'];
+/** MODEL_MODE / --mode must be one of MODEL_MODES (unset = auto); anything else (e.g. the removed `tabular`) is a ConfigError. */
+export function assertModelMode(raw = env('MODEL_MODE')): ModelMode {
+  const m = raw === undefined || raw === '' ? 'auto' : raw;
+  if (!(MODEL_MODES as readonly string[]).includes(m)) {
+    const hint = m === 'tabular' ? ' (LightGBM is no longer a production model: oniblock1 is the Kev System One model)' : '';
+    throw new ConfigError(`MODEL_MODE must be one of ${MODEL_MODES.join(' | ')} (got ${JSON.stringify(raw)})${hint}`, { MODEL_MODE: raw });
+  }
+  return m as ModelMode;
 }
 export const DEFAULT_FALLBACK_MODEL_NAME = 'heuristic-v1.models.oniblock.eth';
 export const DEFAULT_RULE_MODEL_NAME = 'rule-v1.models.oniblock.eth';
@@ -297,7 +311,7 @@ export function fallbackSameNodeWarning(get: (name: string) => string | undefine
  * Threshold in force for one tick (header CHARGE_THRESHOLD). Unset -> off (for every role). Primary role: a fixed
  * number wins; `auto` -> the rolling threshold published for `modelNode` in `scope` (legacy modelNode-only entries are
  * still read; entries older than CHARGE_THRESHOLD_MAX_AGE_S are ignored) -> CHARGE_THRESHOLD_FALLBACK ->
- * `modelThreshold()` (tabular JSON's chargeThreshold) -> none = +Infinity (charge nothing: confidence 0, k = 0, vanilla
+ * `modelThreshold()` (the Kev adapter's charge_threshold.json) -> none = +Infinity (charge nothing: confidence 0, k = 0, vanilla
  * pool). Fallback role (fixed or auto): its own rolling entry, else none. Shared role: none. threshold undefined = no gate.
  */
 export function resolveChargeThreshold(o: {
@@ -337,6 +351,15 @@ export function resolveChargeThreshold(o: {
   }
   if (typeof mt === 'number' && Number.isFinite(mt) && mt >= 0) return { threshold: mt, source: 'fallback' };
   return none;
+}
+
+/**
+ * Last CHARGE_THRESHOLD=auto fallback of the primary answer (resolveChargeThreshold `modelThreshold`): for a Kev
+ * (oniblock1) answer the adapter's validation-chosen chargeThreshold from KEV_THRESHOLD_FILE (default
+ * ml/models/kev08b-v1/charge_threshold.json); undefined for every other model or an unreadable file (=> none).
+ */
+export function kevFallbackThreshold(model: ModelScore['model'], path = kevThresholdPath()): number | undefined {
+  return model === 'kev' ? (loadKevThreshold(path)?.chargeThreshold ?? undefined) : undefined;
 }
 
 /**
@@ -617,7 +640,7 @@ export function modelNodes(d?: Deployment) {
   const name = env('MODEL_NAME', defaultModelName())!;
   const fb = env('FALLBACK_MODEL_NAME', DEFAULT_FALLBACK_MODEL_NAME)!;
   // The deployment json's modelNode is the Jev default node (DeployBase / config.ts), so it only stands in for the
-  // default Jev name: MODEL_MODE=oniblock1 / kev / tabular (or an explicit MODEL_NAME) must post under its own node.
+  // default Jev name: MODEL_MODE=oniblock1 / kev (or an explicit MODEL_NAME) must post under its own node.
   const deploymentNode = name === DEFAULT_MODEL_NAME ? d?.modelNode : undefined;
   return {
     primary: (env('MODEL_NODE') as Hex | undefined) ?? deploymentNode ?? namehash(name),
@@ -695,18 +718,17 @@ export class Keeper {
   private lastCharge: string | undefined;
   /**
    * Charge threshold for this tick's model node (resolveChargeThreshold; CHARGE_THRESHOLD=auto reads the settler's file,
-   * cached on mtime). Tabular answers fall back to the model JSON's chargeThreshold. Logs `charge_threshold` on change.
+   * cached on mtime). Kev (oniblock1) answers fall back to the adapter's charge_threshold.json (KEV_THRESHOLD_FILE).
+   * Logs `charge_threshold` on change.
    */
   private chargeThresholdFor(node: Hex, scored: ModelScore): { threshold: number | undefined; source: ChargeThresholdSource } {
-    const mode = this.o.mode ?? (env('MODEL_MODE', 'auto') as ModelMode);
     const role = chargeRole(node, this.nodes.primary, scored.model);
     const r = resolveChargeThreshold({
       modelNode: node,
       role,
       scope: { chainId: this.d.chainId, poolId: this.pool.poolId },
       file: env('CHARGE_THRESHOLD_FILE'),
-      modelThreshold: () =>
-        scored.model === 'tabular' ? (loadTabularModel(env('TABULAR_MODEL_PATH') ?? defaultTabularPath(tabularVersion(mode)))?.chargeThreshold ?? undefined) : undefined,
+      modelThreshold: () => kevFallbackThreshold(scored.model),
     });
     const key = `${node}:${role}:${r.source}:${r.threshold}`;
     if (key !== this.lastCharge) {
@@ -935,7 +957,7 @@ export class Keeper {
         : await score(f, { mode: this.o.mode, degraded: this.isDegraded(), baseIsToken0: this.meta.baseIsToken0 });
       const node = rule
         ? this.nodes.rule
-        : scored.model === 'jev' || scored.model === 'kev' || scored.model === 'tabular' || env('FALLBACK_SAME_NODE') === '1'
+        : scored.model === 'jev' || scored.model === 'kev' || env('FALLBACK_SAME_NODE') === '1'
           ? this.nodes.primary
           : this.nodes.fallback;
       // Model v2 charge gate (header CHARGE_THRESHOLD): after score()/degrade(), before signing. Unset = unchanged.
@@ -1038,7 +1060,7 @@ export class Keeper {
       const lagMs = blockTs === undefined ? null : readLagMs(tObs, blockTs);
       const midAgeMs = blockTs === undefined ? null : expectedMidAgeMs(tObs, blockTs, bt, first);
       const sendLeadMs = blockTs === undefined || broadcastAt === undefined ? null : broadcastLeadMs(broadcastAt, blockTs, bt);
-      // v6: the one score + the type that allocated it (null for models without the head: rule / kev / tabular)
+      // v6: the one score + the type that allocated it (null for models without the head: rule / kev)
       const pMalicious = s.pMaliciousBps === undefined ? null : Math.round(s.pMaliciousBps) / 10_000;
       const attackProbs = s.attack ? compactProbs(s.attack.probabilities) : null;
       const round4 = (x: number | undefined) => (x === undefined ? null : Math.round(x * 10_000) / 10_000);
@@ -1134,6 +1156,7 @@ export class Keeper {
   async checkConfig(): Promise<void> {
     const cfg = await this.poolCfg(Number(await this.pc.getBlockNumber()));
     assertGateConfig(keeperGateOn(), cfg.kDefaultBps);
+    assertModelMode(this.o.mode ?? env('MODEL_MODE')); // throws ConfigError on an unknown / removed MODEL_MODE
     chargeThresholdMode(); // throws ConfigError on an invalid CHARGE_THRESHOLD
     chargeThreshold(env('CHARGE_THRESHOLD_FALLBACK'), 'CHARGE_THRESHOLD_FALLBACK');
     try {
@@ -1207,7 +1230,8 @@ export class Keeper {
       priorityFeeGwei: env('KEEPER_PRIORITY_GWEI') || null,
       attestBlockOffset: envInt('ATTEST_BLOCK_OFFSET', 1),
       kevStateFormat: kevStateFormat(),
-      tabularModel: tabularModelName(tabularVersion(this.o.mode ?? env('MODEL_MODE', 'auto'))),
+      kevUrl: isKevMode(this.o.mode ?? env('MODEL_MODE', 'auto')) ? KEV_URL() : null,
+      kevThresholdFile: isKevMode(this.o.mode ?? env('MODEL_MODE', 'auto')) ? kevThresholdPath() : null,
       post: env('KEEPER_POST', 'every'),
       jevPrompt: defaultJevPrompt(),
       jitLabelBlocks: envInt('JIT_LABEL_BLOCKS', JIT_LABEL_BLOCKS_DEFAULT),

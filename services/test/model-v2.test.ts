@@ -4,9 +4,9 @@ import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MidHistory } from '../src/cex.js';
 import { canonicalFeatures, computeFeatures, computeMidFeatures, featuresToState, type Features, type MidObs } from '../src/features.js';
-import { applyChargeThreshold, chargeThreshold, defaultModelName } from '../src/keeper.js';
+import { applyChargeThreshold, chargeThreshold } from '../src/keeper.js';
 import { kevState, score, type ModelScore } from '../src/model/index.js';
-import { defaultTabularPath, loadTabularModel, predictTabular, scoreTabular, TABULAR_FEATURES, tabularInputs, tabularVersion } from '../src/model/tabular.js';
+import { defaultTabularPath, loadTabularModel, predictTabular, scoreTabular, TABULAR_FEATURES, tabularInputs } from '../src/model/tabular.js';
 import { midToPriceX96 } from '../src/price.js';
 
 const base: Features = { gapPips: 0, gapSign: 0, imbalance: 0, sizeToDepth: 0, realizedVolBps: 0, attestationAge: 1, nSwaps: 5, arbShare: 0, baseFee: 500 };
@@ -155,7 +155,7 @@ describe('computeFeatures with a mid history', () => {
   });
 });
 
-describe('orientation: Kev and tabular inputs are canonicalised to the training pools (USDC token0, WETH token1)', () => {
+describe('orientation: Kev (and the benchmark teacher\'s tabular) inputs are canonicalised to the training pools (USDC token0, WETH token1)', () => {
   const f: Features = { ...base, gapPips: 812, gapSign: 1, imbalance: -0.375, realizedVolBps: 2.5, nSwaps: 7, arbShare: 0.5, sizeToDepth: 1e-4, edgePips: 312, edgeSigma: 1.248, vol5mBps: 3.1, ret12Bps: 1.2, ret36Bps: -0.4, ret900Bps: 7 };
   const mirrored: Features = { ...f, gapSign: -1, imbalance: 0.375 };
   it('an ETH = token0 pool renders the same Kev state as the mirrored ETH = token1 pool (auto and kev2)', () => {
@@ -173,8 +173,8 @@ describe('orientation: Kev and tabular inputs are canonicalised to the training 
     expect(kevState(f, false).split('\n')).toHaveLength(11);
     expect(kevState(f, false)).toBe(featuresToState(f, { format: 'kev2', baseIsToken0: false }));
   });
-  it('tabular inputs (oniblock1 names) equal those of the mirrored pool; sgap = canonical gapSign * gapPips', () => {
-    const v2 = loadTabularModel(defaultTabularPath('oniblock1'))!.features;
+  it('tabular inputs (teacher-lightgbm names) equal those of the mirrored pool; sgap = canonical gapSign * gapPips', () => {
+    const v2 = loadTabularModel(defaultTabularPath())!.features;
     expect(v2.at(-1)).toBe('sgap');
     expect(tabularInputs(canonicalFeatures(f, true), v2)).toEqual(tabularInputs(mirrored, v2));
     expect(tabularInputs(canonicalFeatures(f, true), v2).at(-1)).toBe(-812);
@@ -213,50 +213,38 @@ describe('tabular JSON loader (generic feature list)', () => {
     const p = write('bad.json', { version: 2, name: 'x', features: ['gapPips', 'mystery'], trees: [] });
     expect(() => loadTabularModel(p)).toThrow(/unknown features mystery/);
   });
-  it('every oniblock1 input name is known', () => {
-    for (const n of loadTabularModel(defaultTabularPath('oniblock1'))!.features) expect(n in TABULAR_FEATURES).toBe(true);
+  it('every teacher-lightgbm input name is known', () => {
+    for (const n of loadTabularModel(defaultTabularPath())!.features) expect(n in TABULAR_FEATURES).toBe(true);
   });
 });
 
-describe('oniblock1 (the production tree model)', () => {
-  const path = defaultTabularPath('oniblock1');
+describe('teacher-lightgbm (benchmark/teacher only, not a production model)', () => {
+  const path = defaultTabularPath();
   const f = { ...base, gapPips: 900, gapSign: 1, nSwaps: 15, arbShare: 0.7, realizedVolBps: 2, sizeToDepth: 3e-5, edgeSigma: 2, vol5mBps: 2, ret12Bps: 1, ret36Bps: 2, ret900Bps: 3 };
-  it('MODEL_MODE=oniblock1, MODEL_MODE=tabular and TABULAR_MODEL (any value) all select the oniblock1 file and node', () => {
-    delete process.env.TABULAR_MODEL;
-    expect(path).toMatch(/ml\/models\/oniblock1\.json$/);
-    expect(defaultTabularPath()).toBe(path);
-    for (const mode of ['oniblock1', 'tabular']) {
-      expect(defaultModelName(mode)).toBe('oniblock1.models.oniblock.eth');
-      process.env.MODEL_MODE = mode;
-      expect(tabularVersion(mode)).toBe('oniblock1');
-      expect(defaultTabularPath()).toBe(path);
-    }
-    delete process.env.MODEL_MODE;
-    for (const v of ['oniblock1', 'v1', 'v2', 'tabular-v1']) {
-      process.env.TABULAR_MODEL = v; // the old v1 / v2 selectors are gone: oniblock1 is the only tree model
-      expect(defaultModelName('tabular')).toBe('oniblock1.models.oniblock.eth');
-      expect(defaultTabularPath()).toBe(path);
-    }
-  });
-  it('the file names itself oniblock1 and carries the charge threshold', () => {
-    const m = loadTabularModel(path)! as ReturnType<typeof loadTabularModel> & { name: string; node: string };
-    expect(m.name).toBe('oniblock1');
-    expect(m.node).toBe('oniblock1.models.oniblock.eth');
+  it('lives at ml/models/teacher-lightgbm.json, names itself teacher-lightgbm and has no ENS node', () => {
+    expect(path).toMatch(/ml\/models\/teacher-lightgbm\.json$/);
+    expect(existsSync(resolve(__dirname, '..', '..', 'ml', 'models', 'oniblock1.json'))).toBe(false); // no LightGBM under the production name
+    const m = loadTabularModel(path)! as ReturnType<typeof loadTabularModel> & { name: string; node: string | null };
+    expect(m.name).toBe('teacher-lightgbm');
+    expect(m.node).toBeNull();
     expect(m.chargeThreshold).toBeCloseTo(0.8224, 4);
     expect(m.trees.length).toBeGreaterThan(0);
   });
-  it('score() with mode oniblock1 or tabular uses the oniblock1 trees (TABULAR_MODEL unset)', async () => {
-    delete process.env.TABULAR_MODEL;
-    const want = Math.round(predictTabular(loadTabularModel(path)!, f) * 10_000);
-    const s = await score(f, { mode: 'oniblock1', baseIsToken0: false });
-    expect(s.model).toBe('tabular');
-    expect(s.pToxicBps).toBe(want);
-    expect((await score(f, { mode: 'tabular', baseIsToken0: false })).pToxicBps).toBe(want);
+  it('MODEL_MODE=oniblock1 never scores with the trees (it is the Kev System One model)', async () => {
+    process.env.KEV_URL = 'http://127.0.0.1:9/v1/systemone'; // unreachable: heuristic fallback, never the teacher
+    try {
+      const s = await score(f, { mode: 'oniblock1', baseIsToken0: false, timeoutMs: 300 });
+      expect(s.model).toBe('heuristic');
+      expect(scoreTabular(f)!.model).toBe('tabular'); // the library still evaluates it for the benchmark
+      expect(scoreTabular(f)!.pToxicBps).toBe(Math.round(predictTabular(loadTabularModel(path)!, f) * 10_000));
+    } finally {
+      delete process.env.KEV_URL;
+    }
   });
 });
 
 describe('CHARGE_THRESHOLD gate (keeper)', () => {
-  const s = (pToxicBps: number, confidenceBps = 3000): ModelScore => ({ pToxicBps, confidenceBps, pJitBps: 0, cls: 'unknown', latencyMs: 1, model: 'tabular' });
+  const s = (pToxicBps: number, confidenceBps = 3000): ModelScore => ({ pToxicBps, confidenceBps, pJitBps: 0, cls: 'unknown', latencyMs: 1, model: 'kev' });
   it('unset / empty = off: the score is returned unchanged', () => {
     delete process.env.CHARGE_THRESHOLD;
     expect(chargeThreshold()).toBeUndefined();

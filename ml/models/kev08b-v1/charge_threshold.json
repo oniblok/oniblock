@@ -1,0 +1,5 @@
+{
+  "chargeThreshold": 0.8175,
+  "chosenOn": "val_1k (temperature-corrected), FPR <= 5%",
+  "stateFormat": "auto"
+}

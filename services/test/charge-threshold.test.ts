@@ -413,7 +413,7 @@ describe('keeper charge threshold resolution (fixed > rolling > fallback, unset 
     const file = join(tmp(), 'c.json');
     const primary = node;
     const fb = namehash('heuristic-v1.models.oniblock.eth');
-    expect(chargeRole(primary, primary, 'tabular')).toBe('primary');
+    expect(chargeRole(primary, primary, 'kev')).toBe('primary');
     expect(chargeRole(primary.toUpperCase().replace('0X', '0x'), primary, 'jev')).toBe('primary');
     expect(chargeRole(fb, primary, 'heuristic')).toBe('fallback');
     expect(chargeRole(primary, primary, 'heuristic')).toBe('shared'); // FALLBACK_SAME_NODE=1
@@ -447,7 +447,7 @@ describe('keeper charge threshold resolution (fixed > rolling > fallback, unset 
     const r = resolveChargeThreshold({ modelNode: node, raw: 'auto', file: join(tmp(), 'missing.json'), fallbackRaw: undefined, modelThreshold: () => undefined });
     expect(r.source).toBe('none');
     for (const p of [0, 5000, 9999, 10_000]) {
-      const s = { pToxicBps: p, confidenceBps: 10_000, pJitBps: 0, cls: 'unknown' as const, latencyMs: 0, model: 'tabular' as const };
+      const s = { pToxicBps: p, confidenceBps: 10_000, pJitBps: 0, cls: 'unknown' as const, latencyMs: 0, model: 'kev' as const };
       const g = applyChargeThreshold(s, r.threshold);
       expect(g).toMatchObject({ pToxicBps: p, confidenceBps: 0 }); // k = kMax * p * 0 = 0
     }
@@ -464,7 +464,7 @@ describe('keeper charge threshold resolution (fixed > rolling > fallback, unset 
     bumpMtime(file);
     expect(r()).toEqual({ threshold: 0.72, source: 'rolling' });
     // a rolling threshold above 1 (every benign p = 1) charges nothing
-    const s = { pToxicBps: 10_000, confidenceBps: 10_000, pJitBps: 0, cls: 'unknown' as const, latencyMs: 0, model: 'tabular' as const };
+    const s = { pToxicBps: 10_000, confidenceBps: 10_000, pJitBps: 0, cls: 'unknown' as const, latencyMs: 0, model: 'kev' as const };
     expect(applyChargeThreshold(s, 1 + 1e-6).confidenceBps).toBe(0);
     expect(existsSync(file)).toBe(true);
   });
